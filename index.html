@@ -201,7 +201,304 @@
     </main>
 
     <script>
-        // === LOGIKA APLIKACJI ===
+        // ================================================================
+        // KONFIGURACJA DOMYŚLNA
+        // Wszystkie wartości liczbowe są w milimetrach (mm),
+        // ponieważ chcemy generować grafiki gotowe do druku.
+        // ================================================================
+        const CONFIG = {
+            lineCount: 30,         // Ile linii (fal) rysujemy
+            variance: 15,          // Jak bardzo linia odchyla się od poziomu (mm)
+            strokeWidth: 0.5,      // Grubość kreski (mm)
+            spacing: 5,            // Odstęp pionowy między liniami (mm)
+            sigma: 0.15,           // Szerokość szczytu Gaussowskiego (0-1)
+            smoothingPasses: 2,    // Ile razy wygładzamy falę
+            sampleDensity: 200,    // Ile punktów pomiarowych na jedną linię
+            marginLeft: 30,        // Margines lewy (mm)
+            marginRight: 30,       // Margines prawy (mm)
+            marginTop: 30,         // Margines górny (mm)
+            marginBottom: 30,      // Margines dolny (mm)
+            pageWidth: 210,        // Szerokość strony w mm (A4 domyślnie)
+            pageHeight: 297,       // Wysokość strony w mm (A4 domyślnie)
+            inverted: false,       // false = białe linie na czarnym tle
+            seed: null,            // Ziarno losowości (null = losowe)
+        };
+
+
+        // ================================================================
+        // GENERATOR LICZB PSEUDOLOSOWYCH (Seeded PRNG)
+        // ----------------------------------------------------------------
+        // Używamy algorytmu "mulberry32". Dzięki temu, podając to samo
+        // "ziarno" (seed), zawsze dostaniemy identyczną sekwencję liczb.
+        // To pozwala odtwarzać dokładnie ten sam wzór grafiki.
+        //
+        // Jak działa: przyjmuje liczbę całkowitą (seed) i zwraca FUNKCJĘ,
+        // która za każdym wywołaniem daje kolejną liczbę z zakresu [0, 1).
+        // ================================================================
+        function createRandom(seed) {
+            // Konwertujemy seed na liczbę 32-bitową
+            let s = seed | 0;
+            return function () {
+                // Algorytm mulberry32 — seria operacji bitowych
+                s = (s + 0x6D2B79F5) | 0;
+                let t = Math.imul(s ^ (s >>> 15), 1 | s);
+                t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                // Wynik dzielimy przez 2^32 żeby dostać liczbę 0..1
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+
+
+        // ================================================================
+        // GENEROWANIE POJEDYNCZEJ FALI (jednej linii)
+        // ----------------------------------------------------------------
+        // Każda linia to tablica punktów [x, y].
+        //
+        // Kluczowa idea: szczyty (góry) są skupione w CENTRUM linii,
+        // a na brzegach linia jest płaska. Osiągamy to za pomocą
+        // "kopuły Gaussowskiej" (Gaussian envelope) — funkcji dzwonowej,
+        // która ma wartość 1 w centrum i spada do ~0 na bokach.
+        //
+        // Parametry:
+        //   numPoints — ile punktów ma linia
+        //   variance  — maksymalna wysokość szczytu (mm)
+        //   sigma     — szerokość "kopuły" (0.1 = wąska, 0.3 = szeroka)
+        //   random    — funkcja losowa (nasz seeded PRNG)
+        // ================================================================
+        function generateWaveform(numPoints, variance, sigma, random) {
+            // Krok 1: Generujemy surowe odchylenia dla każdego punktu
+            const rawOffsets = [];
+            for (let i = 0; i < numPoints; i++) {
+                // Pozycja znormalizowana: 0 = lewy brzeg, 1 = prawy brzeg
+                const t = i / (numPoints - 1);
+
+                // Kopuła Gaussowska — wartość bliska 1 w centrum (t=0.5),
+                // bliska 0 na brzegach (t=0 i t=1)
+                const exponent = -Math.pow(t - 0.5, 2) / (2 * sigma * sigma);
+                const envelope = Math.exp(exponent);
+
+                // Losowe odchylenie: wartość od -variance do +variance,
+                // przemnożona przez kopułę (więc na brzegach jest ~0)
+                const noise = (random() * 2 - 1) * variance * envelope;
+
+                rawOffsets.push(noise);
+            }
+
+            // Krok 2: Wygładzanie — uśredniamy każdy punkt z sąsiadami
+            return smoothArray(rawOffsets);
+        }
+
+
+        // ================================================================
+        // WYGŁADZANIE TABLICY WARTOŚCI (Moving Average)
+        // ----------------------------------------------------------------
+        // Prosta technika: zastępujemy każdą wartość średnią z niej samej
+        // i jej dwóch sąsiadów. Powtarzamy to kilka razy.
+        // Efekt: zamiast poszarpanych linii dostajemy płynne, organiczne fale.
+        //
+        // Parametry:
+        //   arr   — tablica liczb do wygładzenia
+        //   passes — ile razy powtarzamy wygładzanie (domyślnie z CONFIG)
+        // ================================================================
+        function smoothArray(arr, passes) {
+            passes = passes !== undefined ? passes : CONFIG.smoothingPasses;
+            let result = arr.slice(); // Kopia tablicy (żeby nie zmieniać oryginału)
+
+            for (let pass = 0; pass < passes; pass++) {
+                const smoothed = [];
+                for (let i = 0; i < result.length; i++) {
+                    if (i === 0 || i === result.length - 1) {
+                        // Brzegowe punkty zostawiamy bez zmian
+                        smoothed.push(result[i]);
+                    } else {
+                        // Średnia z lewego sąsiada, punktu i prawego sąsiada
+                        const avg = (result[i - 1] + result[i] + result[i + 1]) / 3;
+                        smoothed.push(avg);
+                    }
+                }
+                result = smoothed;
+            }
+
+            return result;
+        }
+
+
+        // ================================================================
+        // TWORZENIE ELEMENTU SVG
+        // ----------------------------------------------------------------
+        // Funkcja pomocnicza do tworzenia elementów SVG.
+        // SVG wymaga specjalnej "przestrzeni nazw" (namespace),
+        // dlatego nie możemy użyć zwykłego document.createElement().
+        // ================================================================
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+
+        function createSVGElement(tag, attributes) {
+            const el = document.createElementNS(SVG_NS, tag);
+            // Ustawiamy wszystkie podane atrybuty
+            for (const [key, value] of Object.entries(attributes || {})) {
+                el.setAttribute(key, value);
+            }
+            return el;
+        }
+
+
+        // ================================================================
+        // GŁÓWNA FUNKCJA — GENEROWANIE CAŁEJ GRAFIKI
+        // ----------------------------------------------------------------
+        // Tworzy kompletny element SVG z wszystkimi liniami (falami).
+        //
+        // Kluczowy trik wizualny — EFEKT NAKŁADANIA:
+        // Dla każdej linii rysujemy DWA elementy:
+        //   1. Wypełniony czarny kształt (fala + dół) — MASKUJE linie za nią
+        //   2. Biały obrys fali — to co faktycznie WIDZIMY
+        //
+        // Dzięki temu szczyty dolnych linii "wychodzą" przed liniami powyżej,
+        // ale są zasłaniane przez linie poniżej — dokładnie jak na okładce
+        // albumu "Unknown Pleasures".
+        //
+        // Linie rysujemy OD GÓRY DO DOŁU, ponieważ w SVG elementy narysowane
+        // później są wyświetlane NA WIERZCHU (jak warstwy w Photoshopie).
+        // ================================================================
+        function generateVisualization() {
+            // Przygotowanie ziarna losowości
+            const seed = CONFIG.seed !== null
+                ? CONFIG.seed
+                : Math.floor(Math.random() * 2147483647);
+            CONFIG.seed = seed;
+
+            const random = createRandom(seed);
+
+            // Wymiary strony i marginesy
+            const pageW = CONFIG.pageWidth;
+            const pageH = CONFIG.pageHeight;
+
+            // Obszar rysowania (strona minus marginesy)
+            const drawLeft = CONFIG.marginLeft;
+            const drawRight = pageW - CONFIG.marginRight;
+            const drawWidth = drawRight - drawLeft;
+
+            // Obliczamy, ile miejsca zajmą wszystkie linie razem
+            const totalLinesHeight = (CONFIG.lineCount - 1) * CONFIG.spacing;
+
+            // Centrujemy blok linii w pionie (z uwzględnieniem marginesów)
+            const availableHeight = pageH - CONFIG.marginTop - CONFIG.marginBottom;
+            const startY = CONFIG.marginTop + (availableHeight - totalLinesHeight) / 2;
+
+            // Kolory — normalne lub odwrócone
+            const bgColor = CONFIG.inverted ? '#ffffff' : '#000000';
+            const lineColor = CONFIG.inverted ? '#000000' : '#ffffff';
+
+            // Tworzymy element SVG z odpowiednimi wymiarami
+            const svg = createSVGElement('svg', {
+                'xmlns': SVG_NS,
+                'width': pageW + 'mm',
+                'height': pageH + 'mm',
+                'viewBox': '0 0 ' + pageW + ' ' + pageH,
+            });
+
+            // Tło — czarny (lub biały) prostokąt wypełniający całą stronę
+            const bg = createSVGElement('rect', {
+                'x': '0',
+                'y': '0',
+                'width': pageW,
+                'height': pageH,
+                'fill': bgColor,
+            });
+            svg.appendChild(bg);
+
+            // Rysujemy każdą linię od góry do dołu
+            for (let lineIndex = 0; lineIndex < CONFIG.lineCount; lineIndex++) {
+                // Pozycja bazowa (Y) tej linii
+                const baselineY = startY + lineIndex * CONFIG.spacing;
+
+                // Generujemy falę — tablicę odchyleń od poziomu
+                const offsets = generateWaveform(
+                    CONFIG.sampleDensity,
+                    CONFIG.variance,
+                    CONFIG.sigma,
+                    random
+                );
+
+                // Budujemy ścieżkę SVG (path) z punktów fali
+                // Format ścieżki SVG: "M x,y L x,y L x,y ..."
+                //   M = Move to (przesuń do punktu startowego)
+                //   L = Line to (narysuj linię do kolejnego punktu)
+                let wavePath = '';
+                const points = []; // Zapamiętujemy punkty do maski
+
+                for (let i = 0; i < offsets.length; i++) {
+                    // Pozycja X — równomiernie rozłożona w obszarze rysowania
+                    const x = drawLeft + (i / (offsets.length - 1)) * drawWidth;
+                    // Pozycja Y — linia bazowa MINUS odchylenie
+                    // (minus, bo w SVG oś Y rośnie W DÓŁ)
+                    const y = baselineY - offsets[i];
+
+                    points.push({ x, y });
+
+                    if (i === 0) {
+                        wavePath += 'M ' + x.toFixed(2) + ',' + y.toFixed(2);
+                    } else {
+                        wavePath += ' L ' + x.toFixed(2) + ',' + y.toFixed(2);
+                    }
+                }
+
+                // --- ELEMENT 1: Maska (wypełniony kształt) ---
+                // Zamykamy kształt: od ostatniego punktu fali schodzimy w dół
+                // do linii bazowej, idziemy w lewo do początku, i zamykamy (Z).
+                // Wypełniamy kolorem tła — to maskuje linie narysowane wcześniej.
+                const maskPath = wavePath
+                    + ' L ' + points[points.length - 1].x.toFixed(2) + ',' + (baselineY + CONFIG.variance).toFixed(2)
+                    + ' L ' + points[0].x.toFixed(2) + ',' + (baselineY + CONFIG.variance).toFixed(2)
+                    + ' Z';
+
+                const mask = createSVGElement('path', {
+                    'd': maskPath,
+                    'fill': bgColor,
+                    'stroke': 'none',
+                });
+                svg.appendChild(mask);
+
+                // --- ELEMENT 2: Widoczna linia (obrys fali) ---
+                const line = createSVGElement('path', {
+                    'd': wavePath,
+                    'fill': 'none',
+                    'stroke': lineColor,
+                    'stroke-width': CONFIG.strokeWidth,
+                    'stroke-linejoin': 'round',
+                    'stroke-linecap': 'round',
+                });
+                svg.appendChild(line);
+            }
+
+            return svg;
+        }
+
+
+        // ================================================================
+        // WYŚWIETLANIE GRAFIKI W PODGLĄDZIE
+        // ================================================================
+        function renderPreview() {
+            const preview = document.getElementById('preview');
+            // Usuwamy poprzednią grafikę
+            preview.innerHTML = '';
+            // Generujemy nową i wstawiamy do strony
+            const svg = generateVisualization();
+            preview.appendChild(svg);
+        }
+
+
+        // ================================================================
+        // OBSŁUGA PRZYCISKÓW
+        // ================================================================
+
+        // Przycisk "Generuj" — generuje nowy losowy wzór
+        document.getElementById('btnGenerate').addEventListener('click', function () {
+            CONFIG.seed = null; // Resetujemy seed żeby dostać nowy wzór
+            renderPreview();
+        });
+
+        // Na start — generujemy pierwszą grafikę
+        renderPreview();
     </script>
 
 </body>
