@@ -190,7 +190,139 @@
             <button class="btn btn-secondary" id="btnExport">Eksportuj SVG</button>
         </div>
 
-        <!-- Tutaj będą sekcje z kontrolkami -->
+        <!-- ========== SEKCJA: Właściwości linii ========== -->
+        <div class="control-section">
+            <h2>Linie</h2>
+
+            <!-- Ilość kresek -->
+            <div class="control">
+                <label>Ilość linii <span class="value" id="valLineCount">30</span></label>
+                <input type="range" id="ctrlLineCount" min="5" max="80" value="30" step="1">
+            </div>
+
+            <!-- Wariancja (wysokość szczytu) -->
+            <div class="control">
+                <label>Wariancja (mm) <span class="value" id="valVariance">15</span></label>
+                <input type="range" id="ctrlVariance" min="1" max="50" value="15" step="0.5">
+            </div>
+
+            <!-- Grubość kreski -->
+            <div class="control">
+                <label>Grubość kreski (mm) <span class="value" id="valStrokeWidth">0.5</span></label>
+                <input type="range" id="ctrlStrokeWidth" min="0.1" max="3" value="0.5" step="0.1">
+            </div>
+
+            <!-- Odstępy między liniami -->
+            <div class="control">
+                <label>Odstępy (mm) <span class="value" id="valSpacing">5</span></label>
+                <input type="range" id="ctrlSpacing" min="1" max="20" value="5" step="0.5">
+            </div>
+        </div>
+
+        <!-- ========== SEKCJA: Rozmiar strony ========== -->
+        <div class="control-section">
+            <h2>Strona</h2>
+
+            <!-- Rozmiar strony — predefiniowane formaty -->
+            <div class="control">
+                <label>Format</label>
+                <select id="ctrlPageSize">
+                    <option value="A4" selected>A4 (210 × 297 mm)</option>
+                    <option value="A3">A3 (297 × 420 mm)</option>
+                    <option value="A2">A2 (420 × 594 mm)</option>
+                    <option value="A1">A1 (594 × 841 mm)</option>
+                    <option value="A0">A0 (841 × 1189 mm)</option>
+                    <option value="custom">Własny rozmiar</option>
+                </select>
+            </div>
+
+            <!-- Pola na własny rozmiar (ukryte domyślnie) -->
+            <div class="control" id="customSizeGroup" style="display: none;">
+                <label>Szerokość (mm)</label>
+                <input type="number" id="ctrlCustomWidth" value="210" min="50" max="2000">
+                <label style="margin-top: 6px;">Wysokość (mm)</label>
+                <input type="number" id="ctrlCustomHeight" value="297" min="50" max="2000">
+            </div>
+
+            <!-- Orientacja -->
+            <div class="control">
+                <label>Orientacja</label>
+                <select id="ctrlOrientation">
+                    <option value="portrait" selected>Pionowa (portret)</option>
+                    <option value="landscape">Pozioma (krajobraz)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- ========== SEKCJA: Kształt fali ========== -->
+        <div class="control-section">
+            <h2>Kształt fali</h2>
+
+            <!-- Szerokość szczytu (sigma Gaussowska) -->
+            <div class="control">
+                <label>Szerokość szczytu <span class="value" id="valSigma">0.15</span></label>
+                <input type="range" id="ctrlSigma" min="0.05" max="0.5" value="0.15" step="0.01">
+            </div>
+
+            <!-- Wygładzanie -->
+            <div class="control">
+                <label>Wygładzanie <span class="value" id="valSmoothing">2</span></label>
+                <input type="range" id="ctrlSmoothing" min="0" max="10" value="2" step="1">
+            </div>
+
+            <!-- Gęstość próbkowania -->
+            <div class="control">
+                <label>Gęstość punktów <span class="value" id="valDensity">200</span></label>
+                <input type="range" id="ctrlDensity" min="50" max="500" value="200" step="10">
+            </div>
+        </div>
+
+        <!-- ========== SEKCJA: Marginesy ========== -->
+        <div class="control-section">
+            <h2>Marginesy</h2>
+
+            <div class="control">
+                <label>Lewy (mm) <span class="value" id="valMarginLeft">30</span></label>
+                <input type="range" id="ctrlMarginLeft" min="0" max="100" value="30" step="1">
+            </div>
+
+            <div class="control">
+                <label>Prawy (mm) <span class="value" id="valMarginRight">30</span></label>
+                <input type="range" id="ctrlMarginRight" min="0" max="100" value="30" step="1">
+            </div>
+
+            <div class="control">
+                <label>Górny (mm) <span class="value" id="valMarginTop">30</span></label>
+                <input type="range" id="ctrlMarginTop" min="0" max="100" value="30" step="1">
+            </div>
+
+            <div class="control">
+                <label>Dolny (mm) <span class="value" id="valMarginBottom">30</span></label>
+                <input type="range" id="ctrlMarginBottom" min="0" max="100" value="30" step="1">
+            </div>
+        </div>
+
+        <!-- ========== SEKCJA: Losowość i kolory ========== -->
+        <div class="control-section">
+            <h2>Inne</h2>
+
+            <!-- Seed (ziarno losowości) -->
+            <div class="control">
+                <label>Seed (ziarno)</label>
+                <div style="display: flex; gap: 6px;">
+                    <input type="text" id="ctrlSeed" placeholder="losowy" style="flex: 1;">
+                    <button class="btn btn-secondary" id="btnRandomSeed" style="flex: 0; padding: 6px 10px; font-size: 0.8em;">🎲</button>
+                </div>
+            </div>
+
+            <!-- Inwersja kolorów -->
+            <div class="control">
+                <label>
+                    <input type="checkbox" id="ctrlInverted" style="width: auto; margin-right: 6px;">
+                    Odwróć kolory (białe tło)
+                </label>
+            </div>
+        </div>
 
     </aside>
 
@@ -488,14 +620,243 @@
 
 
         // ================================================================
+        // PREDEFINIOWANE ROZMIARY STRON (szerokość × wysokość w mm)
+        // ================================================================
+        const PAGE_SIZES = {
+            'A4': { w: 210, h: 297 },
+            'A3': { w: 297, h: 420 },
+            'A2': { w: 420, h: 594 },
+            'A1': { w: 594, h: 841 },
+            'A0': { w: 841, h: 1189 },
+        };
+
+
+        // ================================================================
+        // DEBOUNCE — opóźnia wywołanie funkcji
+        // ----------------------------------------------------------------
+        // Gdy użytkownik szybko przesuwa suwak, nie chcemy przerysowywać
+        // grafiki na KAŻDĄ zmianę (byłoby za wolno). Debounce czeka
+        // aż użytkownik przestanie ruszać suwakiem na zadany czas (ms),
+        // i dopiero wtedy wywołuje funkcję.
+        // ================================================================
+        function debounce(fn, delay) {
+            let timer = null;
+            return function () {
+                clearTimeout(timer);
+                timer = setTimeout(fn, delay);
+            };
+        }
+
+        // Opóźniony render — czeka 50ms po ostatniej zmianie suwaka
+        const debouncedRender = debounce(function () {
+            renderPreview();
+        }, 50);
+
+
+        // ================================================================
+        // PODPINANIE KONTROLEK DO KONFIGURACJI
+        // ----------------------------------------------------------------
+        // Każdy slider/input aktualizuje odpowiednie pole w CONFIG
+        // i wyświetla aktualną wartość obok etykiety.
+        // ================================================================
+
+        // Funkcja pomocnicza: podpina slider do pola CONFIG
+        function bindSlider(inputId, valueId, configKey, parser) {
+            const input = document.getElementById(inputId);
+            const display = document.getElementById(valueId);
+            input.addEventListener('input', function () {
+                const value = parser ? parser(input.value) : parseFloat(input.value);
+                CONFIG[configKey] = value;
+                display.textContent = input.value;
+                debouncedRender();
+            });
+        }
+
+        // --- Podpinamy wszystkie slidery ---
+        bindSlider('ctrlLineCount', 'valLineCount', 'lineCount', parseInt);
+        bindSlider('ctrlVariance', 'valVariance', 'variance');
+        bindSlider('ctrlStrokeWidth', 'valStrokeWidth', 'strokeWidth');
+        bindSlider('ctrlSpacing', 'valSpacing', 'spacing');
+        bindSlider('ctrlSigma', 'valSigma', 'sigma');
+        bindSlider('ctrlSmoothing', 'valSmoothing', 'smoothingPasses', parseInt);
+        bindSlider('ctrlDensity', 'valDensity', 'sampleDensity', parseInt);
+        bindSlider('ctrlMarginLeft', 'valMarginLeft', 'marginLeft', parseInt);
+        bindSlider('ctrlMarginRight', 'valMarginRight', 'marginRight', parseInt);
+        bindSlider('ctrlMarginTop', 'valMarginTop', 'marginTop', parseInt);
+        bindSlider('ctrlMarginBottom', 'valMarginBottom', 'marginBottom', parseInt);
+
+
+        // ================================================================
+        // OBSŁUGA ROZMIARU STRONY
+        // ================================================================
+
+        document.getElementById('ctrlPageSize').addEventListener('change', function () {
+            const value = this.value;
+            const customGroup = document.getElementById('customSizeGroup');
+
+            if (value === 'custom') {
+                // Pokazujemy pola na własny rozmiar
+                customGroup.style.display = 'block';
+            } else {
+                customGroup.style.display = 'none';
+                // Ustawiamy wymiary z predefiniowanej tabeli
+                const size = PAGE_SIZES[value];
+                applyPageSize(size.w, size.h);
+            }
+        });
+
+        // Pola na własny rozmiar
+        document.getElementById('ctrlCustomWidth').addEventListener('change', function () {
+            CONFIG.pageWidth = parseInt(this.value) || 210;
+            applyOrientation();
+            debouncedRender();
+        });
+
+        document.getElementById('ctrlCustomHeight').addEventListener('change', function () {
+            CONFIG.pageHeight = parseInt(this.value) || 297;
+            applyOrientation();
+            debouncedRender();
+        });
+
+        // Orientacja (portret / krajobraz)
+        document.getElementById('ctrlOrientation').addEventListener('change', function () {
+            applyOrientation();
+            debouncedRender();
+        });
+
+        // Ustawia rozmiar strony z uwzględnieniem orientacji
+        function applyPageSize(w, h) {
+            const orientation = document.getElementById('ctrlOrientation').value;
+            if (orientation === 'landscape') {
+                CONFIG.pageWidth = Math.max(w, h);
+                CONFIG.pageHeight = Math.min(w, h);
+            } else {
+                CONFIG.pageWidth = Math.min(w, h);
+                CONFIG.pageHeight = Math.max(w, h);
+            }
+            debouncedRender();
+        }
+
+        // Przelicza orientację na aktualnym rozmiarze
+        function applyOrientation() {
+            const orientation = document.getElementById('ctrlOrientation').value;
+            const w = CONFIG.pageWidth;
+            const h = CONFIG.pageHeight;
+            if (orientation === 'landscape') {
+                CONFIG.pageWidth = Math.max(w, h);
+                CONFIG.pageHeight = Math.min(w, h);
+            } else {
+                CONFIG.pageWidth = Math.min(w, h);
+                CONFIG.pageHeight = Math.max(w, h);
+            }
+        }
+
+
+        // ================================================================
+        // OBSŁUGA SEEDA (ZIARNA LOSOWOŚCI)
+        // ================================================================
+
+        // Konwertuje tekst na liczbę (prosty hash)
+        function hashString(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash | 0; // Konwersja do 32-bitowej liczby
+            }
+            return Math.abs(hash);
+        }
+
+        document.getElementById('ctrlSeed').addEventListener('change', function () {
+            const val = this.value.trim();
+            if (val === '') {
+                CONFIG.seed = null; // Pusty = losowy
+            } else {
+                // Jeśli wpisano liczbę, użyj jej; jeśli tekst, zahashuj
+                CONFIG.seed = isNaN(val) ? hashString(val) : parseInt(val);
+            }
+            renderPreview();
+        });
+
+        // Przycisk losowego seeda
+        document.getElementById('btnRandomSeed').addEventListener('click', function () {
+            CONFIG.seed = null;
+            document.getElementById('ctrlSeed').value = '';
+            renderPreview();
+        });
+
+
+        // ================================================================
+        // INWERSJA KOLORÓW
+        // ================================================================
+        document.getElementById('ctrlInverted').addEventListener('change', function () {
+            CONFIG.inverted = this.checked;
+            renderPreview();
+        });
+
+
+        // ================================================================
         // OBSŁUGA PRZYCISKÓW
         // ================================================================
 
         // Przycisk "Generuj" — generuje nowy losowy wzór
         document.getElementById('btnGenerate').addEventListener('click', function () {
-            CONFIG.seed = null; // Resetujemy seed żeby dostać nowy wzór
+            CONFIG.seed = null;
+            document.getElementById('ctrlSeed').value = '';
             renderPreview();
         });
+
+
+        // ================================================================
+        // EKSPORT SVG
+        // ----------------------------------------------------------------
+        // Serializujemy element SVG do tekstu XML, tworzymy z niego plik
+        // (Blob) i pobieramy go jako plik .svg.
+        // ================================================================
+        document.getElementById('btnExport').addEventListener('click', function () {
+            // Generujemy SVG (bez zmian seeda — eksportujemy aktualny wzór)
+            const svg = generateVisualization();
+
+            // Serializujemy DOM SVG do tekstu XML
+            const serializer = new XMLSerializer();
+            let svgString = serializer.serializeToString(svg);
+
+            // Dodajemy deklarację XML na początku pliku
+            svgString = '<?xml version="1.0" encoding="UTF-8"?>\n' + svgString;
+
+            // Tworzymy "plik" w pamięci przeglądarki (Blob)
+            const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+
+            // Tworzymy tymczasowy link do pobrania i klikamy go
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'unknown-pleasures.svg';
+            document.body.appendChild(link);
+            link.click();
+
+            // Sprzątamy
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        });
+
+
+        // ================================================================
+        // AKTUALIZACJA WYŚWIETLACZA SEEDA
+        // ----------------------------------------------------------------
+        // Po wyrenderowaniu grafiki, pokazujemy aktualny seed w polu
+        // tekstowym (żeby użytkownik mógł go skopiować i odtworzyć wzór).
+        // ================================================================
+        const originalRenderPreview = renderPreview;
+        renderPreview = function () {
+            originalRenderPreview();
+            // Jeśli pole seed jest puste, pokaż wygenerowany seed
+            const seedInput = document.getElementById('ctrlSeed');
+            if (seedInput.value === '' && CONFIG.seed !== null) {
+                seedInput.placeholder = CONFIG.seed;
+            }
+        };
+
 
         // Na start — generujemy pierwszą grafikę
         renderPreview();
