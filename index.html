@@ -196,26 +196,26 @@
 
             <!-- Ilość kresek -->
             <div class="control">
-                <label>Ilość linii <span class="value" id="valLineCount">30</span></label>
-                <input type="range" id="ctrlLineCount" min="5" max="80" value="30" step="1">
+                <label>Ilość linii <span class="value" id="valLineCount">40</span></label>
+                <input type="range" id="ctrlLineCount" min="5" max="80" value="40" step="1">
             </div>
 
             <!-- Wariancja (wysokość szczytu) -->
             <div class="control">
-                <label>Wariancja (mm) <span class="value" id="valVariance">15</span></label>
-                <input type="range" id="ctrlVariance" min="1" max="50" value="15" step="0.5">
+                <label>Wariancja (mm) <span class="value" id="valVariance">20</span></label>
+                <input type="range" id="ctrlVariance" min="1" max="50" value="20" step="0.5">
             </div>
 
             <!-- Grubość kreski -->
             <div class="control">
-                <label>Grubość kreski (mm) <span class="value" id="valStrokeWidth">0.5</span></label>
-                <input type="range" id="ctrlStrokeWidth" min="0.1" max="3" value="0.5" step="0.1">
+                <label>Grubość kreski (mm) <span class="value" id="valStrokeWidth">0.4</span></label>
+                <input type="range" id="ctrlStrokeWidth" min="0.1" max="3" value="0.4" step="0.1">
             </div>
 
             <!-- Odstępy między liniami -->
             <div class="control">
-                <label>Odstępy (mm) <span class="value" id="valSpacing">5</span></label>
-                <input type="range" id="ctrlSpacing" min="1" max="20" value="5" step="0.5">
+                <label>Odstępy (mm) <span class="value" id="valSpacing">4</span></label>
+                <input type="range" id="ctrlSpacing" min="1" max="20" value="4" step="0.5">
             </div>
         </div>
 
@@ -260,20 +260,20 @@
 
             <!-- Szerokość szczytu (sigma Gaussowska) -->
             <div class="control">
-                <label>Szerokość szczytu <span class="value" id="valSigma">0.15</span></label>
-                <input type="range" id="ctrlSigma" min="0.05" max="0.5" value="0.15" step="0.01">
+                <label>Szerokość szczytu <span class="value" id="valSigma">0.14</span></label>
+                <input type="range" id="ctrlSigma" min="0.05" max="0.5" value="0.14" step="0.01">
             </div>
 
             <!-- Wygładzanie -->
             <div class="control">
-                <label>Wygładzanie <span class="value" id="valSmoothing">2</span></label>
-                <input type="range" id="ctrlSmoothing" min="0" max="10" value="2" step="1">
+                <label>Wygładzanie <span class="value" id="valSmoothing">3</span></label>
+                <input type="range" id="ctrlSmoothing" min="0" max="10" value="3" step="1">
             </div>
 
             <!-- Gęstość próbkowania -->
             <div class="control">
-                <label>Gęstość punktów <span class="value" id="valDensity">200</span></label>
-                <input type="range" id="ctrlDensity" min="50" max="500" value="200" step="10">
+                <label>Gęstość punktów <span class="value" id="valDensity">250</span></label>
+                <input type="range" id="ctrlDensity" min="50" max="500" value="250" step="10">
             </div>
         </div>
 
@@ -282,23 +282,23 @@
             <h2>Marginesy</h2>
 
             <div class="control">
-                <label>Lewy (mm) <span class="value" id="valMarginLeft">30</span></label>
-                <input type="range" id="ctrlMarginLeft" min="0" max="100" value="30" step="1">
+                <label>Lewy (mm) <span class="value" id="valMarginLeft">40</span></label>
+                <input type="range" id="ctrlMarginLeft" min="0" max="100" value="40" step="1">
             </div>
 
             <div class="control">
-                <label>Prawy (mm) <span class="value" id="valMarginRight">30</span></label>
-                <input type="range" id="ctrlMarginRight" min="0" max="100" value="30" step="1">
+                <label>Prawy (mm) <span class="value" id="valMarginRight">40</span></label>
+                <input type="range" id="ctrlMarginRight" min="0" max="100" value="40" step="1">
             </div>
 
             <div class="control">
-                <label>Górny (mm) <span class="value" id="valMarginTop">30</span></label>
-                <input type="range" id="ctrlMarginTop" min="0" max="100" value="30" step="1">
+                <label>Górny (mm) <span class="value" id="valMarginTop">50</span></label>
+                <input type="range" id="ctrlMarginTop" min="0" max="100" value="50" step="1">
             </div>
 
             <div class="control">
-                <label>Dolny (mm) <span class="value" id="valMarginBottom">30</span></label>
-                <input type="range" id="ctrlMarginBottom" min="0" max="100" value="30" step="1">
+                <label>Dolny (mm) <span class="value" id="valMarginBottom">50</span></label>
+                <input type="range" id="ctrlMarginBottom" min="0" max="100" value="50" step="1">
             </div>
         </div>
 
@@ -339,17 +339,17 @@
         // ponieważ chcemy generować grafiki gotowe do druku.
         // ================================================================
         const CONFIG = {
-            lineCount: 30,         // Ile linii (fal) rysujemy
-            variance: 15,          // Jak bardzo linia odchyla się od poziomu (mm)
-            strokeWidth: 0.5,      // Grubość kreski (mm)
-            spacing: 5,            // Odstęp pionowy między liniami (mm)
-            sigma: 0.15,           // Szerokość szczytu Gaussowskiego (0-1)
-            smoothingPasses: 2,    // Ile razy wygładzamy falę
-            sampleDensity: 200,    // Ile punktów pomiarowych na jedną linię
-            marginLeft: 30,        // Margines lewy (mm)
-            marginRight: 30,       // Margines prawy (mm)
-            marginTop: 30,         // Margines górny (mm)
-            marginBottom: 30,      // Margines dolny (mm)
+            lineCount: 40,         // Ile linii (fal) rysujemy
+            variance: 20,          // Jak bardzo linia odchyla się od poziomu (mm)
+            strokeWidth: 0.4,      // Grubość kreski (mm)
+            spacing: 4,            // Odstęp pionowy między liniami (mm)
+            sigma: 0.14,           // Szerokość szczytu Gaussowskiego (0-1)
+            smoothingPasses: 3,    // Ile razy wygładzamy falę
+            sampleDensity: 250,    // Ile punktów pomiarowych na jedną linię
+            marginLeft: 40,        // Margines lewy (mm)
+            marginRight: 40,       // Margines prawy (mm)
+            marginTop: 50,         // Margines górny (mm)
+            marginBottom: 50,      // Margines dolny (mm)
             pageWidth: 210,        // Szerokość strony w mm (A4 domyślnie)
             pageHeight: 297,       // Wysokość strony w mm (A4 domyślnie)
             inverted: false,       // false = białe linie na czarnym tle
