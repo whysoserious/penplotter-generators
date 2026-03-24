@@ -6,7 +6,174 @@
     <title>Unknown Pleasures — Generator SVG</title>
 
     <style>
-        /* === STYLE === */
+        /* ============================================================
+           RESET — usuwamy domyślne marginesy i paddingi przeglądarki
+           ============================================================ */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* ============================================================
+           BODY — układ dwukolumnowy: sidebar po lewej, podgląd po prawej
+           ============================================================ */
+        body {
+            display: flex;              /* Flexbox ustawia elementy obok siebie */
+            height: 100vh;             /* Pełna wysokość okna przeglądarki */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;       /* Ciemnoszare tło */
+            color: #e0e0e0;            /* Jasnoszary tekst */
+        }
+
+        /* ============================================================
+           SIDEBAR — panel boczny z kontrolkami (lewa strona)
+           ============================================================ */
+        #sidebar {
+            width: 320px;              /* Stała szerokość panelu */
+            min-width: 320px;          /* Nie pozwalamy się skurczyć */
+            height: 100vh;            /* Pełna wysokość */
+            overflow-y: auto;          /* Scroll jeśli kontrolek jest dużo */
+            background: #252525;       /* Nieco jaśniejsze tło niż reszta */
+            padding: 20px;
+            border-right: 1px solid #333;  /* Subtelna linia oddzielająca */
+        }
+
+        #sidebar h1 {
+            font-size: 1.4em;
+            margin-bottom: 4px;
+            color: #ffffff;
+        }
+
+        #sidebar > p {
+            font-size: 0.85em;
+            color: #888;
+            margin-bottom: 24px;
+        }
+
+        /* ============================================================
+           PRZYCISKI — "Generuj" i "Eksportuj SVG"
+           ============================================================ */
+        .buttons {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-primary {
+            background: #4a9eff;       /* Niebieski — główny przycisk */
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #3a8eef;
+        }
+
+        .btn-secondary {
+            background: #3a3a3a;       /* Szary — przycisk drugorzędny */
+            color: #e0e0e0;
+        }
+
+        .btn-secondary:hover {
+            background: #4a4a4a;
+        }
+
+        /* ============================================================
+           SEKCJE KONTROLEK — grupy ustawień z nagłówkiem
+           ============================================================ */
+        .control-section {
+            margin-bottom: 20px;
+        }
+
+        .control-section h2 {
+            font-size: 0.8em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #333;
+        }
+
+        /* ============================================================
+           POJEDYNCZA KONTROLKA — etykieta + slider/input + wartość
+           ============================================================ */
+        .control {
+            margin-bottom: 12px;
+        }
+
+        .control label {
+            display: flex;
+            justify-content: space-between;  /* Nazwa po lewej, wartość po prawej */
+            font-size: 0.85em;
+            margin-bottom: 4px;
+            color: #ccc;
+        }
+
+        .control label span.value {
+            color: #4a9eff;            /* Niebieska wartość liczbowa */
+            font-weight: 600;
+        }
+
+        /* Slider (input type="range") */
+        .control input[type="range"] {
+            width: 100%;
+            accent-color: #4a9eff;     /* Kolor suwaka */
+        }
+
+        /* Dropdown (select) */
+        .control select {
+            width: 100%;
+            padding: 6px 8px;
+            background: #333;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+
+        /* Pole tekstowe (input type="text" / "number") */
+        .control input[type="text"],
+        .control input[type="number"] {
+            width: 100%;
+            padding: 6px 8px;
+            background: #333;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+
+        /* ============================================================
+           PREVIEW — obszar podglądu grafiki (prawa strona)
+           ============================================================ */
+        #preview {
+            flex: 1;                   /* Zajmuje całą pozostałą szerokość */
+            display: flex;
+            align-items: center;       /* Centruje grafikę w pionie */
+            justify-content: center;   /* Centruje grafikę w poziomie */
+            padding: 40px;
+            overflow: auto;            /* Scroll jeśli grafika jest większa */
+            background: #1a1a1a;
+        }
+
+        /* Kontener na SVG w podglądzie */
+        #preview svg {
+            max-width: 100%;
+            max-height: 100%;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);  /* Cień pod grafiką */
+        }
     </style>
 </head>
 <body>
@@ -16,12 +183,21 @@
     <aside id="sidebar">
         <h1>Unknown Pleasures</h1>
         <p>Generator SVG</p>
+
+        <!-- Przyciski akcji -->
+        <div class="buttons">
+            <button class="btn btn-primary" id="btnGenerate">Generuj</button>
+            <button class="btn btn-secondary" id="btnExport">Eksportuj SVG</button>
+        </div>
+
+        <!-- Tutaj będą sekcje z kontrolkami -->
+
     </aside>
 
     <!-- ==================== OBSZAR PODGLĄDU ==================== -->
     <!-- Tutaj wyświetlamy wygenerowaną grafikę SVG -->
     <main id="preview">
-        <p>Podgląd grafiki pojawi się tutaj</p>
+        <!-- SVG zostanie wstawione tutaj przez JavaScript -->
     </main>
 
     <script>
