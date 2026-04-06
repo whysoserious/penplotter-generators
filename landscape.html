@@ -1,0 +1,1612 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Landscape Generator — SVG</title>
+
+    <style>
+        /* ============================================================
+           RESET — usuwamy domyślne marginesy i paddingi przeglądarki
+           ============================================================ */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* ============================================================
+           BODY — układ dwukolumnowy: sidebar po lewej, podgląd po prawej
+           ============================================================ */
+        body {
+            display: flex;              /* Flexbox ustawia elementy obok siebie */
+            height: 100vh;             /* Pełna wysokość okna przeglądarki */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;       /* Ciemnoszare tło */
+            color: #e0e0e0;            /* Jasnoszary tekst */
+        }
+
+        /* ============================================================
+           SIDEBAR — panel boczny z kontrolkami (lewa strona)
+           ============================================================ */
+        #sidebar {
+            width: 320px;              /* Stała szerokość panelu */
+            min-width: 320px;          /* Nie pozwalamy się skurczyć */
+            height: 100vh;            /* Pełna wysokość */
+            overflow-y: auto;          /* Scroll jeśli kontrolek jest dużo */
+            background: #252525;       /* Nieco jaśniejsze tło niż reszta */
+            padding: 20px;
+            border-right: 1px solid #333;  /* Subtelna linia oddzielająca */
+        }
+
+        #sidebar h1 {
+            font-size: 1.4em;
+            margin-bottom: 4px;
+            color: #ffffff;
+        }
+
+        #sidebar > p {
+            font-size: 0.85em;
+            color: #888;
+            margin-bottom: 24px;
+        }
+
+        /* ============================================================
+           PRZYCISKI — "Generuj" i "Eksportuj SVG"
+           ============================================================ */
+        .buttons {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-primary {
+            background: #4a9eff;       /* Niebieski — główny przycisk */
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #3a8eef;
+        }
+
+        .btn-secondary {
+            background: #3a3a3a;       /* Szary — przycisk drugorzędny */
+            color: #e0e0e0;
+        }
+
+        .btn-secondary:hover {
+            background: #4a4a4a;
+        }
+
+        /* ============================================================
+           SEKCJE KONTROLEK — grupy ustawień z nagłówkiem
+           ============================================================ */
+        .control-section {
+            margin-bottom: 20px;
+        }
+
+        .control-section h2 {
+            font-size: 0.8em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #333;
+        }
+
+        /* ============================================================
+           POJEDYNCZA KONTROLKA — etykieta + slider/input + wartość
+           ============================================================ */
+        .control {
+            margin-bottom: 12px;
+        }
+
+        .control label {
+            display: flex;
+            justify-content: space-between;  /* Nazwa po lewej, wartość po prawej */
+            font-size: 0.85em;
+            margin-bottom: 4px;
+            color: #ccc;
+        }
+
+        .control label span.value {
+            color: #4a9eff;            /* Niebieska wartość liczbowa */
+            font-weight: 600;
+        }
+
+        /* Slider (input type="range") */
+        .control input[type="range"] {
+            width: 100%;
+            accent-color: #4a9eff;     /* Kolor suwaka */
+        }
+
+        /* Dropdown (select) */
+        .control select {
+            width: 100%;
+            padding: 6px 8px;
+            background: #333;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+
+        /* Pole tekstowe (input type="text" / "number") */
+        .control input[type="text"],
+        .control input[type="number"] {
+            width: 100%;
+            padding: 6px 8px;
+            background: #333;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+
+        /* ============================================================
+           PREVIEW — obszar podglądu grafiki (prawa strona)
+           ============================================================ */
+        #preview {
+            flex: 1;                   /* Zajmuje całą pozostałą szerokość */
+            display: flex;
+            align-items: center;       /* Centruje grafikę w pionie */
+            justify-content: center;   /* Centruje grafikę w poziomie */
+            padding: 40px;
+            overflow: auto;            /* Scroll jeśli grafika jest większa */
+            background: #1a1a1a;
+        }
+
+        /* Kontener na SVG w podglądzie */
+        #preview svg {
+            max-width: 100%;
+            max-height: 100%;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);  /* Cień pod grafiką */
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ==================== PANEL BOCZNY (SIDEBAR) ==================== -->
+    <aside id="sidebar">
+        <h1>Landscape Generator</h1>
+        <p>Teren 3D z heightmapy — widok pod kątem</p>
+
+        <!-- Przyciski akcji -->
+        <div class="buttons">
+            <button class="btn btn-primary" id="btnGenerate">Generuj</button>
+            <button class="btn btn-secondary" id="btnExport">Eksportuj SVG</button>
+        </div>
+
+        <!-- ========== SEKCJA: Algorytm ========== -->
+        <div class="control-section">
+            <h2>Algorytm heightmapy</h2>
+
+            <!-- Wybór algorytmu generowania heightmapy -->
+            <div class="control">
+                <label>Typ terenu</label>
+                <select id="ctrlAlgorithm">
+                    <option value="perlin" selected>Szum Perlina (klasyczny teren)</option>
+                    <option value="ridged">Ridged Multifractal (ostre grzbiety)</option>
+                    <option value="fbm">fBm — Fractal Brownian Motion</option>
+                    <option value="voronoi">Voronoi (komórkowy)</option>
+                    <option value="midpoint">Midpoint Displacement (plazma)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- ========== SEKCJA: Teren ========== -->
+        <div class="control-section">
+            <h2>Teren</h2>
+
+            <!-- Ilość linii skanujących (rzędów) -->
+            <div class="control">
+                <label>Ilość linii <span class="value" id="valLineCount">60</span></label>
+                <input type="range" id="ctrlLineCount" min="10" max="150" value="60" step="1">
+            </div>
+
+            <!-- Gęstość punktów na linię -->
+            <div class="control">
+                <label>Gęstość punktów <span class="value" id="valDensity">200</span></label>
+                <input type="range" id="ctrlDensity" min="50" max="500" value="200" step="10">
+            </div>
+
+            <!-- Wysokość terenu — jak bardzo linie są wypychane w górę -->
+            <div class="control">
+                <label>Wysokość terenu (mm) <span class="value" id="valAmplitude">40</span></label>
+                <input type="range" id="ctrlAmplitude" min="5" max="100" value="40" step="1">
+            </div>
+
+            <!-- Skala szumu — jak "duże" są formy terenu -->
+            <div class="control">
+                <label>Skala terenu <span class="value" id="valScale">3.0</span></label>
+                <input type="range" id="ctrlScale" min="0.5" max="10" value="3.0" step="0.1">
+            </div>
+
+            <!-- Ilość oktaw szumu (szczegółowość) -->
+            <div class="control">
+                <label>Oktawy (szczegółowość) <span class="value" id="valOctaves">5</span></label>
+                <input type="range" id="ctrlOctaves" min="1" max="8" value="5" step="1">
+            </div>
+
+            <!-- Wygładzanie -->
+            <div class="control">
+                <label>Wygładzanie <span class="value" id="valSmoothing">2</span></label>
+                <input type="range" id="ctrlSmoothing" min="0" max="10" value="2" step="1">
+            </div>
+        </div>
+
+        <!-- ========== SEKCJA: Styl rysowania ========== -->
+        <div class="control-section">
+            <h2>Styl rysowania</h2>
+
+            <!-- Wybór sposobu prezentacji -->
+            <div class="control">
+                <label>Prezentacja</label>
+                <select id="ctrlStyle">
+                    <option value="lines" selected>Linie (kreski)</option>
+                    <option value="dots">Kropki (stippling)</option>
+                    <option value="dashes">Kreski przerywane</option>
+                    <option value="thickLines">Linie z grubością wg. wysokości</option>
+                </select>
+            </div>
+
+            <!-- Grubość kreski -->
+            <div class="control">
+                <label>Grubość kreski (mm) <span class="value" id="valStrokeWidth">0.4</span></label>
+                <input type="range" id="ctrlStrokeWidth" min="0.1" max="3" value="0.4" step="0.1">
+            </div>
+
+            <!-- Rozmiar kropki (dla stylu dots) -->
+            <div class="control" id="dotSizeGroup" style="display: none;">
+                <label>Rozmiar kropki (mm) <span class="value" id="valDotSize">0.5</span></label>
+                <input type="range" id="ctrlDotSize" min="0.1" max="3" value="0.5" step="0.1">
+            </div>
+
+            <!-- Odstęp kresek (dashes) -->
+            <div class="control" id="dashLenGroup" style="display: none;">
+                <label>Długość kreski (mm) <span class="value" id="valDashLen">2</span></label>
+                <input type="range" id="ctrlDashLen" min="0.5" max="10" value="2" step="0.1">
+            </div>
+
+            <div class="control" id="dashGapGroup" style="display: none;">
+                <label>Przerwa (mm) <span class="value" id="valDashGap">2</span></label>
+                <input type="range" id="ctrlDashGap" min="0.5" max="10" value="2" step="0.1">
+            </div>
+        </div>
+
+        <!-- ========== SEKCJA: Perspektywa ========== -->
+        <div class="control-section">
+            <h2>Perspektywa</h2>
+
+            <!-- Odstęp między liniami (rzędami) -->
+            <div class="control">
+                <label>Odstęp linii (mm) <span class="value" id="valSpacing">2.5</span></label>
+                <input type="range" id="ctrlSpacing" min="0.5" max="10" value="2.5" step="0.1">
+            </div>
+
+            <!-- Kąt skanowania — obrót linii na stronie -->
+            <div class="control">
+                <label>Kąt linii 1 (°) <span class="value" id="valScanAngle">0</span></label>
+                <input type="range" id="ctrlScanAngle" min="-90" max="90" value="0" step="1">
+            </div>
+
+            <!-- Drugi ciąg linii -->
+            <div class="control">
+                <label>
+                    <input type="checkbox" id="ctrlSecondPass" style="width: auto; margin-right: 6px;">
+                    Drugi ciąg linii
+                </label>
+            </div>
+
+            <div class="control" id="secondAngleGroup" style="display: none;">
+                <label>Kąt linii 2 (°) <span class="value" id="valScanAngle2">90</span></label>
+                <input type="range" id="ctrlScanAngle2" min="-90" max="90" value="90" step="1">
+            </div>
+        </div>
+
+        <!-- ========== SEKCJA: Rozmiar strony ========== -->
+        <div class="control-section">
+            <h2>Strona</h2>
+
+            <!-- Rozmiar strony — predefiniowane formaty -->
+            <div class="control">
+                <label>Format</label>
+                <select id="ctrlPageSize">
+                    <option value="A4" selected>A4 (210 × 297 mm)</option>
+                    <option value="A3">A3 (297 × 420 mm)</option>
+                    <option value="A2">A2 (420 × 594 mm)</option>
+                    <option value="A1">A1 (594 × 841 mm)</option>
+                    <option value="A0">A0 (841 × 1189 mm)</option>
+                    <option value="custom">Własny rozmiar</option>
+                </select>
+            </div>
+
+            <!-- Pola na własny rozmiar (ukryte domyślnie) -->
+            <div class="control" id="customSizeGroup" style="display: none;">
+                <label>Szerokość (mm)</label>
+                <input type="number" id="ctrlCustomWidth" value="297" min="50" max="2000">
+                <label style="margin-top: 6px;">Wysokość (mm)</label>
+                <input type="number" id="ctrlCustomHeight" value="210" min="50" max="2000">
+            </div>
+
+            <!-- Orientacja -->
+            <div class="control">
+                <label>Orientacja</label>
+                <select id="ctrlOrientation">
+                    <option value="landscape" selected>Pozioma (krajobraz)</option>
+                    <option value="portrait">Pionowa (portret)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- ========== SEKCJA: Marginesy ========== -->
+        <div class="control-section">
+            <h2>Marginesy</h2>
+
+            <div class="control">
+                <label>Lewy (mm) <span class="value" id="valMarginLeft">20</span></label>
+                <input type="range" id="ctrlMarginLeft" min="0" max="100" value="20" step="1">
+            </div>
+
+            <div class="control">
+                <label>Prawy (mm) <span class="value" id="valMarginRight">20</span></label>
+                <input type="range" id="ctrlMarginRight" min="0" max="100" value="20" step="1">
+            </div>
+
+            <div class="control">
+                <label>Górny (mm) <span class="value" id="valMarginTop">20</span></label>
+                <input type="range" id="ctrlMarginTop" min="0" max="100" value="20" step="1">
+            </div>
+
+            <div class="control">
+                <label>Dolny (mm) <span class="value" id="valMarginBottom">20</span></label>
+                <input type="range" id="ctrlMarginBottom" min="0" max="100" value="20" step="1">
+            </div>
+        </div>
+
+        <!-- ========== SEKCJA: Losowość i kolory ========== -->
+        <div class="control-section">
+            <h2>Inne</h2>
+
+            <!-- Seed (ziarno losowości) -->
+            <div class="control">
+                <label>Seed (ziarno)</label>
+                <div style="display: flex; gap: 6px;">
+                    <input type="text" id="ctrlSeed" placeholder="losowy" style="flex: 1;">
+                    <button class="btn btn-secondary" id="btnRandomSeed" style="flex: 0; padding: 6px 10px; font-size: 0.8em;">🎲</button>
+                </div>
+            </div>
+
+            <!-- Inwersja kolorów -->
+            <div class="control">
+                <label>
+                    <input type="checkbox" id="ctrlInverted" style="width: auto; margin-right: 6px;">
+                    Odwróć kolory (białe tło)
+                </label>
+            </div>
+        </div>
+
+    </aside>
+
+    <!-- ==================== OBSZAR PODGLĄDU ==================== -->
+    <main id="preview">
+        <!-- SVG zostanie wstawione tutaj przez JavaScript -->
+    </main>
+
+    <script>
+        // ================================================================
+        // KONFIGURACJA DOMYŚLNA
+        // ----------------------------------------------------------------
+        // Wszystkie wartości liczbowe są w milimetrach (mm),
+        // ponieważ chcemy generować grafiki gotowe do druku / plottera.
+        //
+        // Idea: generujemy dwuwymiarową heightmapę (siatkę wysokości)
+        // i rysujemy ją jako równoległe linie horyzontalne widziane
+        // pod kątem — jak klasyczna wizualizacja terenu 3D z lat 80.
+        // Każda linia odpowiada jednemu "rzędowi" siatki.
+        // Punkty na linii są przesunięte w GÓRĘ proporcjonalnie
+        // do wysokości terenu w danym miejscu. Linie bliższe (niższe)
+        // zasłaniają linie dalsze (wyższe) — efekt głębi.
+        // ================================================================
+        const CONFIG = {
+            algorithm: 'perlin',       // Algorytm heightmapy: perlin, ridged, fbm, voronoi, midpoint
+            style: 'lines',            // Styl rysowania: lines, dots, dashes, thickLines
+            lineCount: 60,             // Ile rzędów (linii skanujących) rysujemy
+            density: 200,              // Ile punktów pomiarowych na linię
+            amplitude: 40,             // Maksymalne wypchanie w górę (mm)
+            scale: 3.0,                // Skala szumu — większa = rozleglejsze formy
+            octaves: 5,                // Ile oktaw szumu nakładamy (więcej = więcej detali)
+            smoothingPasses: 2,        // Ile razy wygładzamy każdą linię
+            strokeWidth: 0.4,          // Grubość kreski (mm)
+            dotSize: 0.5,              // Rozmiar kropki w trybie dots (mm)
+            dashLen: 2,                // Długość kreski (mm) w trybie dashes
+            dashGap: 2,                // Przerwa między kreskami (mm) w trybie dashes
+            spacing: 2.5,              // Odstęp bazowy między rzędami (mm)
+            scanAngle: 0,              // Kąt obrotu linii skanujących (stopnie, 0 = poziomo)
+            secondPass: false,         // Czy rysować drugi ciąg linii
+            scanAngle2: 90,            // Kąt drugiego ciągu linii (stopnie)
+            marginLeft: 20,            // Margines lewy (mm)
+            marginRight: 20,           // Margines prawy (mm)
+            marginTop: 20,             // Margines górny (mm)
+            marginBottom: 20,          // Margines dolny (mm)
+            pageWidth: 297,            // Szerokość strony w mm (A4 landscape)
+            pageHeight: 210,           // Wysokość strony w mm (A4 landscape)
+            inverted: false,           // false = białe linie na czarnym tle
+            seed: null,                // Ziarno losowości (null = losowe)
+        };
+
+
+        // ================================================================
+        // GENERATOR LICZB PSEUDOLOSOWYCH (Seeded PRNG)
+        // ----------------------------------------------------------------
+        // Używamy algorytmu "mulberry32". Dzięki temu, podając to samo
+        // "ziarno" (seed), zawsze dostaniemy identyczną sekwencję liczb.
+        // To pozwala odtwarzać dokładnie ten sam wzór grafiki.
+        //
+        // Jak działa: przyjmuje liczbę całkowitą (seed) i zwraca FUNKCJĘ,
+        // która za każdym wywołaniem daje kolejną liczbę z zakresu [0, 1).
+        // ================================================================
+        function createRandom(seed) {
+            let s = seed | 0;
+            return function () {
+                s = (s + 0x6D2B79F5) | 0;
+                let t = Math.imul(s ^ (s >>> 15), 1 | s);
+                t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+
+
+        // ================================================================
+        // WYGŁADZANIE TABLICY WARTOŚCI (Moving Average)
+        // ----------------------------------------------------------------
+        // Zastępujemy każdą wartość średnią z niej samej i dwóch sąsiadów.
+        // Powtarzamy to CONFIG.smoothingPasses razy.
+        // Efekt: zamiast poszarpanych linii dostajemy płynne, organiczne fale.
+        // ================================================================
+        function smoothArray(arr, passes) {
+            passes = passes !== undefined ? passes : CONFIG.smoothingPasses;
+            let result = arr.slice();
+
+            for (let pass = 0; pass < passes; pass++) {
+                const smoothed = [];
+                for (let i = 0; i < result.length; i++) {
+                    if (i === 0 || i === result.length - 1) {
+                        smoothed.push(result[i]);
+                    } else {
+                        smoothed.push((result[i - 1] + result[i] + result[i + 1]) / 3);
+                    }
+                }
+                result = smoothed;
+            }
+
+            return result;
+        }
+
+
+        // ================================================================
+        // TABLICA SZUMU (Noise Grid)
+        // ----------------------------------------------------------------
+        // Generujemy dwuwymiarową siatkę losowych wartości, z których
+        // potem interpolujemy szum w dowolnym punkcie 2D.
+        //
+        // Dlaczego osobna tablica zamiast random() w locie?
+        // Bo chcemy, żeby sąsiednie punkty heightmapy miały PODOBNE
+        // wartości — to daje gładki, naturalny teren. Interpolacja
+        // między losowymi węzłami siatki daje ten efekt automatycznie.
+        // ================================================================
+        function createNoiseGrid(size, random) {
+            const grid = [];
+            for (let i = 0; i < size * size; i++) {
+                grid.push(random() * 2 - 1);  // Wartości od -1 do +1
+            }
+            return { data: grid, size: size };
+        }
+
+
+        // ================================================================
+        // INTERPOLACJA SZUMU W PUNKCIE 2D
+        // ----------------------------------------------------------------
+        // Pobiera wartość szumu w dowolnym punkcie (x, y) za pomocą
+        // interpolacji dwuliniowej (bilinear interpolation).
+        //
+        // Idea: punkt (x, y) leży między czterema węzłami siatki.
+        // Obliczamy ważoną średnią tych czterech węzłów,
+        // gdzie wagi zależą od odległości od każdego węzła.
+        //
+        // Używamy interpolacji kosinusowej zamiast liniowej,
+        // bo daje gładsze przejścia (bez widocznych krawędzi siatki).
+        //
+        //   noiseGrid — obiekt z polami { data, size }
+        //   x, y      — współrzędne (dowolne, zawijają się cyklicznie)
+        // ================================================================
+        function sampleNoise2D(noiseGrid, x, y) {
+            const size = noiseGrid.size;
+            const data = noiseGrid.data;
+
+            // Zawijamy współrzędne cyklicznie w zakresie [0, size)
+            const wx = ((x % size) + size) % size;
+            const wy = ((y % size) + size) % size;
+
+            // Indeksy czterech najbliższych węzłów siatki
+            const ix = Math.floor(wx);
+            const iy = Math.floor(wy);
+            const ix1 = (ix + 1) % size;
+            const iy1 = (iy + 1) % size;
+
+            // Ułamkowa część — ile jesteśmy "między" węzłami
+            const fx = wx - ix;
+            const fy = wy - iy;
+
+            // Interpolacja kosinusowa — gładsze niż liniowa
+            const tx = (1 - Math.cos(fx * Math.PI)) / 2;
+            const ty = (1 - Math.cos(fy * Math.PI)) / 2;
+
+            // Cztery wartości narożnikowe
+            const v00 = data[iy * size + ix];
+            const v10 = data[iy * size + ix1];
+            const v01 = data[iy1 * size + ix];
+            const v11 = data[iy1 * size + ix1];
+
+            // Interpolacja dwuliniowa: najpierw w X, potem w Y
+            const top = v00 * (1 - tx) + v10 * tx;
+            const bottom = v01 * (1 - tx) + v11 * tx;
+            return top * (1 - ty) + bottom * ty;
+        }
+
+
+        // ================================================================
+        // ALGORYTM 1: SZUM PERLINA (Value Noise z oktawami)
+        // ----------------------------------------------------------------
+        // Generuje naturalny, falisty teren.
+        //
+        // Idea: nakładamy wiele warstw szumu (oktaw). Każda kolejna
+        // warstwa ma wyższą częstotliwość (drobniejsze detale)
+        // i niższą amplitudę (mniej wpływu na ogólny kształt).
+        //
+        // To klasyczna technika używana w grach i filmach CGI
+        // do generowania proceduralnych terenów, chmur i tekstur.
+        //
+        //   noiseGrid — siatka szumu
+        //   x, y      — współrzędne punktu na heightmapie (0..1)
+        //   scale     — skala bazowa (jak "duże" są formy)
+        //   octaves   — ile warstw nakładamy
+        // ================================================================
+        function noisePerlin(noiseGrid, x, y, scale, octaves) {
+            let value = 0;           // Skumulowana wartość szumu
+            let amp = 1;             // Amplituda bieżącej oktawy
+            let freq = scale;        // Częstotliwość bieżącej oktawy
+            let maxAmp = 0;          // Suma amplitud (do normalizacji)
+
+            for (let o = 0; o < octaves; o++) {
+                // Próbkujemy szum na bieżącej częstotliwości
+                value += sampleNoise2D(noiseGrid, x * freq, y * freq) * amp;
+                maxAmp += amp;
+                // Każda kolejna oktawa: podwójna częstotliwość, połowa amplitudy
+                amp *= 0.5;
+                freq *= 2;
+            }
+
+            // Normalizujemy do zakresu [-1, 1]
+            return value / maxAmp;
+        }
+
+
+        // ================================================================
+        // ALGORYTM 2: RIDGED MULTIFRACTAL
+        // ----------------------------------------------------------------
+        // Tworzy ostre, skaliste grzbiety górskie.
+        //
+        // Różnica od zwykłego Perlina: bierzemy wartość bezwzględną
+        // szumu (|noise|), a potem odwracamy ją (1 - |noise|).
+        // To zamienia gładkie wzgórza w ostre doliny/grzbiety.
+        // Dodatkowo podnosimy wynik do kwadratu, co wyostrza szczyty.
+        //
+        // Efekt: Alps, Dolomity, skaliste szczyty.
+        // ================================================================
+        function noiseRidged(noiseGrid, x, y, scale, octaves) {
+            let value = 0;
+            let amp = 1;
+            let freq = scale;
+            let maxAmp = 0;
+            // "Waga" — poprzedni wynik wpływa na amplitudę następnej oktawy
+            let weight = 1;
+
+            for (let o = 0; o < octaves; o++) {
+                // Próbka szumu
+                let signal = sampleNoise2D(noiseGrid, x * freq, y * freq);
+                // Kluczowa transformacja: |szum| odwrócony → ostre grzbiety
+                signal = 1 - Math.abs(signal);
+                // Podniesienie do kwadratu — wyostrza szczyty
+                signal *= signal;
+                // Ważenie przez poprzednią wartość — łączy oktawy organicznie
+                signal *= weight;
+                weight = Math.min(1, Math.max(0, signal));
+
+                value += signal * amp;
+                maxAmp += amp;
+                amp *= 0.5;
+                freq *= 2;
+            }
+
+            return value / maxAmp;
+        }
+
+
+        // ================================================================
+        // ALGORYTM 3: fBm (Fractal Brownian Motion)
+        // ----------------------------------------------------------------
+        // Ruch Browna fraktalny — bardzo podobny do Perlina,
+        // ale z innym stosunkiem amplituda/częstotliwość (lacunarity).
+        //
+        // Parametr "persistence" (0.65) jest wyższy niż w Perlinie (0.5),
+        // co daje więcej wyrazistych detali w wyższych oktawach.
+        // "Lacunarity" (2.2) jest nieco wyższy — bardziej kontrastowe
+        // przejścia między dużymi i małymi formami.
+        //
+        // Efekt: bardziej "chropowaty" teren niż czysty Perlin,
+        // ale mniej dramatyczny niż Ridged.
+        // ================================================================
+        function noiseFbm(noiseGrid, x, y, scale, octaves) {
+            let value = 0;
+            let amp = 1;
+            let freq = scale;
+            let maxAmp = 0;
+
+            for (let o = 0; o < octaves; o++) {
+                value += sampleNoise2D(noiseGrid, x * freq, y * freq) * amp;
+                maxAmp += amp;
+                amp *= 0.65;     // Wyższa persistence niż Perlin
+                freq *= 2.2;     // Wyższa lacunarity niż Perlin
+            }
+
+            return value / maxAmp;
+        }
+
+
+        // ================================================================
+        // ALGORYTM 4: VORONOI (diagram Voronoi / szum komórkowy)
+        // ----------------------------------------------------------------
+        // Tworzy teren przypominający sieć komórek / pęknięć.
+        //
+        // Idea: rozrzucamy losowe "punkty-zarodki" w przestrzeni 2D.
+        // Dla każdego punktu heightmapy obliczamy odległość do
+        // najbliższego zarodka. Ta odległość staje się wysokością.
+        //
+        // Efekt: regularne "kopce" wokół zarodków, oddzielone
+        // dolinami — jak bańki mydlane widziane z góry, albo
+        // wysuszona, popękana ziemia.
+        //
+        //   points   — tablica zarodków [{x, y}, ...]
+        //   x, y     — współrzędne punktu na heightmapie (0..1)
+        //   scale    — skala (nie używana bezpośrednio, ale wpływa na ilość)
+        // ================================================================
+        function noiseVoronoi(points, x, y) {
+            let minDist = Infinity;
+            let secondDist = Infinity;
+
+            // Szukamy odległości do najbliższego i drugiego w kolejności zarodka
+            for (let i = 0; i < points.length; i++) {
+                // Odległość euklidesowa, z zawijaniem (aby teren się powtarzał)
+                let dx = Math.abs(x - points[i].x);
+                let dy = Math.abs(y - points[i].y);
+                // Zawijanie — punkt może być bliżej "dookoła" krawędzi
+                if (dx > 0.5) dx = 1 - dx;
+                if (dy > 0.5) dy = 1 - dy;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < minDist) {
+                    secondDist = minDist;
+                    minDist = dist;
+                } else if (dist < secondDist) {
+                    secondDist = dist;
+                }
+            }
+
+            // Zwracamy różnicę między drugą a pierwszą odległością
+            // To daje "grzbiety" na granicach komórek Voronoi
+            // i "doliny" (płaskie dna) w centrach komórek
+            return (secondDist - minDist) * 4;
+        }
+
+
+        // ================================================================
+        // ALGORYTM 5: MIDPOINT DISPLACEMENT 2D (Diamond-Square)
+        // ----------------------------------------------------------------
+        // Klasyczny algorytm generowania fraktalnych heightmap.
+        //
+        // Idea: zaczynamy od siatki 2D z losowymi narożnikami.
+        // Krok "Diamond": dla każdego kwadratu obliczamy wartość
+        //   środka jako średnią narożników + losowe przesunięcie.
+        // Krok "Square": dla każdego rombu obliczamy wartość środka
+        //   boku jako średnią sąsiadów + losowe przesunięcie.
+        // Z każdą iteracją siatka jest gęstsza, a przesunięcia mniejsze.
+        //
+        // Efekt: naturalny, plazmowy teren — jak w starych grach RPG.
+        //
+        // UWAGA: ten algorytm generuje pełną siatkę 2D od razu
+        // (a nie per-point jak Perlin), więc zwracamy gotowy grid.
+        //
+        //   gridSize — rozmiar siatki (musi być 2^n + 1)
+        //   roughness — jak szybko maleją przesunięcia (0-1)
+        //   random    — seeded PRNG
+        // ================================================================
+        function generateDiamondSquare(gridSize, roughness, random) {
+            // Upewniamy się, że gridSize = 2^n + 1
+            let n = 1;
+            while (n + 1 < gridSize) n *= 2;
+            const size = n + 1;
+
+            // Tworzymy siatkę wypełnioną zerami
+            const grid = new Float64Array(size * size);
+
+            // Funkcja pomocnicza: odczyt z siatki z zawijaniem
+            function get(x, y) {
+                const wx = ((x % size) + size) % size;
+                const wy = ((y % size) + size) % size;
+                return grid[wy * size + wx];
+            }
+            function set(x, y, val) {
+                grid[y * size + x] = val;
+            }
+
+            // Inicjalizujemy cztery narożniki losowymi wartościami
+            set(0, 0, random() * 2 - 1);
+            set(n, 0, random() * 2 - 1);
+            set(0, n, random() * 2 - 1);
+            set(n, n, random() * 2 - 1);
+
+            let step = n;           // Rozmiar bieżącego kroku
+            let scale = 1.0;        // Skala losowego przesunięcia
+
+            while (step > 1) {
+                const half = step / 2;
+
+                // --- KROK DIAMOND ---
+                // Dla każdego kwadratu: środek = średnia 4 narożników + szum
+                for (let y = 0; y < n; y += step) {
+                    for (let x = 0; x < n; x += step) {
+                        const avg = (get(x, y) + get(x + step, y)
+                            + get(x, y + step) + get(x + step, y + step)) / 4;
+                        set(x + half, y + half, avg + (random() * 2 - 1) * scale);
+                    }
+                }
+
+                // --- KROK SQUARE ---
+                // Dla każdego "rombu": środek = średnia 4 sąsiadów (góra/dół/lewo/prawo)
+                for (let y = 0; y <= n; y += half) {
+                    // Przesunięcie X co drugi rząd (szachownica)
+                    const startX = (y % step === 0) ? half : 0;
+                    for (let x = startX; x <= n; x += step) {
+                        const avg = (get(x, y - half) + get(x, y + half)
+                            + get(x - half, y) + get(x + half, y)) / 4;
+                        set(x % size, y % size, avg + (random() * 2 - 1) * scale);
+                    }
+                }
+
+                // Zmniejszamy skalę szumu — drobniejsze detale
+                scale *= roughness;
+                step = half;
+            }
+
+            return { data: grid, size: size };
+        }
+
+
+        // ================================================================
+        // GENEROWANIE HEIGHTMAPY
+        // ----------------------------------------------------------------
+        // Tworzy pełną siatkę wysokości terenu [rows × cols].
+        // Każda wartość to wysokość w zakresie [0, 1].
+        //
+        // Parametry:
+        //   rows   — ile rzędów (linii) w siatce
+        //   cols   — ile kolumn (punktów na linię)
+        //   random — seeded PRNG
+        //
+        // Zwraca: tablicę 2D (tablica tablic) wartości 0..1,
+        // gdzie rows[0] to najdalszy rząd (góra ekranu),
+        // a rows[rows-1] to najbliższy rząd (dół ekranu).
+        // ================================================================
+        function generateHeightmap(rows, cols, random) {
+            const algo = CONFIG.algorithm;
+            const scale = CONFIG.scale;
+            const octaves = CONFIG.octaves;
+
+            // Wynikowa tablica 2D
+            const heightmap = [];
+
+            if (algo === 'midpoint') {
+                // --- Midpoint Displacement: generuje pełną siatkę od razu ---
+                // Szukamy najbliższego rozmiaru 2^n + 1 >= max(rows, cols)
+                const maxDim = Math.max(rows, cols);
+                const dsGrid = generateDiamondSquare(maxDim, 0.5, random);
+
+                // Próbkujemy z wygenerowanej siatki do naszego rozmiaru
+                for (let r = 0; r < rows; r++) {
+                    const row = [];
+                    for (let c = 0; c < cols; c++) {
+                        // Mapujemy [r, c] na [0, dsGrid.size-1]
+                        const gx = (c / (cols - 1)) * (dsGrid.size - 1);
+                        const gy = (r / (rows - 1)) * (dsGrid.size - 1);
+                        const ix = Math.floor(gx);
+                        const iy = Math.floor(gy);
+                        const fx = gx - ix;
+                        const fy = gy - iy;
+                        const ix1 = Math.min(ix + 1, dsGrid.size - 1);
+                        const iy1 = Math.min(iy + 1, dsGrid.size - 1);
+                        // Interpolacja dwuliniowa
+                        const top = dsGrid.data[iy * dsGrid.size + ix] * (1 - fx)
+                            + dsGrid.data[iy * dsGrid.size + ix1] * fx;
+                        const bot = dsGrid.data[iy1 * dsGrid.size + ix] * (1 - fx)
+                            + dsGrid.data[iy1 * dsGrid.size + ix1] * fx;
+                        row.push(top * (1 - fy) + bot * fy);
+                    }
+                    heightmap.push(row);
+                }
+            } else if (algo === 'voronoi') {
+                // --- Voronoi: rozrzucamy zarodki i liczymy odległości ---
+                // Ilość zarodków zależy od skali (więcej = drobniejsze komórki)
+                const numPoints = Math.round(scale * scale * 3);
+                const points = [];
+                for (let i = 0; i < numPoints; i++) {
+                    points.push({ x: random(), y: random() });
+                }
+
+                for (let r = 0; r < rows; r++) {
+                    const row = [];
+                    for (let c = 0; c < cols; c++) {
+                        const nx = c / (cols - 1);
+                        const ny = r / (rows - 1);
+                        row.push(noiseVoronoi(points, nx, ny));
+                    }
+                    heightmap.push(row);
+                }
+            } else {
+                // --- Perlin / Ridged / fBm: próbkujemy szum w każdym punkcie ---
+                const noiseGrid = createNoiseGrid(256, random);
+
+                // Wybieramy funkcję szumu
+                let noiseFn;
+                switch (algo) {
+                    case 'ridged': noiseFn = noiseRidged; break;
+                    case 'fbm':    noiseFn = noiseFbm; break;
+                    default:       noiseFn = noisePerlin; break;
+                }
+
+                for (let r = 0; r < rows; r++) {
+                    const row = [];
+                    for (let c = 0; c < cols; c++) {
+                        // Normalizujemy współrzędne do zakresu [0, 1]
+                        const nx = c / (cols - 1);
+                        const ny = r / (rows - 1);
+                        row.push(noiseFn(noiseGrid, nx, ny, scale, octaves));
+                    }
+                    heightmap.push(row);
+                }
+            }
+
+            // Normalizujemy heightmapę do zakresu [0, 1]
+            let minVal = Infinity, maxVal = -Infinity;
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (heightmap[r][c] < minVal) minVal = heightmap[r][c];
+                    if (heightmap[r][c] > maxVal) maxVal = heightmap[r][c];
+                }
+            }
+            const range = maxVal - minVal || 1;
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    heightmap[r][c] = (heightmap[r][c] - minVal) / range;
+                }
+            }
+
+            return heightmap;
+        }
+
+
+        // ================================================================
+        // TWORZENIE ELEMENTU SVG
+        // ================================================================
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+
+        function createSVGElement(tag, attributes) {
+            const el = document.createElementNS(SVG_NS, tag);
+            for (const [key, value] of Object.entries(attributes || {})) {
+                el.setAttribute(key, value);
+            }
+            return el;
+        }
+
+
+        // ================================================================
+        // RYSOWANIE STYLEM: LINIE (LINES)
+        // ----------------------------------------------------------------
+        // Rysuje każdy rząd heightmapy jako ciągłą linię.
+        // Trik wizualny (identyczny jak w Unknown Pleasures):
+        //   1. Wypełniony kształt kolorem tła — MASKA zasłaniająca
+        //      dalsze rzędy
+        //   2. Obrys linii — to co widzimy
+        //
+        // Linie rysujemy od najdalszego rzędu (góra) do najbliższego
+        // (dół), bo w SVG późniejsze elementy są na wierzchu.
+        // ================================================================
+        function drawLines(svg, heightmap, drawLeft, drawWidth, startY, bgColor, lineColor) {
+            const rows = heightmap.length;
+            const cols = heightmap[0].length;
+
+            for (let r = 0; r < rows; r++) {
+                const baseY = startY + r * CONFIG.spacing;
+                const row = smoothArray(heightmap[r]);
+
+                // Budujemy ścieżkę SVG
+                let pathData = '';
+                for (let c = 0; c < cols; c++) {
+                    const x = drawLeft + (c / (cols - 1)) * drawWidth;
+                    // Y = pozycja bazowa MINUS wysokość (bo SVG Y rośnie w dół)
+                    const y = baseY - row[c] * CONFIG.amplitude;
+
+                    if (c === 0) {
+                        pathData += 'M ' + x.toFixed(2) + ',' + y.toFixed(2);
+                    } else {
+                        pathData += ' L ' + x.toFixed(2) + ',' + y.toFixed(2);
+                    }
+                }
+
+                // --- MASKA: zamknięty kształt od linii w dół ---
+                const maskPath = pathData
+                    + ' L ' + (drawLeft + drawWidth).toFixed(2) + ',' + (baseY + 5).toFixed(2)
+                    + ' L ' + drawLeft.toFixed(2) + ',' + (baseY + 5).toFixed(2)
+                    + ' Z';
+
+                svg.appendChild(createSVGElement('path', {
+                    'd': maskPath,
+                    'fill': bgColor,
+                    'stroke': 'none',
+                }));
+
+                // --- WIDOCZNA LINIA ---
+                svg.appendChild(createSVGElement('path', {
+                    'd': pathData,
+                    'fill': 'none',
+                    'stroke': lineColor,
+                    'stroke-width': CONFIG.strokeWidth,
+                    'stroke-linejoin': 'round',
+                    'stroke-linecap': 'round',
+                }));
+            }
+        }
+
+
+        // ================================================================
+        // RYSOWANIE STYLEM: KROPKI (DOTS / STIPPLING)
+        // ----------------------------------------------------------------
+        // Rysuje teren jako kropki rozmieszczone wzdłuż linii konturu.
+        // Każda kropka odpowiada jednemu punktowi próbkowania na linii.
+        // Rozmiar kropki może być proporcjonalny do wysokości terenu.
+        //
+        // Efekt: eteryczny, punktowy widok terenu — jak mapa topograficzna
+        // narysowana igłą.
+        // ================================================================
+        function drawDots(svg, heightmap, drawLeft, drawWidth, startY, bgColor, lineColor) {
+            const rows = heightmap.length;
+            const cols = heightmap[0].length;
+
+            for (let r = 0; r < rows; r++) {
+                const baseY = startY + r * CONFIG.spacing;
+                const row = smoothArray(heightmap[r]);
+
+                // --- MASKA ---
+                let maskPath = '';
+                for (let c = 0; c < cols; c++) {
+                    const x = drawLeft + (c / (cols - 1)) * drawWidth;
+                    const y = baseY - row[c] * CONFIG.amplitude;
+                    maskPath += (c === 0 ? 'M ' : ' L ') + x.toFixed(2) + ',' + y.toFixed(2);
+                }
+                maskPath += ' L ' + (drawLeft + drawWidth).toFixed(2) + ',' + (baseY + 5).toFixed(2);
+                maskPath += ' L ' + drawLeft.toFixed(2) + ',' + (baseY + 5).toFixed(2) + ' Z';
+
+                svg.appendChild(createSVGElement('path', {
+                    'd': maskPath,
+                    'fill': bgColor,
+                    'stroke': 'none',
+                }));
+
+                // --- KROPKI ---
+                for (let c = 0; c < cols; c++) {
+                    const x = drawLeft + (c / (cols - 1)) * drawWidth;
+                    const y = baseY - row[c] * CONFIG.amplitude;
+                    // Rozmiar kropki proporcjonalny do wysokości terenu
+                    const r2 = CONFIG.dotSize * (0.3 + row[c] * 0.7) / 2;
+
+                    svg.appendChild(createSVGElement('circle', {
+                        'cx': x.toFixed(2),
+                        'cy': y.toFixed(2),
+                        'r': r2.toFixed(3),
+                        'fill': lineColor,
+                    }));
+                }
+            }
+        }
+
+
+        // ================================================================
+        // RYSOWANIE STYLEM: KRESKI PRZERYWANE (DASHES)
+        // ----------------------------------------------------------------
+        // Rysuje linie z przerwami — jak ścieżka narysowana flamastrem
+        // przesuwanym z regularnymi przerwami.
+        //
+        // Używamy SVG stroke-dasharray — natywna właściwość SVG,
+        // która definiuje wzór "kreska, przerwa, kreska, przerwa...".
+        //
+        // Efekt: lżejszy, bardziej "szkicowy" wygląd niż ciągłe linie.
+        // ================================================================
+        function drawDashes(svg, heightmap, drawLeft, drawWidth, startY, bgColor, lineColor) {
+            const rows = heightmap.length;
+            const cols = heightmap[0].length;
+
+            for (let r = 0; r < rows; r++) {
+                const baseY = startY + r * CONFIG.spacing;
+                const row = smoothArray(heightmap[r]);
+
+                let pathData = '';
+                for (let c = 0; c < cols; c++) {
+                    const x = drawLeft + (c / (cols - 1)) * drawWidth;
+                    const y = baseY - row[c] * CONFIG.amplitude;
+                    pathData += (c === 0 ? 'M ' : ' L ') + x.toFixed(2) + ',' + y.toFixed(2);
+                }
+
+                // --- MASKA ---
+                const maskPath = pathData
+                    + ' L ' + (drawLeft + drawWidth).toFixed(2) + ',' + (baseY + 5).toFixed(2)
+                    + ' L ' + drawLeft.toFixed(2) + ',' + (baseY + 5).toFixed(2)
+                    + ' Z';
+
+                svg.appendChild(createSVGElement('path', {
+                    'd': maskPath,
+                    'fill': bgColor,
+                    'stroke': 'none',
+                }));
+
+                // --- LINIA PRZERYWANA ---
+                svg.appendChild(createSVGElement('path', {
+                    'd': pathData,
+                    'fill': 'none',
+                    'stroke': lineColor,
+                    'stroke-width': CONFIG.strokeWidth,
+                    'stroke-dasharray': CONFIG.dashLen + ' ' + CONFIG.dashGap,
+                    'stroke-linecap': 'round',
+                }));
+            }
+        }
+
+
+        // ================================================================
+        // RYSOWANIE STYLEM: LINIE Z ZMIENNĄ GRUBOŚCIĄ (THICK LINES)
+        // ----------------------------------------------------------------
+        // Grubość linii jest proporcjonalna do wysokości terenu w danym
+        // punkcie. Wyższe szczyty = grubsza kreska, doliny = cienka.
+        //
+        // Ponieważ SVG <path> ma jedną grubość na całą ścieżkę,
+        // musimy podzielić linię na małe segmenty, każdy z własną
+        // grubością. Każdy segment to osobna ścieżka SVG.
+        //
+        // Efekt: dramatyczne, wyraziste szczyty i delikatne doliny —
+        // jak rysunek tuszem z naciskiem pędzla.
+        // ================================================================
+        function drawThickLines(svg, heightmap, drawLeft, drawWidth, startY, bgColor, lineColor) {
+            const rows = heightmap.length;
+            const cols = heightmap[0].length;
+
+            for (let r = 0; r < rows; r++) {
+                const baseY = startY + r * CONFIG.spacing;
+                const row = smoothArray(heightmap[r]);
+
+                // --- MASKA ---
+                let maskPath = '';
+                for (let c = 0; c < cols; c++) {
+                    const x = drawLeft + (c / (cols - 1)) * drawWidth;
+                    const y = baseY - row[c] * CONFIG.amplitude;
+                    maskPath += (c === 0 ? 'M ' : ' L ') + x.toFixed(2) + ',' + y.toFixed(2);
+                }
+                maskPath += ' L ' + (drawLeft + drawWidth).toFixed(2) + ',' + (baseY + 5).toFixed(2);
+                maskPath += ' L ' + drawLeft.toFixed(2) + ',' + (baseY + 5).toFixed(2) + ' Z';
+
+                svg.appendChild(createSVGElement('path', {
+                    'd': maskPath,
+                    'fill': bgColor,
+                    'stroke': 'none',
+                }));
+
+                // --- SEGMENTY O ZMIENNEJ GRUBOŚCI ---
+                for (let c = 0; c < cols - 1; c++) {
+                    const x1 = drawLeft + (c / (cols - 1)) * drawWidth;
+                    const y1 = baseY - row[c] * CONFIG.amplitude;
+                    const x2 = drawLeft + ((c + 1) / (cols - 1)) * drawWidth;
+                    const y2 = baseY - row[c + 1] * CONFIG.amplitude;
+
+                    // Grubość = bazowa grubość * (1 + wysokość * mnożnik)
+                    const avgH = (row[c] + row[c + 1]) / 2;
+                    const sw = CONFIG.strokeWidth * (0.3 + avgH * 2.5);
+
+                    svg.appendChild(createSVGElement('line', {
+                        'x1': x1.toFixed(2),
+                        'y1': y1.toFixed(2),
+                        'x2': x2.toFixed(2),
+                        'y2': y2.toFixed(2),
+                        'stroke': lineColor,
+                        'stroke-width': sw.toFixed(3),
+                        'stroke-linecap': 'round',
+                    }));
+                }
+            }
+        }
+
+
+        // ================================================================
+        // GŁÓWNA FUNKCJA — GENEROWANIE CAŁEJ GRAFIKI
+        // ----------------------------------------------------------------
+        // Proces:
+        //   1. Inicjalizacja seeda i wymiarów
+        //   2. Generowanie heightmapy 2D wybranym algorytmem
+        //   3. Rysowanie heightmapy jako równoległych linii pod kątem
+        //      wybranym stylem prezentacji
+        //
+        // Heightmapa to siatka [lineCount × density] wartości 0..1.
+        // Każdy wiersz siatki odpowiada jednej linii na rysunku.
+        // Wiersz 0 to najdalszy rząd (góra), wiersz N to najbliższy (dół).
+        //
+        // Dla każdego punktu na linii, współrzędna Y jest przesunięta
+        // W GÓRĘ proporcjonalnie do wartości heightmapy — to tworzy
+        // efekt trójwymiarowego terenu widzianego pod kątem.
+        // ================================================================
+        function generateVisualization() {
+            // Przygotowanie ziarna losowości
+            const seed = CONFIG.seed !== null
+                ? CONFIG.seed
+                : Math.floor(Math.random() * 2147483647);
+            CONFIG.seed = seed;
+
+            const random = createRandom(seed);
+
+            // Wymiary strony
+            const pageW = CONFIG.pageWidth;
+            const pageH = CONFIG.pageHeight;
+
+            // Obszar rysowania (strona minus marginesy)
+            const drawLeft = CONFIG.marginLeft;
+            const drawWidth = pageW - CONFIG.marginLeft - CONFIG.marginRight;
+            const drawHeight = pageH - CONFIG.marginTop - CONFIG.marginBottom;
+
+            // Pozycja startowa Y — linie zaczynają się od góry marginesu
+            // i schodzą w dół. Odejmujemy trochę, bo linie "wyskakują" w górę.
+            const startY = CONFIG.marginTop + CONFIG.amplitude;
+
+            // Kolory
+            const bgColor = CONFIG.inverted ? '#ffffff' : '#000000';
+            const lineColor = CONFIG.inverted ? '#000000' : '#ffffff';
+
+            // Tworzymy element SVG
+            const svg = createSVGElement('svg', {
+                'xmlns': SVG_NS,
+                'width': pageW + 'mm',
+                'height': pageH + 'mm',
+                'viewBox': '0 0 ' + pageW + ' ' + pageH,
+            });
+
+            // Tło
+            svg.appendChild(createSVGElement('rect', {
+                'x': '0', 'y': '0',
+                'width': pageW, 'height': pageH,
+                'fill': bgColor,
+            }));
+
+            // ============================================================
+            // OBRÓT LINII SKANUJĄCYCH (scanAngle)
+            // ------------------------------------------------------------
+            // Gdy kąt ≠ 0, obracamy cały blok linii terenu dookoła
+            // środka obszaru rysowania. To odpowiada zmianie kierunku
+            // "kamery" — zamiast patrzeć z południa, patrzymy np. z SW.
+            //
+            // Problem: po obrocie prostokąt linii nie pokrywa już
+            // prostokąta strony — w rogach zostają puste trójkąty.
+            // Rozwiązanie: generujemy WIĘCEJ linii i DŁUŻSZE linie
+            // (współczynnik expand), a potem przycinamy clipPath-em
+            // do obszaru marginesów.
+            //
+            // Współczynnik rozszerzenia obliczamy z geometrii:
+            // po obrocie o kąt α, bounding box prostokąta (w × h) to:
+            //   W = w·|cos α| + h·|sin α|
+            //   H = w·|sin α| + h·|cos α|
+            // Więc potrzebujemy expand = max(W/w, H/h).
+            //
+            // DRUGI CIĄG LINII:
+            // Opcjonalnie rysujemy drugi zestaw linii pod innym kątem.
+            // Używa tej samej heightmapy (ten sam teren), ale z innym
+            // seedem PRNG dla heightmapy, żeby drugi ciąg nie nakładał
+            // się idealnie. Oba ciągi mają wspólny clipPath.
+            // ============================================================
+
+            // Wysokość bloku linii (bez obrotu)
+            const blockH = (CONFIG.lineCount - 1) * CONFIG.spacing;
+
+            // Środek obrotu — środek obszaru rysowania
+            const rotateCX = drawLeft + drawWidth / 2;
+            const rotateCY = startY + blockH / 2;
+
+            // --- <defs> z clipPath: przycina do obszaru marginesów ---
+            const defs = createSVGElement('defs', {});
+            const clipPathEl = createSVGElement('clipPath', { 'id': 'clip-draw-area' });
+            clipPathEl.appendChild(createSVGElement('rect', {
+                'x': CONFIG.marginLeft,
+                'y': CONFIG.marginTop,
+                'width': drawWidth,
+                'height': drawHeight,
+            }));
+            defs.appendChild(clipPathEl);
+            svg.appendChild(defs);
+
+            // ============================================================
+            // FUNKCJA POMOCNICZA: rysuje jeden ciąg linii pod danym kątem
+            // ------------------------------------------------------------
+            // blendMode — tryb mieszania grupy z resztą rysunku.
+            //   'normal'  → pierwszy ciąg: maski (czarne wypełnienia)
+            //               zakrywają tło i wcześniejsze linie normalnie.
+            //   'screen'  → drugi ciąg (tryb normalny, białe linie na czarnym):
+            //               czarne maski stają się przezroczyste, więc NIE
+            //               zakrywają linii pierwszego ciągu. Białe linie
+            //               zawsze przeświecają. Efekt: oba ciągi widoczne.
+            //   'multiply'→ drugi ciąg (tryb odwrócony, czarne linie na białym):
+            //               białe maski stają się przezroczyste, czarne linie
+            //               zawsze przeświecają.
+            //
+            // Jak to działa w SVG:
+            //   1. Grupa z mix-blend-mode renderuje się do bufora offscreen
+            //   2. W buforze: maski działają normalnie (zakrywają linie w TYM ciągu)
+            //   3. Bufor jest nakładany na resztę trybem screen/multiply
+            //   4. Czarny (tło masek) → przezroczysty, biały (linie) → widoczny
+            // ============================================================
+            function drawPass(angleDeg, parentEl, rng, blendMode) {
+                const angleRad = angleDeg * Math.PI / 180;
+                const absSin = Math.abs(Math.sin(angleRad));
+                const absCos = Math.abs(Math.cos(angleRad));
+
+                // Współczynnik rozszerzenia
+                const expandW = drawWidth > 0 ? (drawWidth * absCos + blockH * absSin) / drawWidth : 1;
+                const expandH = blockH > 0 ? (drawWidth * absSin + blockH * absCos) / blockH : 1;
+                const expand = Math.max(expandW, expandH, 1);
+
+                // Rozszerzone parametry generowania
+                const genLineCount = Math.ceil(CONFIG.lineCount * expand);
+                const genDrawWidth = drawWidth * expand;
+                const genDrawLeft = drawLeft - (genDrawWidth - drawWidth) / 2;
+                const genStartY = startY - (genLineCount - CONFIG.lineCount) * CONFIG.spacing / 2;
+
+                // Generujemy heightmapę
+                const heightmap = generateHeightmap(genLineCount, CONFIG.density, rng);
+
+                // Grupa z clipPath (nieobrócona) → grupa obrotu
+                // Jeśli blendMode !== 'normal', ustawiamy mix-blend-mode,
+                // żeby maski tego ciągu nie zakrywały linii innych ciągów.
+                const clipAttrs = { 'clip-path': 'url(#clip-draw-area)' };
+                if (blendMode && blendMode !== 'normal') {
+                    clipAttrs['style'] = 'mix-blend-mode: ' + blendMode + '; isolation: isolate;';
+                }
+                const clipGroup = createSVGElement('g', clipAttrs);
+                parentEl.appendChild(clipGroup);
+
+                const rotateGroup = createSVGElement('g', {
+                    'transform': 'rotate(' + angleDeg + ',' + rotateCX.toFixed(2) + ',' + rotateCY.toFixed(2) + ')',
+                });
+                clipGroup.appendChild(rotateGroup);
+
+                // Rysujemy teren do obracanej grupy
+                switch (CONFIG.style) {
+                    case 'dots':
+                        drawDots(rotateGroup, heightmap, genDrawLeft, genDrawWidth, genStartY, bgColor, lineColor);
+                        break;
+                    case 'dashes':
+                        drawDashes(rotateGroup, heightmap, genDrawLeft, genDrawWidth, genStartY, bgColor, lineColor);
+                        break;
+                    case 'thickLines':
+                        drawThickLines(rotateGroup, heightmap, genDrawLeft, genDrawWidth, genStartY, bgColor, lineColor);
+                        break;
+                    default:
+                        drawLines(rotateGroup, heightmap, genDrawLeft, genDrawWidth, genStartY, bgColor, lineColor);
+                        break;
+                }
+            }
+
+            // --- Pierwszy ciąg linii ---
+            drawPass(CONFIG.scanAngle, svg, random, 'normal');
+
+            // --- Drugi ciąg linii (opcjonalny) ---
+            if (CONFIG.secondPass) {
+                // Tworzymy nowy PRNG z przesuniętym seedem,
+                // żeby drugi ciąg miał ten sam teren, ale lekko inny
+                const random2 = createRandom(seed + 7919);
+                // Tryb mieszania: screen (białe na czarnym) lub multiply
+                // (czarne na białym) — żeby maski tego ciągu nie zakrywały
+                // linii pierwszego ciągu.
+                const blend = CONFIG.inverted ? 'multiply' : 'screen';
+                drawPass(CONFIG.scanAngle2, svg, random2, blend);
+            }
+
+            return svg;
+        }
+
+
+        // ================================================================
+        // WYŚWIETLANIE GRAFIKI W PODGLĄDZIE
+        // ================================================================
+        function renderPreview() {
+            const preview = document.getElementById('preview');
+            preview.innerHTML = '';
+            const svg = generateVisualization();
+            preview.appendChild(svg);
+        }
+
+
+        // ================================================================
+        // PREDEFINIOWANE ROZMIARY STRON (szerokość × wysokość w mm)
+        // ================================================================
+        const PAGE_SIZES = {
+            'A4': { w: 210, h: 297 },
+            'A3': { w: 297, h: 420 },
+            'A2': { w: 420, h: 594 },
+            'A1': { w: 594, h: 841 },
+            'A0': { w: 841, h: 1189 },
+        };
+
+
+        // ================================================================
+        // DEBOUNCE — opóźnia wywołanie funkcji
+        // ================================================================
+        function debounce(fn, delay) {
+            let timer = null;
+            return function () {
+                clearTimeout(timer);
+                timer = setTimeout(fn, delay);
+            };
+        }
+
+        const debouncedRender = debounce(function () {
+            renderPreview();
+        }, 80);
+
+
+        // ================================================================
+        // POKAZYWANIE/UKRYWANIE KONTROLEK ZALEŻNYCH OD STYLU
+        // ================================================================
+        function updateStyleControls() {
+            const style = CONFIG.style;
+            document.getElementById('dotSizeGroup').style.display = (style === 'dots') ? 'block' : 'none';
+            document.getElementById('dashLenGroup').style.display = (style === 'dashes') ? 'block' : 'none';
+            document.getElementById('dashGapGroup').style.display = (style === 'dashes') ? 'block' : 'none';
+        }
+
+
+        // ================================================================
+        // PODPINANIE KONTROLEK DO KONFIGURACJI
+        // ================================================================
+
+        function bindSlider(inputId, valueId, configKey, parser) {
+            const input = document.getElementById(inputId);
+            const display = document.getElementById(valueId);
+            input.addEventListener('input', function () {
+                const value = parser ? parser(input.value) : parseFloat(input.value);
+                CONFIG[configKey] = value;
+                display.textContent = input.value;
+                debouncedRender();
+            });
+        }
+
+        bindSlider('ctrlLineCount', 'valLineCount', 'lineCount', parseInt);
+        bindSlider('ctrlDensity', 'valDensity', 'density', parseInt);
+        bindSlider('ctrlAmplitude', 'valAmplitude', 'amplitude');
+        bindSlider('ctrlScale', 'valScale', 'scale');
+        bindSlider('ctrlOctaves', 'valOctaves', 'octaves', parseInt);
+        bindSlider('ctrlSmoothing', 'valSmoothing', 'smoothingPasses', parseInt);
+        bindSlider('ctrlStrokeWidth', 'valStrokeWidth', 'strokeWidth');
+        bindSlider('ctrlDotSize', 'valDotSize', 'dotSize');
+        bindSlider('ctrlDashLen', 'valDashLen', 'dashLen');
+        bindSlider('ctrlDashGap', 'valDashGap', 'dashGap');
+        bindSlider('ctrlSpacing', 'valSpacing', 'spacing');
+        bindSlider('ctrlScanAngle', 'valScanAngle', 'scanAngle', parseInt);
+        bindSlider('ctrlScanAngle2', 'valScanAngle2', 'scanAngle2', parseInt);
+        bindSlider('ctrlMarginLeft', 'valMarginLeft', 'marginLeft', parseInt);
+        bindSlider('ctrlMarginRight', 'valMarginRight', 'marginRight', parseInt);
+        bindSlider('ctrlMarginTop', 'valMarginTop', 'marginTop', parseInt);
+        bindSlider('ctrlMarginBottom', 'valMarginBottom', 'marginBottom', parseInt);
+
+
+        // ================================================================
+        // OBSŁUGA ALGORYTMU I STYLU
+        // ================================================================
+
+        document.getElementById('ctrlAlgorithm').addEventListener('change', function () {
+            CONFIG.algorithm = this.value;
+            debouncedRender();
+        });
+
+        document.getElementById('ctrlStyle').addEventListener('change', function () {
+            CONFIG.style = this.value;
+            updateStyleControls();
+            debouncedRender();
+        });
+
+
+        // ================================================================
+        // OBSŁUGA ROZMIARU STRONY
+        // ================================================================
+
+        document.getElementById('ctrlPageSize').addEventListener('change', function () {
+            const value = this.value;
+            const customGroup = document.getElementById('customSizeGroup');
+
+            if (value === 'custom') {
+                customGroup.style.display = 'block';
+            } else {
+                customGroup.style.display = 'none';
+                const size = PAGE_SIZES[value];
+                applyPageSize(size.w, size.h);
+            }
+        });
+
+        document.getElementById('ctrlCustomWidth').addEventListener('change', function () {
+            CONFIG.pageWidth = parseInt(this.value) || 297;
+            applyOrientation();
+            debouncedRender();
+        });
+
+        document.getElementById('ctrlCustomHeight').addEventListener('change', function () {
+            CONFIG.pageHeight = parseInt(this.value) || 210;
+            applyOrientation();
+            debouncedRender();
+        });
+
+        document.getElementById('ctrlOrientation').addEventListener('change', function () {
+            applyOrientation();
+            debouncedRender();
+        });
+
+        function applyPageSize(w, h) {
+            const orientation = document.getElementById('ctrlOrientation').value;
+            if (orientation === 'landscape') {
+                CONFIG.pageWidth = Math.max(w, h);
+                CONFIG.pageHeight = Math.min(w, h);
+            } else {
+                CONFIG.pageWidth = Math.min(w, h);
+                CONFIG.pageHeight = Math.max(w, h);
+            }
+            debouncedRender();
+        }
+
+        function applyOrientation() {
+            const orientation = document.getElementById('ctrlOrientation').value;
+            const w = CONFIG.pageWidth;
+            const h = CONFIG.pageHeight;
+            if (orientation === 'landscape') {
+                CONFIG.pageWidth = Math.max(w, h);
+                CONFIG.pageHeight = Math.min(w, h);
+            } else {
+                CONFIG.pageWidth = Math.min(w, h);
+                CONFIG.pageHeight = Math.max(w, h);
+            }
+        }
+
+
+        // ================================================================
+        // OBSŁUGA SEEDA (ZIARNA LOSOWOŚCI)
+        // ================================================================
+
+        function hashString(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash | 0;
+            }
+            return Math.abs(hash);
+        }
+
+        document.getElementById('ctrlSeed').addEventListener('change', function () {
+            const val = this.value.trim();
+            if (val === '') {
+                CONFIG.seed = null;
+            } else {
+                CONFIG.seed = isNaN(val) ? hashString(val) : parseInt(val);
+            }
+            renderPreview();
+        });
+
+        document.getElementById('btnRandomSeed').addEventListener('click', function () {
+            CONFIG.seed = null;
+            document.getElementById('ctrlSeed').value = '';
+            renderPreview();
+        });
+
+
+        // ================================================================
+        // INWERSJA KOLORÓW
+        // ================================================================
+        document.getElementById('ctrlInverted').addEventListener('change', function () {
+            CONFIG.inverted = this.checked;
+            renderPreview();
+        });
+
+
+        // ================================================================
+        // OBSŁUGA DRUGIEGO CIĄGU LINII
+        // ================================================================
+        document.getElementById('ctrlSecondPass').addEventListener('change', function () {
+            CONFIG.secondPass = this.checked;
+            document.getElementById('secondAngleGroup').style.display = this.checked ? 'block' : 'none';
+            renderPreview();
+        });
+
+
+        // ================================================================
+        // OBSŁUGA PRZYCISKÓW
+        // ================================================================
+
+        document.getElementById('btnGenerate').addEventListener('click', function () {
+            CONFIG.seed = null;
+            document.getElementById('ctrlSeed').value = '';
+            renderPreview();
+        });
+
+
+        // ================================================================
+        // EKSPORT SVG
+        // ================================================================
+        document.getElementById('btnExport').addEventListener('click', function () {
+            const svg = generateVisualization();
+            const serializer = new XMLSerializer();
+            let svgString = '<?xml version="1.0" encoding="UTF-8"?>\n'
+                + serializer.serializeToString(svg);
+
+            const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'landscape.svg';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        });
+
+
+        // ================================================================
+        // AKTUALIZACJA WYŚWIETLACZA SEEDA
+        // ================================================================
+        const originalRenderPreview = renderPreview;
+        renderPreview = function () {
+            originalRenderPreview();
+            const seedInput = document.getElementById('ctrlSeed');
+            if (seedInput.value === '' && CONFIG.seed !== null) {
+                seedInput.placeholder = CONFIG.seed;
+            }
+        };
+
+
+        // Na start — ustawiamy widoczność kontrolek i generujemy
+        updateStyleControls();
+        renderPreview();
+    </script>
+
+</body>
+</html>
