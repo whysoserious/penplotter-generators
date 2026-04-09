@@ -83,8 +83,10 @@ const DEBUG = true;
 let horizontalMargin;
 let verticalMargin;
 let numberOfPoints;
+let numberOfInnerPoints;
 let numberOfLines;
 let pointMargin;
+let recordCheckbox;
 
 function setup() {
   createCanvas(X, Y);
@@ -98,12 +100,35 @@ function setup() {
   const np = createSliderControl("Number of points: ", 0, 50, 3, val => numberOfPoints = val);
   numberOfPoints = np.getValue();
 
+  const nip = createSliderControl("Number of inner points: ", 1, 50, 10, val => numberOfInnerPoints = val);
+  numberOfInnerPoints = nip.getValue();
+
   const nl = createSliderControl("Number of lines: ", 0, 50, 5, val => numberOfLines = val);
   numberOfLines = nl.getValue();
 
   const pm = createSliderControl("Point margin: ", 0, X, X / 20, val => pointMargin = val);
   pointMargin = pm.getValue();
 
+  createElement('br');
+  const regenerateButton = createButton("Regenerate");
+  regenerateButton.mousePressed(regenerate);
+
+  const saveSVGButton = createButton("Export SVG");
+  saveSVGButton.mousePressed(() => {
+    const svgStr = endRecordSvg();
+    const now = new Date();
+    const ts = now.getFullYear() + '-' +
+      String(now.getMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getDate()).padStart(2, '0') + ' ' +
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0') + ':' +
+      String(now.getSeconds()).padStart(2, '0');
+    saveStrings([svgStr], `p5js ${ts}`, 'svg');
+    beginRecordSvg(this, null);
+    regenerate();
+  });
+
+  beginRecordSvg(this, null);
   regenerate();
 }
 
@@ -112,13 +137,13 @@ function regenerate() {
   noStroke();
   fill(0);
 
-  const lines = scatteredInts(numberOfLines, horizontalMargin + 1, X - horizontalMargin - 1, 20);
+  const lines = randomInts(numberOfLines, horizontalMargin + 1, X - horizontalMargin - 1);
   lines.unshift(horizontalMargin);
   lines.push(X - horizontalMargin);
-  const points = lines.map(() => scatteredInts(numberOfPoints, verticalMargin + 1, Y - verticalMargin - 1, 20));
+  const points = lines.map(() => randomInts(numberOfPoints, verticalMargin + 1, Y - verticalMargin - 1));
 
   debug(() => {
-    console.log("### Regenerate:")
+    console.log("Regenerate:")
     console.log(`Coords: 
       (${horizontalMargin}, ${verticalMargin}), 
       (${X - horizontalMargin}, ${verticalMargin}),
@@ -131,15 +156,21 @@ function regenerate() {
     for (const x of lines) {
       line(x, verticalMargin, x, Y - verticalMargin);
     }
-    console.log(`Lines: ${lines}`);
-    console.log("Points per line: ")
-    for (let i = 0; i < points.length - 1; ++i) {
-      console.log(`Points on line ${i}: ${points[i]}`);
-    }
-
   });
 
   stroke(0, 0, 0);
+
+  const now = new Date();
+  const ts = now.getFullYear() + '-' +
+    String(now.getMonth() + 1).padStart(2, '0') + '-' +
+    String(now.getDate()).padStart(2, '0') + ' ' +
+    String(now.getHours()).padStart(2, '0') + ':' +
+    String(now.getMinutes()).padStart(2, '0') + ':' +
+    String(now.getSeconds()).padStart(2, '0');
+  const svgFile = `p5js ${ts}.svg`;
+  console.log(`Recording SVG to ${svgFile}`);
+
+  clearRecordSvg();
 
   for (let i = 0; i < lines.length - 1; ++i) {
     const xl = lines[i];
@@ -152,4 +183,30 @@ function regenerate() {
       line(xl, yl, xr, yr);
     }
   }
+
+  for (let i = 0; i < points.length; ++i) {
+    points[i].unshift(verticalMargin);
+    points[i].push(Y - verticalMargin);
+  }
+
+  for (let i = 0; i < lines.length - 1; ++i) {
+    const xl = lines[i];
+    const xr = lines[i + 1];
+    const pointsl = points[i];
+    const pointsr = points[i + 1];
+    for (let j = 0; j < pointsl.length - 1; ++j) {
+      const yltop = pointsl[j];
+      const ylbot = pointsl[j + 1];
+      const yrtop = pointsr[j];
+      const yrbot = pointsr[j + 1];
+      const rangel = ylbot - yltop;
+      const ranger = yrbot - yrtop;
+      for (let k = 1; k <= numberOfInnerPoints; ++k) {
+        const yl = yltop + (rangel / numberOfInnerPoints) * k;
+        const yr = yrtop + (ranger / numberOfInnerPoints) * k;
+        line(xl, yl, xr, yr);
+      }
+    }
+  }
+
 }
