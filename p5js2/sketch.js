@@ -76,8 +76,22 @@ function createSliderControl(label, min, max, defaultVal, onChange) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
-const X = 1000;
-const Y = 500;
+const PAPER_SIZES = {
+  'A0': [841, 1189],
+  'A1': [594, 841],
+  'A2': [420, 594],
+  'A3': [297, 420],
+  'A4': [210, 297],
+  'B0': [1000, 1414],
+  'B1': [707, 1000],
+  'B2': [500, 707],
+  'B3': [353, 500],
+  'B4': [250, 353],
+};
+const DISPLAY_SCALE = 2; // px per mm
+
+let X = 1000;
+let Y = 500;
 const DEBUG = true;
 
 let horizontalMargin;
@@ -88,7 +102,35 @@ let numberOfLines;
 let pointMargin;
 let recordCheckbox;
 
+let paperSelect;
+let orientationSelect;
+
+function updateCanvasSize() {
+  const [w, h] = PAPER_SIZES[paperSelect.value()];
+  const landscape = orientationSelect.value() === 'landscape';
+  X = (landscape ? h : w) * DISPLAY_SCALE;
+  Y = (landscape ? w : h) * DISPLAY_SCALE;
+  resizeCanvas(X, Y);
+}
+
 function setup() {
+  createElement('span', 'Paper size: ');
+  paperSelect = createSelect();
+  for (const name of Object.keys(PAPER_SIZES)) paperSelect.option(name);
+  paperSelect.value('A4');
+  paperSelect.changed(() => { updateCanvasSize(); regenerate(); });
+
+  createSpan(' Orientation: ');
+  orientationSelect = createSelect();
+  orientationSelect.option('portrait');
+  orientationSelect.option('landscape');
+  orientationSelect.changed(() => { updateCanvasSize(); regenerate(); });
+
+  createElement('br');
+
+  const [w, h] = PAPER_SIZES['A4'];
+  X = w * DISPLAY_SCALE;
+  Y = h * DISPLAY_SCALE;
   createCanvas(X, Y);
 
   const vm = createSliderControl("Vertical margin: ", 0, Y / 2, Y / 10, val => verticalMargin = val);
@@ -115,6 +157,7 @@ function setup() {
 
   const saveSVGButton = createButton("Export SVG");
   saveSVGButton.mousePressed(() => {
+    setSvgResolutionDPCM(DISPLAY_SCALE * 10);
     const svgStr = endRecordSvg();
     const now = new Date();
     const ts = now.getFullYear() + '-' +
@@ -137,24 +180,45 @@ function regenerate() {
   noStroke();
   fill(0);
 
-  const lines = randomInts(numberOfLines, horizontalMargin + 1, X - horizontalMargin - 1);
-  lines.unshift(horizontalMargin);
-  lines.push(X - horizontalMargin);
-  const points = lines.map(() => randomInts(numberOfPoints, verticalMargin + 1, Y - verticalMargin - 1));
+  const portrait = orientationSelect.value() === 'portrait';
+  // In landscape: lines are vertical (X axis), points vary on Y axis.
+  // In portrait:  lines are horizontal (Y axis), points vary on X axis.
+  const [lineMin, lineMax] = portrait
+    ? [verticalMargin + 1, Y - verticalMargin - 1]
+    : [horizontalMargin + 1, X - horizontalMargin - 1];
+  const [lineStart, lineEnd] = portrait
+    ? [verticalMargin, Y - verticalMargin]
+    : [horizontalMargin, X - horizontalMargin];
+  const [ptMin, ptMax] = portrait
+    ? [horizontalMargin + 1, X - horizontalMargin - 1]
+    : [verticalMargin + 1, Y - verticalMargin - 1];
+  const [ptStart, ptEnd] = portrait
+    ? [horizontalMargin, X - horizontalMargin]
+    : [verticalMargin, Y - verticalMargin];
+
+  // drawLine(a1, b1, a2, b2): a = along-lines axis, b = along-points axis
+  const drawLine = portrait
+    ? (a1, b1, a2, b2) => line(b1, a1, b2, a2)
+    : (a1, b1, a2, b2) => line(a1, b1, a2, b2);
+
+  const lines = randomInts(numberOfLines, lineMin, lineMax);
+  lines.unshift(lineStart);
+  lines.push(lineEnd);
+  const points = lines.map(() => randomInts(numberOfPoints, ptMin, ptMax));
 
   debug(() => {
     console.log("Regenerate:")
-    console.log(`Coords: 
-      (${horizontalMargin}, ${verticalMargin}), 
+    console.log(`Coords:
+      (${horizontalMargin}, ${verticalMargin}),
       (${X - horizontalMargin}, ${verticalMargin}),
-      (${horizontalMargin}, ${Y - verticalMargin}), 
+      (${horizontalMargin}, ${Y - verticalMargin}),
       (${X - horizontalMargin}, ${Y - verticalMargin})`);
     line(horizontalMargin, 0, horizontalMargin, Y);
     line(X - horizontalMargin, 0, X - horizontalMargin, Y);
     line(0, verticalMargin, X, verticalMargin);
     line(0, Y - verticalMargin, X, Y - verticalMargin);
-    for (const x of lines) {
-      line(x, verticalMargin, x, Y - verticalMargin);
+    for (const a of lines) {
+      drawLine(a, ptMin, a, ptMax);
     }
   });
 
@@ -173,38 +237,36 @@ function regenerate() {
   clearRecordSvg();
 
   for (let i = 0; i < lines.length - 1; ++i) {
-    const xl = lines[i];
-    const xr = lines[i + 1];
+    const al = lines[i];
+    const ar = lines[i + 1];
     const pointsl = points[i];
     const pointsr = points[i + 1];
     for (let j = 0; j < pointsl.length; ++j) {
-      const yl = pointsl[j];
-      const yr = pointsr[j];
-      line(xl, yl, xr, yr);
+      drawLine(al, pointsl[j], ar, pointsr[j]);
     }
   }
 
   for (let i = 0; i < points.length; ++i) {
-    points[i].unshift(verticalMargin);
-    points[i].push(Y - verticalMargin);
+    points[i].unshift(ptStart);
+    points[i].push(ptEnd);
   }
 
   for (let i = 0; i < lines.length - 1; ++i) {
-    const xl = lines[i];
-    const xr = lines[i + 1];
+    const al = lines[i];
+    const ar = lines[i + 1];
     const pointsl = points[i];
     const pointsr = points[i + 1];
     for (let j = 0; j < pointsl.length - 1; ++j) {
-      const yltop = pointsl[j];
-      const ylbot = pointsl[j + 1];
-      const yrtop = pointsr[j];
-      const yrbot = pointsr[j + 1];
-      const rangel = ylbot - yltop;
-      const ranger = yrbot - yrtop;
+      const bltop = pointsl[j];
+      const blbot = pointsl[j + 1];
+      const brtop = pointsr[j];
+      const brbot = pointsr[j + 1];
+      const rangel = blbot - bltop;
+      const ranger = brbot - brtop;
       for (let k = 1; k <= numberOfInnerPoints; ++k) {
-        const yl = yltop + (rangel / numberOfInnerPoints) * k;
-        const yr = yrtop + (ranger / numberOfInnerPoints) * k;
-        line(xl, yl, xr, yr);
+        const bl = bltop + (rangel / numberOfInnerPoints) * k;
+        const br = brtop + (ranger / numberOfInnerPoints) * k;
+        drawLine(al, bl, ar, br);
       }
     }
   }

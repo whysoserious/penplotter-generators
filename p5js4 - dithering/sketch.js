@@ -60,10 +60,12 @@ const settings = {
 
 const circles = [];
 let lastDots = [];
+let p5sketch;
 
 ////////////////////////////////////////////////////////////////////////////////////////
 
 function setup() {
+  p5sketch = this;
   const [pw, ph] = paperDims();
   const cnv = createCanvas(pw, ph);
   cnv.parent('canvas-container');
@@ -71,7 +73,7 @@ function setup() {
 
   buildControls();
 
-  beginRecordSvg(this, null);
+  beginRecordSvg(p5sketch, null);
   regenerate();
 }
 
@@ -433,7 +435,7 @@ function exportSvg() {
   setSvgDocumentSize(W, H);
   const svgStr = endRecordSvg();
   saveStrings([svgStr], `dithering ${settings.paper}-${settings.orientation} ${timestamp()}`, 'svg');
-  beginRecordSvg(this, null);
+  beginRecordSvg(p5sketch, null);
   regenerate();
 }
 

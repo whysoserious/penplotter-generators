@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Squircle Plotter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=Lora:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --anthropic-dark: #141413;
+            --anthropic-light: #faf9f5;
+            --anthropic-mid-gray: #b0aea5;
+            --anthropic-light-gray: #e8e6dc;
+            --anthropic-orange: #d97757;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, var(--anthropic-light) 0%, #f5f3ee 100%);
+            min-height: 100vh;
+            color: var(--anthropic-dark);
+        }
+        .container { display: flex; min-height: 100vh; padding: 20px; gap: 20px; }
+        .sidebar {
+            width: 320px; flex-shrink: 0;
+            background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+            padding: 24px; border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(20,20,19,0.1);
+            overflow-y: auto; overflow-x: hidden;
+        }
+        .sidebar h1 { font-family: 'Lora', serif; font-size: 22px; font-weight: 500; margin-bottom: 6px; }
+        .sidebar .subtitle { color: var(--anthropic-mid-gray); font-size: 13px; margin-bottom: 28px; line-height: 1.4; }
+        .control-section { margin-bottom: 28px; }
+        .control-section h3 {
+            font-size: 15px; font-weight: 600; margin-bottom: 14px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .control-section h3::before { content: '•'; color: var(--anthropic-orange); font-weight: bold; }
+        .control-group { margin-bottom: 16px; }
+        .control-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+        .slider-container { display: flex; align-items: center; gap: 10px; }
+        .slider-container input[type="range"] {
+            flex: 1; height: 4px; background: var(--anthropic-light-gray);
+            border-radius: 2px; outline: none; -webkit-appearance: none;
+        }
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px;
+            background: var(--anthropic-orange); border-radius: 50%; cursor: pointer;
+        }
+        .slider-container input[type="range"]::-moz-range-thumb {
+            width: 14px; height: 14px; background: var(--anthropic-orange);
+            border-radius: 50%; border: none; cursor: pointer;
+        }
+        .value-display {
+            font-family: 'Courier New', monospace; font-size: 11px;
+            color: var(--anthropic-mid-gray); min-width: 50px; text-align: right;
+        }
+        .button {
+            padding: 9px 14px; border: none; border-radius: 8px;
+            font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 500; cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .button-primary { background: var(--anthropic-orange); color: white; }
+        .button-primary:hover { background: #c86641; transform: translateY(-1px); }
+        .button-secondary {
+            background: var(--anthropic-light); color: var(--anthropic-dark);
+            border: 1px solid var(--anthropic-light-gray);
+        }
+        .button-secondary:hover { background: var(--anthropic-light-gray); }
+        .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+        .canvas-area {
+            flex: 1; display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.5); border-radius: 12px;
+        }
+        #canvas-container canvas { border-radius: 8px; box-shadow: 0 4px 20px rgba(20,20,19,0.08); }
+        .loading { font-family: 'Lora', serif; font-size: 18px; color: var(--anthropic-mid-gray); }
+        .seed-input {
+            width: 100%; background: var(--anthropic-light); padding: 10px;
+            border-radius: 8px; font-family: 'Courier New', monospace; font-size: 13px;
+            margin-bottom: 10px; border: 1px solid var(--anthropic-light-gray); text-align: center;
+        }
+        .seed-input:focus { outline: none; border-color: var(--anthropic-orange); background: white; }
+        .seed-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+        .layer-info {
+            font-size: 11px; color: var(--anthropic-mid-gray); margin-top: 12px;
+            padding: 10px; background: var(--anthropic-light); border-radius: 8px;
+            font-family: 'Courier New', monospace; line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h1>Squircle Plotter</h1>
+            <p class="subtitle">Superellipse → SVG → vpype hatched → AxiDraw</p>
+
+            <div class="control-section">
+                <h3>Seed</h3>
+                <input type="text" class="seed-input" id="seed-input" value="42" onchange="updateSeed()">
+                <div class="seed-controls">
+                    <button class="button button-secondary" onclick="prevSeed()">← Prev</button>
+                    <button class="button button-secondary" onclick="nextSeed()">Next →</button>
+                </div>
+                <button class="button button-primary" style="width:100%" onclick="randSeed()">Random</button>
+            </div>
+
+            <div class="control-section">
+                <h3>Shape</h3>
+                <div class="control-group">
+                    <label>Width</label>
+                    <div class="slider-container">
+                        <input type="range" id="shapeW" min="40" max="700" step="5" value="500" oninput="setP('shapeW',this.value)">
+                        <span class="value-display" id="shapeW-v">500</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Height</label>
+                    <div class="slider-container">
+                        <input type="range" id="shapeH" min="40" max="700" step="5" value="500" oninput="setP('shapeH',this.value)">
+                        <span class="value-display" id="shapeH-v">500</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Rotation (°)</label>
+                    <div class="slider-container">
+                        <input type="range" id="rotation" min="0" max="360" step="0.5" value="0" oninput="setP('rotation',this.value)">
+                        <span class="value-display" id="rotation-v">0°</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h3>Exponent (→ columns)</h3>
+                <div class="control-group">
+                    <label>Left column (n)</label>
+                    <div class="slider-container">
+                        <input type="range" id="expFrom" min="0.5" max="60" step="0.1" value="2" oninput="setP('expFrom',this.value)">
+                        <span class="value-display" id="expFrom-v">2.0</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Right column (n)</label>
+                    <div class="slider-container">
+                        <input type="range" id="expTo" min="0.5" max="60" step="0.1" value="40" oninput="setP('expTo',this.value)">
+                        <span class="value-display" id="expTo-v">40.0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h3>Noise (↓ rows)</h3>
+                <div class="control-group">
+                    <label>Top row</label>
+                    <div class="slider-container">
+                        <input type="range" id="noiseFrom" min="-2" max="80" step="1" value="0" oninput="setP('noiseFrom',this.value)">
+                        <span class="value-display" id="noiseFrom-v">0</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Bottom row</label>
+                    <div class="slider-container">
+                        <input type="range" id="noiseTo" min="0" max="80" step="1" value="40" oninput="setP('noiseTo',this.value)">
+                        <span class="value-display" id="noiseTo-v">40</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h3>Grid</h3>
+                <div class="control-group">
+                    <label>Columns</label>
+                    <div class="slider-container">
+                        <input type="range" id="cols" min="1" max="20" step="1" value="5" oninput="setP('cols',this.value)">
+                        <span class="value-display" id="cols-v">5</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Rows</label>
+                    <div class="slider-container">
+                        <input type="range" id="rows" min="1" max="20" step="1" value="5" oninput="setP('rows',this.value)">
+                        <span class="value-display" id="rows-v">5</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Gap (px preview / mm in SVG)</label>
+                    <div class="slider-container">
+                        <input type="range" id="gap" min="0" max="60" step="1" value="10" oninput="setP('gap',this.value)">
+                        <span class="value-display" id="gap-v">10</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h3>Render</h3>
+                <div class="control-group">
+                    <label>Fill</label>
+                    <div style="display:flex;gap:8px">
+                        <button class="button button-primary" id="fill-on" onclick="toggleFill(true)" style="flex:1">Filled</button>
+                        <button class="button button-secondary" id="fill-off" onclick="toggleFill(false)" style="flex:1">Outline only</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Contour Weight</label>
+                    <div class="slider-container">
+                        <input type="range" id="contourWeight" min="0.5" max="6" step="0.1" value="2" oninput="setP('contourWeight',this.value)">
+                        <span class="value-display" id="contourWeight-v">2.0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <h3>Paper (SVG export)</h3>
+                <div class="control-group">
+                    <label>Paper Size</label>
+                    <select id="paperSize" onchange="setPaper(this.value)" style="
+                        width:100%; padding:8px 12px; border-radius:8px;
+                        border:1px solid var(--anthropic-light-gray);
+                        font-family:'Poppins',sans-serif; font-size:13px;
+                        background:var(--anthropic-light); cursor:pointer;">
+                        <option value="A5">A5 — 148 × 210 mm</option>
+                        <option value="A4">A4 — 210 × 297 mm</option>
+                        <option value="A3" selected>A3 — 297 × 420 mm</option>
+                        <option value="A2">A2 — 420 × 594 mm</option>
+                        <option value="A1">A1 — 594 × 841 mm</option>
+                        <option value="A0">A0 — 841 × 1189 mm</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Orientation</label>
+                    <div style="display:flex;gap:8px">
+                        <button class="button button-secondary" id="orient-portrait" onclick="setOrientation('portrait')" style="flex:1">Portrait</button>
+                        <button class="button button-primary" id="orient-landscape" onclick="setOrientation('landscape')" style="flex:1">Landscape</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Margin (mm)</label>
+                    <div class="slider-container">
+                        <input type="range" id="margin" min="0" max="80" step="1" value="20" oninput="setP('margin',this.value)">
+                        <span class="value-display" id="margin-v">20</span>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Stroke (mm)</label>
+                    <div class="slider-container">
+                        <input type="range" id="strokeMM" min="0.1" max="3" step="0.05" value="0.5" oninput="setP('strokeMM',this.value)">
+                        <span class="value-display" id="strokeMM-v">0.50</span>
+                    </div>
+                </div>
+                <div class="layer-info" id="paper-info"></div>
+            </div>
+
+            <div class="control-section">
+                <h3>Actions</h3>
+                <div class="button-row">
+                    <button class="button button-secondary" onclick="resetAll()">Reset</button>
+                    <button class="button button-primary" onclick="downloadPNG()">PNG</button>
+                </div>
+                <button class="button button-primary" style="width:100%; margin-top:8px" onclick="downloadSVG()">Download SVG</button>
+                <div class="layer-info">
+                    Hatching w vpype:<br>
+                    &nbsp; vpype read out.svg \<br>
+                    &nbsp;&nbsp; hatched -d 0.5 \<br>
+                    &nbsp;&nbsp; linesort linemerge \<br>
+                    &nbsp;&nbsp; write final.svg<br>
+                    &nbsp; # -d = spacing w mm
+                </div>
+            </div>
+        </div>
+
+        <div class="canvas-area">
+            <div id="canvas-container">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// PARAMS
+// ═══════════════════════════════════════════════════════
+
+let P = {
+    seed: 42,
+    expFrom: 2,
+    expTo: 40,
+    shapeW: 500,
+    shapeH: 500,
+    rotation: 0,
+    noiseFrom: -2,
+    noiseTo: 40,
+    cols: 5,
+    rows: 5,
+    gap: 10,
+    filled: true,
+    contourWeight: 2,
+    margin: 20,
+    strokeMM: 0.5
+};
+
+const DEFAULTS = JSON.parse(JSON.stringify(P));
+
+// Paper sizes in mm (portrait)
+const PAPERS = {
+    A5:  { w: 148,  h: 210  },
+    A4:  { w: 210,  h: 297  },
+    A3:  { w: 297,  h: 420  },
+    A2:  { w: 420,  h: 594  },
+    A1:  { w: 594,  h: 841  },
+    A0:  { w: 841,  h: 1189 }
+};
+
+let paperKey = 'A3';
+let orientation = 'landscape'; // landscape swaps w/h
+
+function getPaperMM() {
+    const p = PAPERS[paperKey];
+    return orientation === 'landscape'
+        ? { w: p.h, h: p.w }
+        : { w: p.w, h: p.h };
+}
+
+function updatePaperInfo() {
+    const pm = getPaperMM();
+    const drawW = pm.w - 2 * P.margin;
+    const drawH = pm.h - 2 * P.margin;
+
+    const cols = P.cols;
+    const rows = P.rows;
+    const gapMM = P.gap;
+    const cellW = (drawW - (cols - 1) * gapMM) / cols;
+    const cellH = (drawH - (rows - 1) * gapMM) / rows;
+    const aspect = P.shapeW / P.shapeH;
+    let cw, ch;
+    if (cellW / cellH > aspect) { ch = cellH; cw = ch * aspect; }
+    else { cw = cellW; ch = cw / aspect; }
+
+    document.getElementById('paper-info').innerHTML =
+        `${paperKey} ${orientation}<br>` +
+        `${pm.w} × ${pm.h} mm<br>` +
+        `Drawable: ${drawW} × ${drawH} mm<br>` +
+        `<b>Squircle: ${cw.toFixed(1)} × ${ch.toFixed(1)} mm</b>` +
+        (cols * rows > 1 ? `<br>Grid: ${cols}×${rows}, gap ${gapMM} mm` : '');
+}
+
+function setPaper(key) {
+    paperKey = key;
+    updatePaperInfo();
+    redraw_all();
+}
+
+function setOrientation(o) {
+    orientation = o;
+    document.getElementById('orient-landscape').className =
+        'button ' + (o === 'landscape' ? 'button-primary' : 'button-secondary');
+    document.getElementById('orient-portrait').className =
+        'button ' + (o === 'portrait' ? 'button-primary' : 'button-secondary');
+    updatePaperInfo();
+    redraw_all();
+}
+
+// Store for SVG export — array of contour point arrays
+let lastContours = [];
+
+// ═══════════════════════════════════════════════════════
+// SQUIRCLE CORE
+// ═══════════════════════════════════════════════════════
+
+function squircleContour(x, y, w, h, n, rot, noiseAmt, noiseSeed, steps) {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const rx = w / 2;
+    const ry = h / 2;
+    const exp = 2.0 / n;
+    const points = [];
+
+    for (let i = 0; i <= steps; i++) {
+        const t = (i / steps) * TWO_PI;
+        const ct = Math.cos(t);
+        const st = Math.sin(t);
+
+        let px = Math.sign(ct) * Math.pow(Math.abs(ct), exp) * rx;
+        let py = Math.sign(st) * Math.pow(Math.abs(st), exp) * ry;
+
+        if (noiseAmt > 0) {
+            const nv = noise(px * 0.005 + noiseSeed * 0.1, py * 0.005, noiseSeed * 0.37);
+            const warp = (nv - 0.5) * noiseAmt * 2;
+            px += warp * ct;
+            py += warp * st;
+        }
+
+        if (rot !== 0) {
+            const rad = rot * Math.PI / 180;
+            const c = Math.cos(rad), s = Math.sin(rad);
+            const rpx = px * c - py * s;
+            const rpy = px * s + py * c;
+            px = rpx; py = rpy;
+        }
+
+        points.push({ x: cx + px, y: cy + py });
+    }
+    return points;
+}
+
+// ═══════════════════════════════════════════════════════
+// DRAWING
+// ═══════════════════════════════════════════════════════
+
+function setup() {
+    let canvas = createCanvas(800, 800);
+    canvas.parent('canvas-container');
+    document.querySelector('.loading').style.display = 'none';
+    noLoop();
+    redraw_all();
+}
+
+function redraw_all() {
+    noiseSeed(P.seed);
+    background('#faf9f5');
+
+    lastContours = [];
+
+    const cols = P.cols;
+    const rows = P.rows;
+    const gap = P.gap;
+
+    // Total grid size in "logical" units
+    const totalW = cols * P.shapeW + (cols - 1) * gap;
+    const totalH = rows * P.shapeH + (rows - 1) * gap;
+
+    // Scale grid to fit canvas (max 90%)
+    const gridScale = Math.min(
+        (width * 0.9) / totalW,
+        (height * 0.9) / totalH,
+        1
+    );
+
+    const cellW = P.shapeW * gridScale;
+    const cellH = P.shapeH * gridScale;
+    const gapS = gap * gridScale;
+    const gridW = cols * cellW + (cols - 1) * gapS;
+    const gridH = rows * cellH + (rows - 1) * gapS;
+    const ox = (width - gridW) / 2;
+    const oy = (height - gridH) / 2;
+
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            const cx = ox + col * (cellW + gapS);
+            const cy = oy + row * (cellH + gapS);
+            const cellSeed = P.seed + row * cols + col;
+
+            // Interpolate exponent along columns (left→right)
+            const tCol = cols > 1 ? col / (cols - 1) : 0;
+            const cellExp = P.expFrom + (P.expTo - P.expFrom) * tCol;
+
+            // Interpolate noise along rows (top→bottom)
+            const tRow = rows > 1 ? row / (rows - 1) : 0;
+            const cellNoise = P.noiseFrom + (P.noiseTo - P.noiseFrom) * tRow;
+
+            const contour = squircleContour(
+                cx, cy, cellW, cellH,
+                cellExp, P.rotation, cellNoise, cellSeed, 720
+            );
+            lastContours.push(contour);
+
+            stroke(0);
+            strokeWeight(P.contourWeight * gridScale);
+            if (P.filled) fill(0); else noFill();
+
+            beginShape();
+            for (const pt of contour) vertex(pt.x, pt.y);
+            endShape(CLOSE);
+        }
+    }
+
+    // Paper preview outline
+    const pm = getPaperMM();
+    const drawW = pm.w - 2 * P.margin;
+    const drawH = pm.h - 2 * P.margin;
+    const paperScale = Math.min(width / pm.w, height / pm.h) * 0.95;
+    const px = (width - pm.w * paperScale) / 2;
+    const py = (height - pm.h * paperScale) / 2;
+    drawingContext.setLineDash([6, 4]);
+    stroke('#b0aea5');
+    strokeWeight(0.7);
+    noFill();
+    rect(px, py, pm.w * paperScale, pm.h * paperScale);
+    stroke('#d9d6cc');
+    strokeWeight(0.4);
+    rect(px + P.margin * paperScale, py + P.margin * paperScale,
+         drawW * paperScale, drawH * paperScale);
+    drawingContext.setLineDash([]);
+
+    // Size label on canvas
+    const pmInfo = getPaperMM();
+    const diW = pmInfo.w - 2 * P.margin;
+    const diH = pmInfo.h - 2 * P.margin;
+    const ciW = (diW - (cols - 1) * gap) / cols;
+    const ciH = (diH - (rows - 1) * gap) / rows;
+    const asp = P.shapeW / P.shapeH;
+    let sw2, sh2;
+    if (ciW / ciH > asp) { sh2 = ciH; sw2 = sh2 * asp; }
+    else { sw2 = ciW; sh2 = sw2 / asp; }
+
+    noStroke();
+    fill('#999');
+    textSize(11);
+    textFont('monospace');
+    textAlign(CENTER, TOP);
+    text(`squircle: ${sw2.toFixed(1)} × ${sh2.toFixed(1)} mm`, width / 2, height - 18);
+}
+
+// ═══════════════════════════════════════════════════════
+// SVG EXPORT
+// ═══════════════════════════════════════════════════════
+
+function downloadSVG() {
+    noiseSeed(P.seed);
+    const pm = getPaperMM();
+    const drawW = pm.w - 2 * P.margin;
+    const drawH = pm.h - 2 * P.margin;
+
+    const cols = P.cols;
+    const rows = P.rows;
+    const gapMM = P.gap; // gap slider value = mm in SVG
+
+    // Compute cell size in mm: fit grid into drawable area
+    const cellW = (drawW - (cols - 1) * gapMM) / cols;
+    const cellH = (drawH - (rows - 1) * gapMM) / rows;
+
+    // Use smaller dimension to keep aspect if shapeW != shapeH
+    // Respect the aspect ratio from shapeW/shapeH
+    const aspect = P.shapeW / P.shapeH;
+    let cw, ch;
+    if (cellW / cellH > aspect) {
+        ch = cellH;
+        cw = ch * aspect;
+    } else {
+        cw = cellW;
+        ch = cw / aspect;
+    }
+
+    // Center grid in drawable area
+    const gridW = cols * cw + (cols - 1) * gapMM;
+    const gridH = rows * ch + (rows - 1) * gapMM;
+    const ox = P.margin + (drawW - gridW) / 2;
+    const oy = P.margin + (drawH - gridH) / 2;
+
+    const sw = P.strokeMM.toFixed(3);
+    const fillAttr = P.filled ? '#000000' : 'none';
+
+    let svg = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${pm.w}mm" height="${pm.h}mm" viewBox="0 0 ${pm.w} ${pm.h}">\n`;
+
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            const cx = ox + col * (cw + gapMM);
+            const cy = oy + row * (ch + gapMM);
+            const cellSeed = P.seed + row * cols + col;
+
+            const tCol = cols > 1 ? col / (cols - 1) : 0;
+            const cellExp = P.expFrom + (P.expTo - P.expFrom) * tCol;
+            const tRow = rows > 1 ? row / (rows - 1) : 0;
+            const cellNoise = P.noiseFrom + (P.noiseTo - P.noiseFrom) * tRow;
+
+            const contour = squircleContourRaw(
+                cw, ch, cellExp, P.rotation, cellNoise, cellSeed, 720
+            );
+
+            let d = `M ${(cx + cw/2 + contour[0].x).toFixed(3)} ${(cy + ch/2 + contour[0].y).toFixed(3)}`;
+            for (let i = 1; i < contour.length; i++) {
+                d += ` L ${(cx + cw/2 + contour[i].x).toFixed(3)} ${(cy + ch/2 + contour[i].y).toFixed(3)}`;
+            }
+            d += ' Z';
+            svg += `  <path d="${d}" fill="${fillAttr}" stroke="#000000" stroke-width="${sw}"/>\n`;
+        }
+    }
+
+    svg += `</svg>`;
+
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `squircle_${paperKey}_${cols}x${rows}_s${P.seed}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// Generate contour points centered at (0,0) — for SVG mm export
+function squircleContourRaw(w, h, n, rot, noiseAmt, seed, steps) {
+    const rx = w / 2;
+    const ry = h / 2;
+    const exp = 2.0 / n;
+    const points = [];
+
+    for (let i = 0; i <= steps; i++) {
+        const t = (i / steps) * TWO_PI;
+        const ct = Math.cos(t);
+        const st = Math.sin(t);
+
+        let px = Math.sign(ct) * Math.pow(Math.abs(ct), exp) * rx;
+        let py = Math.sign(st) * Math.pow(Math.abs(st), exp) * ry;
+
+        if (noiseAmt > 0) {
+            const nv = noise(px * 0.01 + seed * 0.1, py * 0.01, seed * 0.37);
+            const warp = (nv - 0.5) * noiseAmt * 0.05 * Math.max(w, h);
+            px += warp * ct;
+            py += warp * st;
+        }
+
+        if (rot !== 0) {
+            const rad = rot * Math.PI / 180;
+            const c = Math.cos(rad), s = Math.sin(rad);
+            const rpx = px * c - py * s;
+            const rpy = px * s + py * c;
+            px = rpx; py = rpy;
+        }
+
+        points.push({ x: px, y: py });
+    }
+    return points;
+}
+
+// ═══════════════════════════════════════════════════════
+// UI
+// ═══════════════════════════════════════════════════════
+
+function setP(name, val) {
+    P[name] = parseFloat(val);
+    const el = document.getElementById(name + '-v');
+    if (name === 'rotation') el.textContent = val + '°';
+    else if (name === 'expFrom' || name === 'expTo') el.textContent = parseFloat(val).toFixed(1);
+    else if (name === 'contourWeight') el.textContent = parseFloat(val).toFixed(1);
+    else if (name === 'strokeMM') el.textContent = parseFloat(val).toFixed(2);
+    else el.textContent = val;
+    if (['margin', 'cols', 'rows', 'gap', 'shapeW', 'shapeH'].includes(name)) updatePaperInfo();
+    redraw_all();
+}
+
+function toggleFill(on) {
+    P.filled = on;
+    document.getElementById('fill-on').className = 'button ' + (on ? 'button-primary' : 'button-secondary');
+    document.getElementById('fill-off').className = 'button ' + (on ? 'button-secondary' : 'button-primary');
+    redraw_all();
+}
+
+function updateSeed() {
+    const v = parseInt(document.getElementById('seed-input').value);
+    if (v > 0) { P.seed = v; redraw_all(); }
+    else document.getElementById('seed-input').value = P.seed;
+}
+
+function prevSeed() { P.seed = Math.max(1, P.seed - 1); document.getElementById('seed-input').value = P.seed; redraw_all(); }
+function nextSeed() { P.seed++; document.getElementById('seed-input').value = P.seed; redraw_all(); }
+function randSeed() { P.seed = Math.floor(Math.random() * 999999) + 1; document.getElementById('seed-input').value = P.seed; redraw_all(); }
+
+function downloadPNG() { saveCanvas('squircle_s' + P.seed, 'png'); }
+
+function resetAll() {
+    P = JSON.parse(JSON.stringify(DEFAULTS));
+    for (const key of Object.keys(DEFAULTS)) {
+        const el = document.getElementById(key);
+        if (el) el.value = DEFAULTS[key];
+    }
+    paperKey = 'A3';
+    orientation = 'landscape';
+    document.getElementById('paperSize').value = 'A3';
+    setOrientation('landscape');
+    setP('expFrom', P.expFrom);
+    setP('expTo', P.expTo);
+    setP('shapeW', P.shapeW);
+    setP('shapeH', P.shapeH);
+    setP('rotation', P.rotation);
+    setP('noiseFrom', P.noiseFrom);
+    setP('noiseTo', P.noiseTo);
+    setP('cols', P.cols);
+    setP('rows', P.rows);
+    setP('gap', P.gap);
+    setP('contourWeight', P.contourWeight);
+    setP('margin', P.margin);
+    setP('strokeMM', P.strokeMM);
+    toggleFill(P.filled);
+    document.getElementById('seed-input').value = P.seed;
+    updatePaperInfo();
+    redraw_all();
+}
+
+window.addEventListener('load', () => {
+    document.getElementById('seed-input').value = P.seed;
+    updatePaperInfo();
+});
+</script>
+</body>
+</html>
