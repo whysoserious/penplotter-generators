@@ -18,7 +18,7 @@ const PAPER_SIZES = {
 };
 
 const SEED_TYPES   = ['center', 'random', 'all-alive', 'alternating', 'left-edge'];
-const OUTPUT_MODES = ['dots', 'runs'];
+const OUTPUT_MODES = ['dots', 'runs', 'chained'];
 const DOT_MARKERS  = ['segment', 'point'];
 
 // Presets — rule3 means "5-cell equivalent of Wolfram k=2 r=1 rule N"
@@ -48,6 +48,7 @@ const MAX_PREVIEW_W  = 900;       // on-screen size of that canvas
 const MAX_PREVIEW_H  = 700;
 const PEN_CYCLE_S    = 0.3;       // rough pen-up + pen-down time, seconds
 const DRAW_SPEED     = 60;        // rough drawing speed, mm/s
+const TRAVEL_SPEED   = 150;       // rough pen-up travel speed, mm/s
 
 const settings = {
   paper: 'A4',
@@ -68,7 +69,9 @@ let ruleInput;
 let ruleInfoDiv;
 let statsDiv;
 let seedInput;
-let grid = null;      // { W, H, p, cols, rows, x0, y0, cells, alive, runCount, inkLen }
+let grid   = null;   // { W, H, p, cols, rows, x0, y0, cells, alive, runCount, maxRun, chains }
+let shapes = null;   // { pts: Float64Array [x,y,…], off: Int32Array } — polylines in mm
+let plan   = null;   // { order: Int32Array, flip: Uint8Array, ink, travel }
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
@@ -194,6 +197,8 @@ function resizeForPaper() {
 
 function update() {
   regenerate();
+  shapes = grid ? buildShapes(grid, settings.outputMode) : null;
+  plan   = shapes ? orderShapes(shapes) : null;
   drawPreview();
   updateStats();
 }
@@ -240,6 +245,64 @@ function rowRuns(cells) {
   return runs;
 }
 
+// Index of the run covering `col`, or -1 if there is none or it is already taken.
+function findRun(runs, used, col) {
+  let lo = 0, hi = runs.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (runs[mid][1] < col)      lo = mid + 1;
+    else if (runs[mid][0] > col) hi = mid - 1;
+    else return used[mid] ? -1 : mid;
+  }
+  return -1;
+}
+
+// Chain horizontal runs into continuous polylines: when a run ends directly above an
+// alive cell in the next row, the pen steps down and carries on instead of lifting.
+// That vertical step is the hull of two dots the pen places anyway, so it widens the
+// drawing by nothing — it only fills the waist between them, which is meant to be black.
+// Entering a run in the middle, the pen sweeps the short side first and doubles back;
+// re-inking costs travel, never an extra pen cycle. Points are cell coordinates [col,row].
+function buildChains(g) {
+  const runs = [], used = [];
+  for (let r = 0; r < g.rows; r++) {
+    const rs = rowRuns(g.cells[r]);
+    runs.push(rs);
+    used.push(new Uint8Array(rs.length));
+  }
+
+  const chains = [];
+  for (let r = 0; r < g.rows; r++) {
+    for (let j = 0; j < runs[r].length; j++) {
+      if (used[r][j]) continue;
+      used[r][j] = 1;
+
+      const [a, b] = runs[r][j];
+      const pts = [a, r, b, r];
+      let exit = b, cr = r;
+
+      for (;;) {
+        const nr = cr + 1;
+        if (nr >= g.rows) break;
+        const k = findRun(runs[nr], used[nr], exit);
+        if (k < 0) break;
+        used[nr][k] = 1;
+
+        const [na, nb] = runs[nr][k];
+        const near = (exit - na <= nb - exit) ? na : nb;
+        const far  = near === na ? nb : na;
+        pts.push(exit, nr);
+        if (near !== exit) pts.push(near, nr);
+        if (far !== near)  pts.push(far, nr);
+        exit = far;
+        cr = nr;
+      }
+      chains.push(pts);
+    }
+  }
+  return chains;
+}
+
 function regenerate() {
   const g = gridGeometry();
   if (g.cols * g.rows > MAX_CELLS) { grid = null; return; }
@@ -249,7 +312,7 @@ function regenerate() {
   const cells  = new Array(g.rows);
 
   let row = makeInitialRow(g.cols, rnd);
-  let alive = 0, runCount = 0, inkLen = 0, maxRun = 0;
+  let alive = 0, runCount = 0, maxRun = 0;
 
   for (let r = 0; r < g.rows; r++) {
     cells[r] = row;
@@ -257,71 +320,228 @@ function regenerate() {
     for (const [a, b] of rowRuns(row)) {
       runCount++;
       if (b - a + 1 > maxRun) maxRun = b - a + 1;
-      inkLen += (b - a) * g.p + EPS;
     }
     row = nextRow(row, rule32);
   }
 
-  grid = { ...g, cells, alive, runCount, inkLen, maxRun };
+  grid = { ...g, cells, alive, runCount, maxRun };
+  grid.chains = buildChains(grid);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
-// Preview — drawn straight on the 2D context, batched per row, because a full sheet can
-// hold hundreds of thousands of dots.
+// Shapes — everything the pen has to draw, as flat polylines in millimetres.
+// Shape i owns the points off[i] … off[i+1]-1.
+
+function buildShapes(g, mode) {
+  const pts = [];
+  const off = [0];
+  const X = c => g.x0 + c * g.p;
+  const Y = r => g.y0 + r * g.p;
+  const close = () => off.push(pts.length / 2);
+
+  if (mode === 'chained') {
+    for (const c of g.chains) {
+      // A chain of one lone cell has zero length; give it a stub the plotter can see.
+      if (c.length === 4 && c[0] === c[2] && c[1] === c[3]) {
+        const x = X(c[0]), y = Y(c[1]);
+        pts.push(x - EPS / 2, y, x + EPS / 2, y);
+      } else {
+        for (let i = 0; i < c.length; i += 2) pts.push(X(c[i]), Y(c[i + 1]));
+      }
+      close();
+    }
+  } else if (mode === 'runs') {
+    for (let r = 0; r < g.rows; r++) {
+      const y = Y(r);
+      for (const [a, b] of rowRuns(g.cells[r])) {
+        if (a === b) pts.push(X(a) - EPS / 2, y, X(b) + EPS / 2, y);
+        else         pts.push(X(a), y, X(b), y);
+        close();
+      }
+    }
+  } else {
+    for (let r = 0; r < g.rows; r++) {
+      const y = Y(r), row = g.cells[r];
+      for (let i = 0; i < g.cols; i++) {
+        if (!row[i]) continue;
+        const x = X(i);
+        pts.push(x - EPS / 2, y, x + EPS / 2, y);
+        close();
+      }
+    }
+  }
+
+  return { pts: Float64Array.from(pts), off: Int32Array.from(off) };
+}
+
+// Greedy nearest-neighbour over shape endpoints, either end allowed as the entry point,
+// with a uniform bucket grid so the search stays local. Beats drawing row by row because
+// the next row is only one pitch away while the next gap in the same row can be
+// centimetres wide — the pen ends up weaving down a narrow column band instead of
+// sweeping the full width. Greedy lands a little above optimal, which no plotter file
+// format lets us close anyway; vpype's linesort would redo this pass regardless.
+function orderShapes(sh) {
+  const { pts, off } = sh;
+  const n = off.length - 1;
+  const order = new Int32Array(n);
+  const flip  = new Uint8Array(n);
+  if (n === 0) return { order, flip, ink: 0, travel: 0 };
+
+  const N  = 2 * n;
+  const ex = new Float64Array(N);
+  const ey = new Float64Array(N);
+  let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+
+  for (let i = 0; i < n; i++) {
+    const a = off[i] * 2, b = (off[i + 1] - 1) * 2;
+    ex[i * 2]     = pts[a];     ey[i * 2]     = pts[a + 1];
+    ex[i * 2 + 1] = pts[b];     ey[i * 2 + 1] = pts[b + 1];
+  }
+  for (let e = 0; e < N; e++) {
+    if (ex[e] < minx) minx = ex[e];
+    if (ex[e] > maxx) maxx = ex[e];
+    if (ey[e] < miny) miny = ey[e];
+    if (ey[e] > maxy) maxy = ey[e];
+  }
+
+  const w    = Math.max(maxx - minx, 1e-6);
+  const h    = Math.max(maxy - miny, 1e-6);
+  const cell = Math.max(1e-3, Math.sqrt(w * h / N) * 1.5);
+  const gw   = Math.floor(w / cell) + 1;
+  const gh   = Math.floor(h / cell) + 1;
+  const nb   = gw * gh;
+
+  const eb = new Int32Array(N);           // bucket of every endpoint
+  for (let e = 0; e < N; e++) {
+    const cx = Math.min(gw - 1, (ex[e] - minx) / cell | 0);
+    const cy = Math.min(gh - 1, (ey[e] - miny) / cell | 0);
+    eb[e] = cy * gw + cx;
+  }
+
+  const start = new Int32Array(nb + 1);   // CSR buckets, no per-bucket arrays
+  for (let e = 0; e < N; e++) start[eb[e] + 1]++;
+  for (let k = 0; k < nb; k++) start[k + 1] += start[k];
+  const items  = new Int32Array(N);
+  const cursor = start.slice(0, nb);
+  for (let e = 0; e < N; e++) items[cursor[eb[e]]++] = e;
+  const left = new Int32Array(nb);        // live endpoints left per bucket
+  for (let k = 0; k < nb; k++) left[k] = start[k + 1] - start[k];
+
+  const used = new Uint8Array(n);
+  let px = 0, py = 0, best = -1, bestD = Infinity;
+
+  const scan = (cx, cy) => {
+    if (cx < 0 || cx >= gw || cy < 0 || cy >= gh) return;
+    const k = cy * gw + cx;
+    if (left[k] === 0) return;
+    for (let t = start[k]; t < start[k + 1]; t++) {
+      const e = items[t];
+      if (used[e >> 1]) continue;
+      const dx = ex[e] - px, dy = ey[e] - py;
+      const d  = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = e; }
+    }
+  };
+
+  for (let done = 0; done < n; done++) {
+    best = -1; bestD = Infinity;
+    const ccx = Math.max(0, Math.min(gw - 1, (px - minx) / cell | 0));
+    const ccy = Math.max(0, Math.min(gh - 1, (py - miny) / cell | 0));
+    const maxRing = gw + gh;
+
+    for (let ring = 0; ring <= maxRing; ring++) {
+      if (best >= 0) {
+        const reach = (ring - 1) * cell;
+        if (reach > 0 && reach * reach > bestD) break;
+      }
+      const yTop = ccy - ring, yBot = ccy + ring;
+      for (let cy = yTop; cy <= yBot; cy++) {
+        if (cy === yTop || cy === yBot) {
+          for (let cx = ccx - ring; cx <= ccx + ring; cx++) scan(cx, cy);
+        } else {
+          scan(ccx - ring, cy);
+          scan(ccx + ring, cy);
+        }
+      }
+    }
+    if (best < 0) {                        // safety net; the ring walk should always find one
+      for (let e = 0; e < N; e++) {
+        if (used[e >> 1]) continue;
+        const dx = ex[e] - px, dy = ey[e] - py;
+        const d  = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = e; }
+      }
+    }
+
+    const i = best >> 1;
+    used[i] = 1;
+    left[eb[i * 2]]--;
+    left[eb[i * 2 + 1]]--;
+    order[done] = i;
+    flip[done]  = best & 1;                // entered by the far end -> draw it reversed
+
+    const exitE = i * 2 + (flip[done] ? 0 : 1);
+    px = ex[exitE];
+    py = ey[exitE];
+  }
+
+  return { order, flip, ...measurePlan(sh, order, flip) };
+}
+
+function measurePlan(sh, order, flip) {
+  const { pts, off } = sh;
+  let ink = 0, travel = 0, px = 0, py = 0;
+
+  for (let t = 0; t < order.length; t++) {
+    const i = order[t], rev = flip[t] === 1;
+    const a = off[i], b = off[i + 1];
+    const inA = rev ? b - 1 : a;
+    const inB = rev ? a : b - 1;
+
+    travel += Math.hypot(pts[inA * 2] - px, pts[inA * 2 + 1] - py);
+    for (let k = a; k < b - 1; k++) {
+      ink += Math.hypot(pts[(k + 1) * 2] - pts[k * 2], pts[(k + 1) * 2 + 1] - pts[k * 2 + 1]);
+    }
+    px = pts[inB * 2];
+    py = pts[inB * 2 + 1];
+  }
+  return { ink, travel };
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Preview — drawn straight on the 2D context from the same shapes the SVG exports, so
+// what you see is what the plotter draws. Batched, because a full sheet can hold
+// hundreds of thousands of them.
 
 function drawPreview() {
   background(255);
-  if (!grid) return;
+  if (!shapes) return;
 
-  const { p, cols, rows, x0, y0, cells } = grid;
+  const { pts, off } = shapes;
+  const n   = off.length - 1;
   const s   = previewScale();
   const ctx = drawingContext;
 
   ctx.save();
   ctx.scale(s, s);
-  ctx.fillStyle   = '#000';
   ctx.strokeStyle = '#000';
   ctx.lineWidth   = settings.penWidth;
   ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
 
-  const r = settings.penWidth / 2;
-
-  for (let ri = 0; ri < rows; ri++) {
-    const y   = y0 + ri * p;
-    const row = cells[ri];
-
-    if (settings.outputMode === 'runs') {
-      const runs = rowRuns(row);
-      if (!runs.length) continue;
-      ctx.beginPath();
-      for (const [a, b] of runs) {
-        const [xa, xb] = runEnds(a, b, x0, p);
-        ctx.moveTo(xa, y);
-        ctx.lineTo(xb, y);
-      }
-      ctx.stroke();
-    } else {
-      ctx.beginPath();
-      let any = false;
-      for (let i = 0; i < cols; i++) {
-        if (!row[i]) continue;
-        const x = x0 + i * p;
-        ctx.moveTo(x + r, y);
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        any = true;
-      }
-      if (any) ctx.fill();
+  const CHUNK = 4000;
+  for (let i0 = 0; i0 < n; i0 += CHUNK) {
+    const i1 = Math.min(n, i0 + CHUNK);
+    ctx.beginPath();
+    for (let i = i0; i < i1; i++) {
+      const a = off[i], b = off[i + 1];
+      ctx.moveTo(pts[a * 2], pts[a * 2 + 1]);
+      for (let k = a + 1; k < b; k++) ctx.lineTo(pts[k * 2], pts[k * 2 + 1]);
     }
+    ctx.stroke();
   }
 
   ctx.restore();
-}
-
-// A run of one cell has zero length, which no plotter would register — give it a stub.
-function runEnds(a, b, x0, p) {
-  const xa = x0 + a * p;
-  const xb = x0 + b * p;
-  return a === b ? [xa - EPS / 2, xb + EPS / 2] : [xa, xb];
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -419,9 +639,10 @@ function buildControls() {
     settings.outputMode = v; update();
   });
   createDiv(
-    '<b>dots</b> — one pen dot per alive cell, exactly as asked.<br>' +
-    '<b>runs</b> — horizontal neighbours merged into one stroke: identical ink, ' +
-    'a fraction of the plotting time.'
+    '<b>dots</b> — one pen dot per alive cell.<br>' +
+    '<b>runs</b> — horizontal neighbours merged into one stroke.<br>' +
+    '<b>chained</b> — those strokes also linked downwards into one continuous ' +
+    'polyline per blob. Same ink as <b>dots</b>, far fewer pen lifts.'
   ).parent(root).class('note');
 
   // Only affects the exported file, not the grid or the preview.
@@ -470,7 +691,8 @@ function updateStats() {
 
   // Some rules (18, 90, 184…) never put two cells side by side: every alive cell sits on
   // one parity sublattice, so its nearest alive neighbour is a diagonal one, pitch*sqrt(2)
-  // away. Such a pattern needs a much tighter pitch before it reads as a filled surface.
+  // away. Such a pattern needs a much tighter pitch before it reads as a filled surface,
+  // and neither runs nor chained can merge anything.
   const diagonalOnly = grid.alive > 1 && grid.maxRun === 1;
 
   let coverage, hint = '';
@@ -492,20 +714,21 @@ function updateStats() {
     else                     coverage = '<span class="warn">dots do not touch — visible gaps</span>';
   }
 
-  const dots    = grid.alive;
-  const isRuns  = settings.outputMode === 'runs';
-  const cycles  = isRuns ? grid.runCount : dots;
-  const inkLen  = isRuns ? grid.inkLen : dots * EPS;
-  const seconds = cycles * PEN_CYCLE_S + inkLen / DRAW_SPEED;
+  const cells   = grid.cols * grid.rows;
+  const cycles  = plan ? plan.order.length : 0;
+  const seconds = cycles * PEN_CYCLE_S + plan.ink / DRAW_SPEED + plan.travel / TRAVEL_SPEED;
 
   statsDiv.html(
     `<div>Pitch <b>${p.toFixed(3)} mm</b> — ${coverage}</div>` +
     `<div>Grid <b>${groupNum(grid.cols)} × ${groupNum(grid.rows)}</b> ` +
-    `= ${groupNum(grid.cols * grid.rows)} cells</div>` +
-    `<div>Alive <b>${groupNum(dots)}</b> dots ` +
-    `(${(100 * dots / (grid.cols * grid.rows)).toFixed(1)} %)</div>` +
-    `<div>Pen down/up <b>${groupNum(cycles)}</b>× ` +
-    `<span class="dim">(dots ${groupNum(dots)} / runs ${groupNum(grid.runCount)})</span></div>` +
+    `= ${groupNum(cells)} cells</div>` +
+    `<div>Alive <b>${groupNum(grid.alive)}</b> dots ` +
+    `(${(100 * grid.alive / cells).toFixed(1)} %)</div>` +
+    `<div>Pen down/up <b>${groupNum(cycles)}</b>× <span class="dim">` +
+    `(dots ${groupNum(grid.alive)} / runs ${groupNum(grid.runCount)} / ` +
+    `chained ${groupNum(grid.chains.length)})</span></div>` +
+    `<div>Draws <b>${(plan.ink / 1000).toFixed(1)} m</b>, ` +
+    `travels <b>${(plan.travel / 1000).toFixed(1)} m</b> with the pen up</div>` +
     `<div>Rough plot time <b>${formatDuration(seconds)}</b></div>` +
     hint
   );
@@ -541,53 +764,55 @@ function addSlider(parent, labelText, min, max, val, step, onChange) {
 //
 // One stroke group, no fills, no background rectangle — everything in the file is meant
 // to be plotted. stroke-width is the pen width and the caps are round, so the file
-// previews exactly as the finished plot looks. Rows alternate direction (serpentine) to
-// keep the head from running back across the sheet on every line.
+// previews exactly as the finished plot looks. Shapes come out in the order the pen
+// should visit them, each already flipped to the end it should be entered from.
 
 function exportSvg() {
-  if (!grid) {
+  if (!grid || !shapes || !plan) {
     alert('Grid is too large to generate. Raise the pen width or pitch, or use smaller paper.');
     return;
   }
 
-  const { W, H, p, cols, rows, x0, y0, cells } = grid;
+  const { W, H, p, cols, rows } = grid;
+  const { pts, off } = shapes;
+  const { order, flip } = plan;
   const f = n => String(+n.toFixed(3));
 
-  let body = '';
-  for (let ri = 0; ri < rows; ri++) {
-    const y   = y0 + ri * p;
-    const row = cells[ri];
-    const rev = (ri & 1) === 1;
-    let d = '';
+  // Zero-length markers only make sense for single dots, never for a polyline.
+  const asPoint = settings.outputMode === 'dots' && settings.dotMarker === 'point';
+  const CHUNK   = 400;   // subpaths per <path>, purely to keep the DOM small
 
-    if (settings.outputMode === 'runs') {
-      const runs = rowRuns(row);
-      if (!runs.length) continue;
-      if (rev) runs.reverse();
-      for (const [a, b] of runs) {
-        let [xa, xb] = runEnds(a, b, x0, p);
-        if (rev) [xa, xb] = [xb, xa];
-        d += `M${f(xa)},${f(y)}L${f(xb)},${f(y)}`;
-      }
+  let body = '', d = '', held = 0;
+  for (let t = 0; t < order.length; t++) {
+    const i = order[t], rev = flip[t] === 1;
+    const a = off[i], b = off[i + 1];
+
+    if (asPoint) {
+      d += `M${f((pts[a * 2] + pts[(b - 1) * 2]) / 2)},${f(pts[a * 2 + 1])}l0,0`;
+    } else if (b - a === 2 && pts[a * 2 + 1] === pts[(a + 1) * 2 + 1]) {
+      // Flat two-point stroke — a dot stub or a merged run. Relative keeps the file small.
+      const x0 = rev ? pts[(a + 1) * 2] : pts[a * 2];
+      const x1 = rev ? pts[a * 2] : pts[(a + 1) * 2];
+      d += `M${f(x0)},${f(pts[a * 2 + 1])}l${f(x1 - x0)},0`;
     } else {
-      const stub = settings.dotMarker === 'segment';
-      for (let k = 0; k < cols; k++) {
-        const i = rev ? cols - 1 - k : k;
-        if (!row[i]) continue;
-        const x = x0 + i * p;
-        d += stub
-          ? `M${f(x - EPS / 2)},${f(y)}l${f(EPS)},0`
-          : `M${f(x)},${f(y)}l0,0`;
+      const step = rev ? -1 : 1;
+      let k = rev ? b - 1 : a;
+      d += `M${f(pts[k * 2])},${f(pts[k * 2 + 1])}`;
+      for (let q = 1; q < b - a; q++) {
+        k += step;
+        d += `L${f(pts[k * 2])},${f(pts[k * 2 + 1])}`;
       }
     }
 
-    if (d) body += `  <path d="${d}"/>\n`;
+    if (++held >= CHUNK) { body += `  <path d="${d}"/>\n`; d = ''; held = 0; }
   }
+  if (d) body += `  <path d="${d}"/>\n`;
 
   const meta =
     `rule=${settings.rule} seed=${settings.seedType}/${settings.seedValue} ` +
     `wrap=${settings.wrapEdges} pen=${settings.penWidth}mm pitch=${p.toFixed(3)}mm ` +
-    `grid=${cols}x${rows} dots=${grid.alive} mode=${settings.outputMode}`;
+    `grid=${cols}x${rows} dots=${grid.alive} mode=${settings.outputMode} ` +
+    `strokes=${order.length} ink=${(plan.ink / 1000).toFixed(1)}m travel=${(plan.travel / 1000).toFixed(1)}m`;
 
   const svg =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
