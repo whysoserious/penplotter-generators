@@ -104,3 +104,21 @@ canvas {
   background: white;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
+
+#controls .info {
+  margin-top: 12px;
+  padding: 8px 10px;
+  background: #ececef;
+  border-left: 3px solid #c4c4cc;
+  border-radius: 2px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #555;
+}
+
+#controls .info .count {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a6dd1;
+  letter-spacing: -0.01em;
+}

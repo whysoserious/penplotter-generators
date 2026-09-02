@@ -43,12 +43,25 @@ const DISTRIBUTIONS = [
 
 const MAX_PREVIEW_W = 900;
 const MAX_PREVIEW_H = 700;
+const PREVIEW_DENSITY = 4;
+
+// Dots on a square grid of pitch p cover the paper completely once
+// p <= penWidth / sqrt(2), i.e. once the spacing drops to ~70.7 % of the nib.
+const FULL_COVERAGE_SPACING = 100 / Math.SQRT2;
+
+// Purely advisory: past this the regeneration is noticeably slow, but the pitch
+// is never altered to stay under it -- the geometry is whatever you dialled in.
+const BUSY_CELLS = 20000000;
+
+// Poisson-placed stipple needs several times the grid's dot count before the
+// gaps close; without this the black end of a stipple gradient stays speckled.
+const STIPPLE_OVERSAMPLE = 3;
 
 const settings = {
   paper: 'A4',
   orientation: 'portrait',
-  cellSize: 2,
-  dotRadius: 0.5,
+  penWidth: 0.5,
+  solidFillSpacing: 70,
   margin: 15,
   angle: 0,
   colorFrom: 0,
@@ -59,8 +72,41 @@ const settings = {
 };
 
 const circles = [];
+// Dots in plot order, flat and interleaved as [x0, y0, x1, y1, ...]. Flat rather
+// than an array of pairs because a large sheet holds millions of them and one
+// two-element array each costs far more than the two numbers it carries.
 let lastDots = [];
+let lastCells = 0;
+let lastGridLabel = '';
+let infoEl;
 let p5sketch;
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Pen geometry. One grid cell holds one dot and a dot is exactly as wide as the
+// nib, so the gradient runs from bare paper (no dots) to solid ink (overlapping
+// dots) with nothing to tune per algorithm.
+
+function dotDiameter() {
+  return settings.penWidth;
+}
+
+function dotCount() {
+  return lastDots.length / 2;
+}
+
+function penUpTravel() {
+  let total = 0;
+  for (let i = 2; i < lastDots.length; i += 2) {
+    const dx = lastDots[i] - lastDots[i - 2];
+    const dy = lastDots[i + 1] - lastDots[i - 1];
+    total += Math.sqrt(dx * dx + dy * dy);
+  }
+  return total;
+}
+
+function cellPitch() {
+  return settings.penWidth * settings.solidFillSpacing / 100;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////
 
@@ -69,11 +115,10 @@ function setup() {
   const [pw, ph] = paperDims();
   const cnv = createCanvas(pw, ph);
   cnv.parent('canvas-container');
+  pixelDensity(PREVIEW_DENSITY);
   applyCanvasDisplay();
 
   buildControls();
-
-  beginRecordSvg(p5sketch, null);
   regenerate();
 }
 
@@ -117,9 +162,12 @@ function buildControls() {
   addSlider(root, 'Angle (°)', 0, 360, settings.angle, 1, v => settings.angle = v);
   addSlider(root, 'Color from (0–255)', 0, 255, settings.colorFrom, 1, v => settings.colorFrom = v);
   addSlider(root, 'Color to (0–255)', 0, 255, settings.colorTo, 1, v => settings.colorTo = v);
-  addSlider(root, 'Cell size (mm)', 0.5, 10, settings.cellSize, 0.1, v => settings.cellSize = v);
-  addSlider(root, 'Dot radius (mm)', 0.1, 3, settings.dotRadius, 0.1, v => settings.dotRadius = v);
+  addSlider(root, 'Pen width (mm)', 0.1, 3, settings.penWidth, 0.05, v => settings.penWidth = v);
+  addSlider(root, 'Solid fill spacing (% of pen)', 20, 200, settings.solidFillSpacing, 1, v => settings.solidFillSpacing = v);
   addSlider(root, 'Margin (mm)', 0, 100, settings.margin, 1, v => settings.margin = v);
+
+  infoEl = createDiv('').parent(root);
+  infoEl.class('info');
 
   const cbRow = createDiv('').parent(root);
   cbRow.class('checkbox-row');
@@ -142,6 +190,29 @@ function buildControls() {
   const svgDots = createButton('Generate SVG (dots, for rapidograph)').parent(root);
   svgDots.class('primary');
   svgDots.mousePressed(exportSvgDots);
+}
+
+function updateInfo() {
+  if (!infoEl) return;
+  const lines = [
+    // Dot count first and loud: it is what decides how long the plot takes.
+    `<b class="count">${dotCount().toLocaleString('en-US')}</b> dots`,
+    `${Math.round(penUpTravel() / 1000).toLocaleString('en-US')} m of pen travel`,
+    `Dot &oslash; ${dotDiameter().toFixed(2)} mm &middot; pitch ${cellPitch().toFixed(3)} mm`,
+    lastGridLabel,
+  ];
+  if (lastCells > BUSY_CELLS) {
+    lines.push('Large grid &mdash; every change takes a while to redraw.');
+  }
+  if (settings.algorithm === 'Stipple') {
+    lines.push('Stipple places dots at random, so the black end stays slightly speckled.');
+  } else if (settings.solidFillSpacing > FULL_COVERAGE_SPACING) {
+    lines.push('Spacing above ' + FULL_COVERAGE_SPACING.toFixed(1) +
+      '&nbsp;% &mdash; dots no longer overlap, so black stays a dot screen.');
+  } else {
+    lines.push('Dots overlap: the black end fills solid.');
+  }
+  infoEl.html(lines.join('<br>'));
 }
 
 function addCircle() {
@@ -238,6 +309,8 @@ function intensityAt(x, y, p) {
 
 function regenerate() {
   lastDots = [];
+  lastCells = 0;
+  lastGridLabel = '';
   clearRecordSvg();
   background(255);
   noStroke();
@@ -248,55 +321,96 @@ function regenerate() {
   } else {
     regenerateGrid();
   }
+
+  drawDots(dotDiameter());
+  updateInfo();
+}
+
+// Recording needs real p5 circles so plotSvg can capture them; the preview does
+// not, and one batched Path2D keeps hundreds of thousands of dots interactive.
+function drawDots(d) {
+  if (typeof isRecordingSVG === 'function' && isRecordingSVG()) {
+    for (let i = 0; i < lastDots.length; i += 2) {
+      circle(lastDots[i], lastDots[i + 1], d);
+    }
+    return;
+  }
+  const r = d / 2;
+  const path = new Path2D();
+  // Below a few device pixels an arc and a square are the same handful of pixels,
+  // and rect() is a great deal cheaper when there are millions of them.
+  const blocky = d * PREVIEW_DENSITY < 3;
+  for (let i = 0; i < lastDots.length; i += 2) {
+    const x = lastDots[i];
+    const y = lastDots[i + 1];
+    if (blocky) {
+      path.rect(x - r, y - r, d, d);
+    } else {
+      path.moveTo(x + r, y);
+      path.arc(x, y, r, 0, Math.PI * 2);
+    }
+  }
+  drawingContext.fillStyle = '#000';
+  drawingContext.fill(path);
 }
 
 function regenerateGrid() {
   const p = gradientParams();
   const { W, H, m } = p;
-  const cellSize = settings.cellSize;
-  const cols = Math.max(1, Math.floor((W - 2 * m) / cellSize));
-  const rows = Math.max(1, Math.floor((H - 2 * m) / cellSize));
+  const pitch = cellPitch();
+  const cols = Math.max(1, Math.floor((W - 2 * m) / pitch));
+  const rows = Math.max(1, Math.floor((H - 2 * m) / pitch));
+  lastCells = cols * rows;
+  lastGridLabel = `${cols} &times; ${rows} cells`;
 
-  const cx = c => m + (c + 0.5) * cellSize;
-  const cy = r => m + (r + 0.5) * cellSize;
+  const cx = c => m + (c + 0.5) * pitch;
+  const cy = r => m + (r + 0.5) * pitch;
 
-  const grid = new Float32Array(cols * rows);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      grid[r * cols + c] = intensityAt(cx(c), cy(r), p);
-    }
-  }
-
-  const dots = runDither(grid, cols, rows, settings.algorithm);
-  const d = settings.dotRadius * 2;
-  for (let i = 0; i < dots.length; i++) {
-    if (dots[i]) {
-      const c = i % cols;
-      const r = (i - c) / cols;
-      const x = cx(c);
+  ditherRows(cols, rows, settings.algorithm,
+    (r, out) => {
       const y = cy(r);
-      lastDots.push([x, y]);
-      circle(x, y, d);
-    }
-  }
+      for (let c = 0; c < cols; c++) out[c] = intensityAt(cx(c), y, p);
+    },
+    (r, mask) => {
+      // Boustrophedon: rows alternate direction, so the pen finishes each row
+      // where the next one starts instead of flying back to the left margin.
+      const y = cy(r);
+      if (r % 2 === 0) {
+        for (let c = 0; c < cols; c++) if (mask[c]) lastDots.push(cx(c), y);
+      } else {
+        for (let c = cols - 1; c >= 0; c--) if (mask[c]) lastDots.push(cx(c), y);
+      }
+    });
 }
 
 function regenerateStipple() {
   const p = gradientParams();
   const { W, H, m } = p;
-  const area = (W - 2 * m) * (H - 2 * m);
-  if (area <= 0) return;
-  const density = 1 / (settings.cellSize * settings.cellSize);
-  const nCandidates = Math.floor(area * density);
-  const d = settings.dotRadius * 2;
-  for (let i = 0; i < nCandidates; i++) {
-    const x = m + Math.random() * (W - 2 * m);
-    const y = m + Math.random() * (H - 2 * m);
-    const intensity = intensityAt(x, y, p);
-    if (Math.random() > intensity) {
-      lastDots.push([x, y]);
-      circle(x, y, d);
+  const w = W - 2 * m;
+  const h = H - 2 * m;
+  if (w <= 0 || h <= 0) return;
+  const pitch = cellPitch();
+  const nCandidates = Math.floor(w * h * STIPPLE_OVERSAMPLE / (pitch * pitch));
+  lastCells = nCandidates;
+  lastGridLabel = `${nCandidates.toLocaleString('en-US')} samples`;
+
+  // Random placement has no rows to sweep, so sample band by band and sort each
+  // band by x, alternating direction. That keeps one band in memory at a time
+  // and still turns a shotgun of pen hops into a sweep across the sheet.
+  const nBands = Math.max(1, Math.ceil(h / pitch));
+  const perBand = Math.ceil(nCandidates / nBands);
+  const band = [];
+  for (let b = 0; b < nBands; b++) {
+    band.length = 0;
+    const y0 = m + b * h / nBands;
+    const bandH = h / nBands;
+    for (let i = 0; i < perBand; i++) {
+      const x = m + Math.random() * w;
+      const y = y0 + Math.random() * bandH;
+      if (Math.random() > intensityAt(x, y, p)) band.push([x, y]);
     }
+    band.sort(b % 2 === 0 ? (q, v) => q[0] - v[0] : (q, v) => v[0] - q[0]);
+    for (let i = 0; i < band.length; i++) lastDots.push(band[i][0], band[i][1]);
   }
 }
 
@@ -334,51 +448,71 @@ function applyDistribution(t, kind) {
 // `grid` holds intensity 0..1 where 0 = black (dot), 1 = white (no dot).
 // Returns Uint8Array of 0/1 where 1 means draw a dot.
 
-function runDither(grid, cols, rows, algo) {
-  const out = new Uint8Array(cols * rows);
+// Dither the grid one row at a time. `fillIntensity(r, out)` writes the row's
+// intensities (0 = black, 1 = white) and `emitRow(r, mask)` gets a 0/1 mask of
+// where to put dots. Only the error-diffusion kernels need memory beyond a
+// single row, and only as many rows ahead as the kernel reaches -- so paper size
+// no longer decides whether the whole thing fits in RAM.
+function ditherRows(cols, rows, algo, fillIntensity, emitRow) {
+  const mask = new Uint8Array(cols);
+  const row = new Float32Array(cols);
 
   if (algo.startsWith('Bayer')) {
     const n = algo === 'Bayer 2x2' ? 2 : algo === 'Bayer 4x4' ? 4 : 8;
     const m = bayerMatrix(n);
     const denom = n * n;
     for (let r = 0; r < rows; r++) {
+      fillIntensity(r, row);
+      const mr = m[r % n];
       for (let c = 0; c < cols; c++) {
-        const threshold = (m[r % n][c % n] + 0.5) / denom;
-        out[r * cols + c] = grid[r * cols + c] < threshold ? 1 : 0;
+        mask[c] = row[c] < (mr[c % n] + 0.5) / denom ? 1 : 0;
       }
+      emitRow(r, mask);
     }
-    return out;
+    return;
   }
 
   if (algo === 'Random') {
-    for (let i = 0; i < grid.length; i++) {
-      out[i] = grid[i] < Math.random() ? 1 : 0;
+    for (let r = 0; r < rows; r++) {
+      fillIntensity(r, row);
+      for (let c = 0; c < cols; c++) mask[c] = row[c] < Math.random() ? 1 : 0;
+      emitRow(r, mask);
     }
-    return out;
+    return;
   }
 
-  const buf = Float32Array.from(grid);
   const kernel = errorDiffusionKernel(algo);
+  let depth = 1;
+  for (let k = 0; k < kernel.length; k++) depth = Math.max(depth, kernel[k][1] + 1);
+  const buf = [];
+  for (let i = 0; i < depth; i++) buf.push(new Float32Array(cols));
+  // Seed the rows the kernel can already reach, so diffused error always lands
+  // on top of an intensity that is in place. Float addition does not reassociate
+  // and a cell sitting on the 0.5 threshold flips if the order changes.
+  for (let r = 0; r < depth && r < rows; r++) fillIntensity(r, buf[r]);
+
   for (let r = 0; r < rows; r++) {
+    const cur = buf[r % depth];
     for (let c = 0; c < cols; c++) {
-      const idx = r * cols + c;
-      const old = buf[idx];
+      const old = cur[c];
       const newV = old < 0.5 ? 0 : 1;
-      out[idx] = newV === 0 ? 1 : 0;
+      mask[c] = newV === 0 ? 1 : 0;
       const err = old - newV;
       for (let k = 0; k < kernel.length; k++) {
-        const kx = kernel[k][0];
-        const ky = kernel[k][1];
-        const w = kernel[k][2];
-        const nc = c + kx;
-        const nr = r + ky;
-        if (nc >= 0 && nc < cols && nr >= 0 && nr < rows) {
-          buf[nr * cols + nc] += err * w;
-        }
+        const nc = c + kernel[k][0];
+        if (nc < 0 || nc >= cols) continue;
+        const nr = r + kernel[k][1];
+        if (nr >= rows) continue;
+        buf[nr % depth][nc] += err * kernel[k][2];
       }
     }
+    emitRow(r, mask);
+    // This row is done, so its slot becomes row r + depth. Seeding it here
+    // (rather than zeroing) is what keeps the addition order above intact.
+    const next = r + depth;
+    if (next < rows) fillIntensity(next, cur);
+    else cur.fill(0);
   }
-  return out;
 }
 
 function errorDiffusionKernel(algo) {
@@ -431,23 +565,30 @@ function bayerMatrix(n) {
 
 function exportSvg() {
   const [W, H] = paperDims();
+  // Replay the dots already on screen rather than re-running the dither, so the
+  // file matches the preview even for the randomised algorithms.
+  beginRecordSvg(p5sketch, null);
+  background(255);
+  noStroke();
+  fill(0);
+  drawDots(dotDiameter());
   setSvgResolutionDPCM(10);
   setSvgDocumentSize(W, H);
   const svgStr = endRecordSvg();
   saveStrings([svgStr], `dithering ${settings.paper}-${settings.orientation} ${timestamp()}`, 'svg');
-  beginRecordSvg(p5sketch, null);
-  regenerate();
 }
 
 function exportSvgDots() {
   const [W, H] = paperDims();
-  const strokeW = settings.dotRadius * 2;
+  const strokeW = dotDiameter();
   const fmt = n => n.toFixed(3).replace(/\.?0+$/, '');
-  const d = lastDots.map(([x, y]) => {
-    const sx = fmt(x);
-    const sy = fmt(y);
-    return `M${sx} ${sy}L${sx} ${sy}`;
-  }).join('');
+  const parts = [];
+  for (let i = 0; i < lastDots.length; i += 2) {
+    const sx = fmt(lastDots[i]);
+    const sy = fmt(lastDots[i + 1]);
+    parts.push(`M${sx} ${sy}L${sx} ${sy}`);
+  }
+  const d = parts.join('');
   const svg =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<svg xmlns="http://www.w3.org/2000/svg" ` +

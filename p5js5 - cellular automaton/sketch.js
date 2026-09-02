@@ -46,6 +46,8 @@ const settings = {
   fillCells: true,
   cellStyle: 'filled',
   dotRadius: 0.5,
+  penWidth: 0.5,    // physical pen tip width (mm); used as stroke-width on outlines and hatch
+  hatchSize: 0.25,  // spacing between adjacent hatch passes (mm)
   aliveColor: 0,
   deadColor: 255,
 };
@@ -186,6 +188,8 @@ function buildControls() {
   });
   addSlider(root, 'Cell size (mm)', 0.5, 10, settings.cellSize, 0.1, v => settings.cellSize = v);
   addSlider(root, 'Dot radius (mm)', 0.1, 3, settings.dotRadius, 0.1, v => settings.dotRadius = v);
+  addSlider(root, 'Pen width (mm)', 0.05, 2, settings.penWidth, 0.05, v => settings.penWidth = v);
+  addSlider(root, 'Hatch size (mm)', 0.05, 2, settings.hatchSize, 0.05, v => settings.hatchSize = v);
   addSlider(root, 'Margin (mm)', 0, 50, settings.margin, 1, v => settings.margin = v);
   addSlider(root, 'Alive color (0–255)', 0, 255, settings.aliveColor, 1, v => settings.aliveColor = v);
   addSlider(root, 'Dead color (0–255)', 0, 255, settings.deadColor, 1, v => settings.deadColor = v);
@@ -321,21 +325,60 @@ function regenerate() {
   }
 }
 
-function drawCell(x, y, cs) {
-  if (settings.fillCells) {
-    fill(settings.aliveColor);
-    noStroke();
-  } else {
-    noFill();
-    stroke(settings.aliveColor);
+// Boustrophedon hatch points for a square cell.
+// - Vertical: first/last pass at pen/2 from the edge, stroke (width=pen, centred
+//   on path) reaches y / y+cs exactly.
+// - Horizontal: path spans the full cell so the pen physically travels to the
+//   side edges (not relying on stroke caps). Boustrophedon connectors lie on
+//   the outline's left/right edges — harmless double pass with the same pen.
+function cellHatchPoints(x, y, cs, pen, spacing) {
+  const avail = cs - pen;
+  if (avail < 0) return null;
+  const n = Math.max(2, Math.ceil(avail / spacing) + 1);
+  const step = avail / (n - 1);
+  const xL = x;
+  const xR = x + cs;
+  const yT = y + pen / 2;
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const yi = yT + i * step;
+    if (i % 2 === 0) pts.push([xL, yi], [xR, yi]);
+    else             pts.push([xR, yi], [xL, yi]);
   }
+  return pts;
+}
+
+function drawPolyline(pts) {
+  beginShape();
+  for (const [px, py] of pts) vertex(px, py);
+  endShape();
+}
+
+function drawCell(x, y, cs) {
+  const pen = settings.penWidth;
   switch (settings.cellStyle) {
-    case 'filled':
-    case 'outline':
+    case 'filled': {
+      noFill();
+      stroke(settings.aliveColor);
+      strokeWeight(pen);
       rect(x, y, cs, cs);
+      const hatch = cellHatchPoints(x, y, cs, pen, settings.hatchSize);
+      if (hatch) drawPolyline(hatch);
+      strokeWeight(1);
+      break;
+    }
+    case 'outline':
+      noFill();
+      stroke(settings.aliveColor);
+      strokeWeight(pen);
+      rect(x, y, cs, cs);
+      strokeWeight(1);
       break;
     case 'dot':
+      if (settings.fillCells) { fill(settings.aliveColor); noStroke(); }
+      else                    { noFill(); stroke(settings.aliveColor); strokeWeight(pen); }
       circle(x + cs / 2, y + cs / 2, settings.dotRadius * 2);
+      strokeWeight(1);
       break;
   }
 }
@@ -355,7 +398,8 @@ function exportSvg() {
   const deadH   = grayHex(settings.deadColor);
   const fmt     = n => +n.toFixed(4) + '';
 
-  const strokeW = cs * 0.05; // thin relative stroke for outline mode
+  const pen = settings.penWidth;
+  const strokeAttrs = `fill="none" stroke="${aliveH}" stroke-width="${fmt(pen)}" stroke-linecap="square" stroke-linejoin="miter"`;
 
   let shapes = '';
   for (const [x, y] of lastCells) {
@@ -366,14 +410,17 @@ function exportSvg() {
       if (settings.fillCells) {
         shapes += `  <circle cx="${cx}" cy="${cy}" r="${fmt(r)}" fill="${aliveH}"/>\n`;
       } else {
-        shapes += `  <circle cx="${cx}" cy="${cy}" r="${fmt(r)}" fill="none" stroke="${aliveH}" stroke-width="${fmt(strokeW)}"/>\n`;
+        shapes += `  <circle cx="${cx}" cy="${cy}" r="${fmt(r)}" fill="none" stroke="${aliveH}" stroke-width="${fmt(pen)}"/>\n`;
+      }
+    } else if (settings.cellStyle === 'filled') {
+      shapes += `  <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(cs)}" height="${fmt(cs)}" ${strokeAttrs}/>\n`;
+      const hatch = cellHatchPoints(x, y, cs, pen, settings.hatchSize);
+      if (hatch) {
+        const ptsStr = hatch.map(([px, py]) => `${fmt(px)},${fmt(py)}`).join(' ');
+        shapes += `  <polyline points="${ptsStr}" ${strokeAttrs}/>\n`;
       }
     } else {
-      if (settings.fillCells) {
-        shapes += `  <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(cs)}" height="${fmt(cs)}" fill="${aliveH}"/>\n`;
-      } else {
-        shapes += `  <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(cs)}" height="${fmt(cs)}" fill="none" stroke="${aliveH}" stroke-width="${fmt(strokeW)}"/>\n`;
-      }
+      shapes += `  <rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(cs)}" height="${fmt(cs)}" ${strokeAttrs}/>\n`;
     }
   }
 
@@ -385,9 +432,19 @@ function exportSvg() {
     shapes +
     `</svg>\n`;
 
-  saveStrings(
-    [svg],
-    `ca5 r${settings.rule} ${settings.paper}-${settings.orientation} ${timestamp()}`,
-    'svg'
-  );
+  const fname = `ca5_r${settings.rule}_${settings.paper}-${settings.orientation}_${timestamp().replace(/[ .:]/g, '-')}.svg`;
+  downloadBlob(svg, fname, 'image/svg+xml');
+}
+
+function downloadBlob(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

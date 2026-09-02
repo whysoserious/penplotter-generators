@@ -15,13 +15,19 @@
 //
 // The lines are horizontal and sit at the top edge, the quarters, the middle and the
 // bottom edge of the cell — they are added downwards, so the top edge is always the
-// first one to appear and the bottom edge the last. Each terrace owns a configurable
-// share of the height range, and the shares are normalised to 100 %.
+// first one to appear and the bottom edge the last. A top or bottom edge with nothing
+// on the other side of the boundary is inset half a pen width into its own tile, the
+// same way a zone outline is, so its ink stays inside the tile it belongs to; against a
+// black tile it stays centred instead, so the two overlap rather than merely touch.
+// Each terrace owns a configurable share of the height range, normalised to 100 %.
 //
-// Everything is drawn as merged horizontal runs: neighbouring cells that ask for a line
-// at the same height hand the pen one continuous stroke, and the line shared by a cell
-// and the one below it is drawn once. The whole state of the sketch lives in the URL,
-// so a plot is reproduced by pasting its link.
+// Lines are drawn as merged horizontal runs: neighbouring cells that ask for a line at
+// the same height hand the pen one continuous stroke, and the line shared by a cell and
+// the one below it is drawn once. Solid cells are not drawn as lines at all — they are
+// gathered into zones, and every zone gets an outline on its own boundary plus a hatch
+// inside it, both inset by half a pen width so the black lands exactly on the tiles it
+// is made of. The whole state of the sketch lives in the URL, so a plot is reproduced
+// by pasting its link.
 ////////////////////////////////////////////////////////////////////////////////////////
 
 const PAPER_SIZES = {
@@ -93,7 +99,7 @@ const SCENES = [
 const MAX_CELLS      = 1_500_000; // refuse grids that would freeze the browser
 const MAX_STROKES    = 600_000;   // and stroke counts no plotter would ever finish
 const BUSY_STROKES   = 120_000;   // above this, warn about the plot time
-const MAX_SUBDIV     = 32;        // fill-hatch subdivisions per quarter cell
+const EPS            = 0.01;      // mm — length of the stub that stands in for one dot
 const PREVIEW_MAX_PX = 1500;      // preview canvas resolution (paper is measured in mm)
 const MAX_PREVIEW_W  = 900;       // on-screen size of that canvas
 const MAX_PREVIEW_H  = 700;
@@ -111,6 +117,10 @@ const settings = {
   margin: 10,
   penWidth: 0.5,        // mm — Rotring nib size
   inkColor: '#000000',
+
+  // cut guides — dots on the edge of the sheet, for trimming an oversized plot back
+  cropMarks: false,
+  cropMarkGap: 400,     // mm — the most that is ever left between two marks
 
   // the lattice both generators live on
   cellSize: 3,          // mm — one automaton cell is one terrace tile
@@ -551,10 +561,11 @@ function paperDims() {
   return settings.orientation === 'portrait' ? [a, b] : [b, a];
 }
 
-// The pen is round: ink reaches half a pen width past the ends of every stroke, so the
+// The pen is round: ink reaches half a pen width past the ends of a terrace line, so the
 // usable span is inset by that much before the tiles are counted. The grid is then
 // centred on the sheet, and whatever does not divide evenly becomes a slightly wider
-// margin rather than a cropped tile.
+// margin rather than a cropped tile. One cell always fits, however large it is asked to
+// be — a cell wider than the sheet simply leaves a single tile.
 function gridGeometry() {
   const [W, H] = paperDims();
   const cs = Math.max(0.2, settings.cellSize);
@@ -563,18 +574,13 @@ function gridGeometry() {
   const cols = Math.max(1, Math.floor(spanW / cs));
   const rows = Math.max(1, Math.floor(spanH / cs));
 
-  // The five terrace lines sit on the quarters of a cell; the solid tile subdivides those
-  // quarters further until the gap is at most the fill spacing. Everything therefore
-  // lands on one lattice of dy = cs / (4 * sub), which is what lets a line shared by two
-  // tiles be drawn exactly once.
-  const gap = Math.max(0.02, settings.penWidth * settings.fillPercent / 100);
-  const sub = clamp(Math.ceil((cs / 4) / gap - 1e-9), 1, MAX_SUBDIV);
-
+  // The terrace lines sit on the quarters of a cell; the hatch inside a black zone has a
+  // lattice of its own, spaced by the fill setting alone. Nothing has to divide anything
+  // evenly any more, so the cell size is free.
   return {
     W, H, cs, cols, rows,
     cells: cols * rows,
-    sub,
-    dy: cs / (4 * sub),
+    gap: fillGap(),
     x0: (W - cols * cs) / 2,
     y0: (H - rows * cs) / 2,
   };
@@ -892,75 +898,357 @@ function terraces(g, fld, a) {
 // Shapes — what the pen draws, as flat polylines in millimetres.
 // Shape i owns the points off[i] … off[i+1]-1.
 //
-// Every line of every tile lands on one horizontal lattice of dy = cs / (4 * sub), so the
-// whole sheet can be built line by line: for each lattice row, mark the columns that want
-// a stroke there and emit the maximal runs of marked columns as single strokes. Two
-// things fall out of that for free — neighbouring tiles asking for the same line hand the
-// pen one long stroke instead of many short ones, and the line a tile shares with the
-// tile below it (its bottom edge against the other's top edge) is drawn exactly once.
+// Two passes, because a terrace line and a black zone want opposite things from the pen.
+//
+// A line is a line: it is centred on the height it stands for — the top edge, a quarter,
+// the middle of a tile — and it runs the full width of the tile. Neighbouring tiles that
+// ask for a line at the same height hand the pen one continuous stroke, and the line a
+// tile shares with the tile below it is drawn exactly once.
+//
+// A black zone is an area, and what has to land exactly is its edge, not the centre of
+// any one stroke. So every zone is drawn as its own outline — one closed stroke, inset
+// by half a pen width so the ink stops on the zone's boundary instead of half a pen past
+// it — and then hatched inside that boundary, the hatch runs inset by the same half pen
+// at both ends. The black then comes out exactly the size of the tiles it is made of,
+// and its edge is one smooth stroke instead of a row of round caps.
+//
+// The hatch sits on a lattice of its own, spaced by the fill setting alone. It no longer
+// has to land on the quarters of a tile, which is what lets the cell size grow without
+// bound — and it is why a tile's fill is no longer pinned to the line positions of the
+// tile beside it.
 
-function levelMasks(sub) {
-  const J = 4 * sub;
-  const masks = [];
-  for (let L = 0; L < LEVELS; L++) {
-    const m = new Uint8Array(J + 1);
-    if (L === LEVELS - 1) {
-      m.fill(1);                                   // solid — every lattice line
-    } else {
-      for (let k = 0; k < L; k++) m[k * sub] = 1;  // top edge first, bottom edge last
-    }
-    masks.push(m);
-  }
-  return masks;
+function makeSink() {
+  const pts = [], off = [0];
+  return {
+    pts, off,
+    line(x0, y, x1) { pts.push(x0, y, x1, y); off.push(pts.length / 2); },
+    poly(flat) { for (let i = 0; i < flat.length; i++) pts.push(flat[i]); off.push(pts.length / 2); },
+  };
 }
 
-function buildShapes(g, a, t) {
-  const J = 4 * g.sub;
-  const lm = levelMasks(g.sub);
-  const cols = g.cols;
+// Spacing of the solid hatch — a share of the pen width, so at 100 % the passes just
+// touch and below that they overlap into one black surface. Nothing rounds it any more.
+function fillGap() {
+  return Math.max(0.02, settings.penWidth * settings.fillPercent / 100);
+}
 
-  const pts = [];
-  const off = [0];
+// How far the outline and the hatch are pulled inside a zone's boundary: half a pen
+// width, clamped so a one-cell zone can shrink to a point but never turn inside out.
+function zoneInset(cs) {
+  return Math.min(settings.penWidth / 2, cs / 2);
+}
 
-  // One lattice row of column flags, plus the row carried over the tile boundary.
-  const rowMask = Array.from({ length: J + 1 }, () => new Uint8Array(cols));
+function solidMask(g, a, t) {
+  const sol = new Uint8Array(g.cells);
+  for (let i = 0; i < g.cells; i++) {
+    if (a.alive[i] && t.level[i] === LEVELS - 1) sol[i] = 1;
+  }
+  return sol;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Pass 1 — the terrace lines of levels 1…5, on the quarters of a tile.
+//
+// Solid tiles sit this pass out: they are zones, not stacks of lines. A line that runs
+// up against a zone simply ends at the shared edge, where the black already is.
+
+function terraceLines(g, a, t, sol, sink) {
+  const cols = g.cols, q = g.cs / 4;
+  const inset = zoneInset(g.cs);
+  const rowMask = Array.from({ length: 5 }, () => new Uint8Array(cols));
   const carry   = new Uint8Array(cols);
+  const topOnly = new Uint8Array(cols);
+  const botOnly = new Uint8Array(cols);
+  const shared  = new Uint8Array(cols);
 
   const emit = (mask, y) => {
     let start = -1;
     for (let c = 0; c < cols; c++) {
       if (mask[c]) { if (start < 0) start = c; }
-      else if (start >= 0) {
-        pts.push(g.x0 + start * g.cs, y, g.x0 + c * g.cs, y);
-        off.push(pts.length / 2);
-        start = -1;
-      }
+      else if (start >= 0) { sink.line(g.x0 + start * g.cs, y, g.x0 + c * g.cs); start = -1; }
     }
-    if (start >= 0) {
-      pts.push(g.x0 + start * g.cs, y, g.x0 + cols * g.cs, y);
-      off.push(pts.length / 2);
-    }
+    if (start >= 0) sink.line(g.x0 + start * g.cs, y, g.x0 + cols * g.cs);
   };
 
   for (let r = 0; r < g.rows; r++) {
-    rowMask[0].set(carry);                          // bottom edges of the row above
-    for (let j = 1; j <= J; j++) rowMask[j].fill(0);
+    for (let j = 0; j <= 4; j++) rowMask[j].fill(0);
 
     const base = r * cols;
     for (let c = 0; c < cols; c++) {
       const L = a.alive[base + c] ? t.level[base + c] : 0;
-      if (L === 0) continue;
-      const m = lm[L];
-      for (let j = 0; j <= J; j++) if (m[j]) rowMask[j][c] = 1;
+      if (L === 0 || L === LEVELS - 1) continue;
+      for (let k = 0; k < L; k++) rowMask[k][c] = 1; // top edge first, bottom edge last
+    }
+
+    // An edge that only one of the two tiles asks for is pulled half a pen width into
+    // that tile, exactly like a zone outline, so its ink stops on the tile boundary
+    // instead of standing that much past it — a line beside a black zone then starts and
+    // ends where the zone's own outline does. Where both tiles ask for the boundary the
+    // two share one stroke, and a shared stroke stays centred on it: it belongs to both
+    // and cannot lean into either.
+    //
+    // A black tile across the boundary is the one case where the line stays centred even
+    // though only one tile asks for it: the half pen it then stands past the boundary
+    // lands on the zone, which is black anyway, and the zone's outline is inset by that
+    // same half pen. Pulled back, the two would only touch — and two strokes that touch
+    // leave a hairline of paper between them and a visible step where the line meets the
+    // zone. Centred, they overlap and the black closes over the boundary.
+    for (let c = 0; c < cols; c++) {
+      const top = rowMask[0][c], bot = carry[c];
+      const solBelow = sol[base + c];
+      const solAbove = r > 0 ? sol[base - cols + c] : 0;
+      topOnly[c] = top & (bot ^ 1) & (solAbove ^ 1);
+      botOnly[c] = bot & (top ^ 1) & (solBelow ^ 1);
+      shared[c]  = (top & bot) | (top & solAbove) | (bot & solBelow);
     }
 
     const yTop = g.y0 + r * g.cs;
-    for (let j = 0; j < J; j++) emit(rowMask[j], yTop + j * g.dy);
-    carry.set(rowMask[J]);
+    emit(botOnly, yTop - inset);
+    emit(shared,  yTop);
+    emit(topOnly, yTop + inset);
+    for (let j = 1; j < 4; j++) emit(rowMask[j], yTop + j * q);
+    carry.set(rowMask[4]);
   }
-  emit(carry, g.y0 + g.rows * g.cs);                // the last bottom edge
+  emit(carry, g.y0 + g.rows * g.cs - inset);        // the last bottom edge, nothing below
+}
 
-  return { pts: Float64Array.from(pts), off: Int32Array.from(off) };
+////////////////////////////////////////////////////////////////////////////////////////
+// Pass 2a — the hatch inside the black zones.
+//
+// One lattice for the whole sheet, so neighbouring tiles hand the pen one long stroke.
+// A pass is dropped from a column when it comes closer than the inset to a boundary the
+// zone does not share with a solid neighbour — the outline covers that band — and every
+// run is shortened by the inset at both ends so its round caps land on the boundary.
+//
+// The passes are then chained: a run is joined to the run above it and drawn the other
+// way round, so a zone comes out as one long serpentine stroke instead of a stack of
+// loose ones. That is not about travel — it is what keeps the black in one piece. Left
+// loose, the runs are ordered like everything else, and the pen, having just finished a
+// run at the edge of a zone, finds the end of the terrace line beside it closer than the
+// next run: it leaves the black, follows the lines away and comes back hundreds of
+// strokes later to fill the band it skipped. Whatever the machine's repeatability is
+// worth, it shows up as a pale seam right there — on the height of the line that lured
+// the pen out. One stroke cannot be interrupted, so the seam has nowhere to appear.
+//
+// A run is only joined to one it overlaps, and the join is placed inside that overlap,
+// so the short hop between two passes always runs over black.
+
+function solidHatch(g, sol, inset, sink) {
+  const cols = g.cols, rows = g.rows, cs = g.cs;
+  const gap  = fillGap();
+  const mask = new Uint8Array(cols);
+  const kMax = Math.floor((rows * cs) / gap);
+  let open = [];                          // the runs of the row above, still being chained
+
+  for (let k = 0; k <= kMax; k++) {
+    const y = g.y0 + k * gap;
+    let r = Math.floor(k * gap / cs);
+    if (r >= rows) r = rows - 1;
+
+    const base = r * cols;
+    const up   = r > 0        ? base - cols : -1;
+    const down = r < rows - 1 ? base + cols : -1;
+    const yTop = g.y0 + r * cs;
+    const nearTop = (y - yTop)      < inset - 1e-9;
+    const nearBot = (yTop + cs - y) < inset - 1e-9;
+
+    let any = 0;
+    for (let c = 0; c < cols; c++) {
+      let on = sol[base + c];
+      if (on && nearTop && (up   < 0 || !sol[up   + c])) on = 0;
+      if (on && nearBot && (down < 0 || !sol[down + c])) on = 0;
+      mask[c] = on;
+      any |= on;
+    }
+    if (!any) { for (const p of open) sink.poly(p.pts); open = []; continue; }
+
+    const runs = [];
+    let start = -1;
+    for (let c = 0; c <= cols; c++) {
+      const on = c < cols ? mask[c] : 0;
+      if (on) { if (start < 0) start = c; }
+      else if (start >= 0) {
+        const xa = g.x0 + start * cs + inset;
+        const xb = g.x0 + c * cs - inset;
+        if (xb > xa + 1e-9) runs.push({ xa, xb, pts: null, ex: 0 });
+        start = -1;
+      }
+    }
+
+    for (const run of runs) {
+      let best = null, bestD = Infinity;
+      for (const p of open) {
+        if (p.taken) continue;
+        const lo = Math.max(p.xa, run.xa), hi = Math.min(p.xb, run.xb);
+        if (hi < lo - 1e-9) continue;                 // no overlap: the hop would cross paper
+        const entry = Math.abs(run.xa - p.ex) <= Math.abs(run.xb - p.ex) ? run.xa : run.xb;
+        const a = Math.min(p.ex, entry), b = Math.max(p.ex, entry);
+        if (a < lo - 1e-9 || b > hi + 1e-9) continue; // and neither may the hop itself
+        const d = Math.abs(entry - p.ex);
+        if (d < bestD) { bestD = d; best = p; }
+      }
+
+      const entry = best ? (Math.abs(run.xa - best.ex) <= Math.abs(run.xb - best.ex) ? run.xa : run.xb)
+                         : run.xa;
+      run.pts = best ? (best.taken = true, best.pts) : [];
+      run.ex  = entry === run.xa ? run.xb : run.xa;
+      run.pts.push(entry, y, run.ex, y);
+    }
+
+    for (const p of open) if (!p.taken) sink.poly(p.pts);
+    open = runs;
+  }
+  for (const p of open) sink.poly(p.pts);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Pass 2b — the outline around every black zone.
+//
+// The boundary of the solid cells is walked as directed cell edges that always keep the
+// black on their right, so every zone comes out as a closed loop and a hole inside a
+// zone comes out as a loop of its own, wound the other way. Collinear edges are merged,
+// then each loop is offset inwards by the inset: the edges are axis-aligned, so a corner
+// is just the horizontal edge's new y against the vertical edge's new x.
+
+const DIR_DX = [1, 0, -1, 0];
+const DIR_DY = [0, 1, 0, -1];
+
+function zoneOutlines(g, sol, inset, sink) {
+  const cols = g.cols, rows = g.rows;
+  const VW = cols + 1;
+  const nv = VW * (rows + 1);
+
+  const from = [], dir = [];
+  const outA = new Int32Array(nv).fill(-1);
+  const outB = new Int32Array(nv).fill(-1);
+
+  const add = (vx, vy, d) => {
+    const v = vy * VW + vx, e = from.length;
+    from.push(v); dir.push(d);
+    if (outA[v] < 0) outA[v] = e; else outB[v] = e;
+  };
+
+  for (let r = 0; r < rows; r++) {
+    const base = r * cols;
+    for (let c = 0; c < cols; c++) {
+      if (!sol[base + c]) continue;
+      if (r === 0        || !sol[base - cols + c]) add(c,     r,     0); // top    →
+      if (c === cols - 1 || !sol[base + c + 1])    add(c + 1, r,     1); // right  ↓
+      if (r === rows - 1 || !sol[base + cols + c]) add(c + 1, r + 1, 2); // bottom ←
+      if (c === 0        || !sol[base + c - 1])    add(c,     r + 1, 3); // left   ↑
+    }
+  }
+
+  const used = new Uint8Array(from.length);
+  const seq  = [];
+  let zones  = 0;
+
+  for (let e0 = 0; e0 < from.length; e0++) {
+    if (used[e0]) continue;
+    seq.length = 0;
+
+    for (let e = e0; e >= 0; ) {
+      used[e] = 1;
+      const v = from[e], vx = v % VW, vy = (v - vx) / VW, d = dir[e];
+      seq.push(vx, vy, d);
+
+      const nvx = vx + DIR_DX[d], nvy = vy + DIR_DY[d];
+      const w = nvy * VW + nvx;
+      const a = outA[w], b = outB[w];
+      let next = -1;
+      // Prefer the sharpest right turn, so cells that only touch at a corner stay
+      // separate zones and the loop never crosses itself.
+      for (let p = 0; p < 3 && next < 0; p++) {
+        const want = (d + [1, 0, 3][p]) % 4;
+        if (a >= 0 && !used[a] && dir[a] === want) next = a;
+        else if (b >= 0 && !used[b] && dir[b] === want) next = b;
+      }
+      e = next;
+    }
+    if (emitLoop(g, seq, inset, sink)) zones++;
+  }
+  return zones;
+}
+
+function emitLoop(g, seq, inset, sink) {
+  const n = seq.length / 3;
+  if (n < 4) return false;
+
+  // Keep a vertex only where the direction changes — the runs in between are collinear.
+  const vs = [];
+  for (let i = 0; i < n; i++) {
+    const dPrev = seq[((i - 1 + n) % n) * 3 + 2];
+    const d     = seq[i * 3 + 2];
+    if (d !== dPrev) vs.push(seq[i * 3], seq[i * 3 + 1], d);
+  }
+  const m = vs.length / 3;
+  if (m < 4) return false;
+
+  const out = new Float64Array(2 * (m + 1));
+  for (let j = 0; j < m; j++) {
+    const x = g.x0 + vs[j * 3]     * g.cs;
+    const y = g.y0 + vs[j * 3 + 1] * g.cs;
+    const dIn  = vs[((j - 1 + m) % m) * 3 + 2];
+    const dOut = vs[j * 3 + 2];
+    const nIn  = (dIn  + 1) % 4;                    // inwards is to the right of travel
+    const nOut = (dOut + 1) % 4;
+    if (DIR_DY[dIn] === 0) {                        // arrived horizontally: it fixes y
+      out[j * 2]     = x + inset * DIR_DX[nOut];
+      out[j * 2 + 1] = y + inset * DIR_DY[nIn];
+    } else {                                        // arrived vertically: it fixes x
+      out[j * 2]     = x + inset * DIR_DX[nIn];
+      out[j * 2 + 1] = y + inset * DIR_DY[nOut];
+    }
+  }
+  out[m * 2]     = out[0];
+  out[m * 2 + 1] = out[1];
+  sink.poly(out);
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Cut guides
+//
+// A dot on every corner of the sheet, and more along its edges until no two are further
+// apart than the spacing asks, so a plot run on oversized paper can be trimmed back to
+// its nominal size by cutting through them. The marks sit on the page rectangle itself,
+// which is the line to cut along; like p5js7's stipple they are hairline stubs rather
+// than zero-length paths, because plotter toolchains drop the latter.
+
+function cropMarkShapes(g, sink) {
+  const step = Math.max(1, settings.cropMarkGap);
+  const dot  = (x, y) => sink.line(x - EPS / 2, y, x + EPS / 2);
+
+  const nx = Math.max(1, Math.ceil(g.W / step));
+  const ny = Math.max(1, Math.ceil(g.H / step));
+
+  for (let i = 0; i <= nx; i++) {           // top and bottom edges, corners included
+    const x = g.W * i / nx;
+    dot(x, 0);
+    dot(x, g.H);
+  }
+  for (let j = 1; j < ny; j++) {            // the side edges, corners already placed
+    const y = g.H * j / ny;
+    dot(0, y);
+    dot(g.W, y);
+  }
+}
+
+function buildShapes(g, a, t) {
+  const sink  = makeSink();
+  const sol   = solidMask(g, a, t);
+  const inset = zoneInset(g.cs);
+
+  terraceLines(g, a, t, sol, sink);
+  const zones = zoneOutlines(g, sol, inset, sink);
+  solidHatch(g, sol, inset, sink);
+  if (settings.cropMarks) cropMarkShapes(g, sink);
+
+  return {
+    pts: Float64Array.from(sink.pts),
+    off: Int32Array.from(sink.off),
+    zones,
+  };
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -1238,11 +1526,10 @@ function buildControls() {
   addSection(root, 'Pen');
   addSlider(root, 'Pen width (mm)', 'penWidth', 0.1, 2, 0.05);
   addSlider(root, 'Solid fill spacing (% of pen)', 'fillPercent', 30, 100, 1,
-    'How close the hatch lines of a solid tile run, as a share of the pen width — at ' +
-    '100 % they just touch, below that they overlap into one black surface. It is an ' +
-    'upper bound: the hatch has to divide the quarter of a tile evenly for the shared ' +
-    'lines to land on each other, so the spacing rounds down. The stats say where it ' +
-    'ended up.');
+    'How close the hatch lines inside a black zone run, as a share of the pen width — ' +
+    'at 100 % they just touch, below that they overlap into one black surface. The ' +
+    'hatch has a lattice of its own, so this is the spacing exactly, not an upper ' +
+    'bound that rounds.');
   addColor(root, 'Ink', 'inkColor');
 
   // --- Paper ---
@@ -1250,9 +1537,15 @@ function buildControls() {
   addSelect(root, 'Size', 'paper', Object.keys(PAPER_SIZES), resizeForPaper);
   addSelect(root, 'Orientation', 'orientation', ['portrait', 'landscape'], resizeForPaper);
   addSlider(root, 'Margin (mm)', 'margin', 0, 50, 1);
-  addSlider(root, 'Cell size (mm)', 'cellSize', 0.5, 20, 0.1,
+  addCheckbox(root, 'Cut guide dots on the sheet edge', 'cropMarks');
+  addSlider(root, 'Most between two marks (mm)', 'cropMarkGap', 20, 1000, 10,
+    'A dot on each corner of the sheet, and more along the edges until no gap is wider ' +
+    'than this — cut through them to trim a plot back out of a larger piece of paper.');
+  addSlider(root, 'Cell size (mm)', 'cellSize', 0.5, 400, 0.1,
     'One automaton cell, one terrace tile. Its quarter is the spacing of the five ' +
-    'lines, so a tile much smaller than four pen widths cannot show them apart.');
+    'lines, so a tile much smaller than four pen widths cannot show them apart. There ' +
+    'is no upper limit: the hatch inside a black zone no longer has to divide the tile, ' +
+    'so a cell can be as large as the sheet.');
 
   // --- Automaton ---
   addSection(root, 'Automaton');
@@ -1415,6 +1708,7 @@ function setVisible(key, on) {
 function syncVisibility() {
   setVisible('seedDensity',  settings.seedType === 'random');
   setVisible('ditherAmount', settings.dither !== 'none');
+  setVisible('cropMarkGap',  settings.cropMarks);
 }
 
 function updateRuleInfo() {
@@ -1515,6 +1809,7 @@ function addCheckbox(parent, labelText, key, redrawOnly) {
   setters[key] = v => cb.checked(!!v);
   cb.changed(() => {
     settings[key] = cb.checked();
+    syncVisibility();
     if (redrawOnly) { drawPreview(); syncUrl(); } else update();
   });
   return cb;
@@ -1604,8 +1899,7 @@ function updateStats() {
   }
 
   const quarter = grid.cs / 4;
-  const gap     = grid.dy;
-  const solidN  = 4 * grid.sub + 1;
+  const gap     = grid.gap;
   const alive   = auto.on;
   const cells   = grid.cells;
   const seconds = strokes * PEN_CYCLE_S + plan.ink / DRAW_SPEED + plan.travel / TRAVEL_SPEED;
@@ -1616,6 +1910,7 @@ function updateStats() {
   const fillNote = gap <= settings.penWidth
     ? `<span class="ok">solid</span>`
     : `<span class="warn">striped, not solid</span>`;
+  const zones = shapes.zones;
 
   let hist = '';
   for (let L = LEVELS - 1; L >= 0; L--) {
@@ -1644,7 +1939,9 @@ function updateStats() {
   statsDiv.html(
     `<div>Tile <b>${grid.cs.toFixed(2)} mm</b>, lines ${quarter.toFixed(2)} mm apart ` +
     `— ${lineNote}</div>` +
-    `<div>Solid tile <b>${solidN} lines</b>, ${gap.toFixed(3)} mm apart — ${fillNote}</div>` +
+    `<div>Hatch <b>${gap.toFixed(3)} mm</b> apart — ${fillNote}</div>` +
+    `<div>Black zones <b>${groupNum(zones)}</b> ` +
+    `<span class="dim">each outlined on its own edge</span></div>` +
     `<div>Grid <b>${groupNum(grid.cols)} × ${groupNum(grid.rows)}</b> ` +
     `= ${groupNum(cells)} tiles</div>` +
     `<div class="big">Alive <b>${groupNum(alive)}</b> ` +
@@ -1675,14 +1972,16 @@ function metaComment() {
     `rule=${s.rule} seed=${s.seedType}/${s.seedValue}` +
     `${s.seedType === 'random' ? '@' + s.seedDensity : ''} wrap=${s.wrapEdges} ` +
     `warmup=${s.warmup} step=${s.genStep}${s.invertCells ? ' inverted' : ''} ` +
-    `cell=${s.cellSize}mm pen=${s.penWidth}mm fill=${s.fillPercent}%(${grid.dy.toFixed(3)}mm) ` +
+    `cell=${s.cellSize}mm pen=${s.penWidth}mm fill=${s.fillPercent}%(${grid.gap.toFixed(3)}mm) ` +
     `field=${s.fieldSeed} scale=${s.noiseScale}mm aspect=${s.aspect} angle=${s.angle} ` +
     `oct=${s.octaves}/${s.lacunarity}/${s.persistence} warp=${s.warpAmount}@${s.warpFreq} ` +
     `height=${s.heightMap} contrast=${s.contrast} level=${s.level}` +
     `${s.invertHeight ? ' inverted' : ''} ` +
     `relief=${s.reliefAmount}%@${s.lightAngle}°x${s.reliefGain} ` +
     `shares=${shareList().join('/')} dither=${s.dither}@${s.ditherAmount} ` +
-    `grid=${grid.cols}x${grid.rows} alive=${auto.on} strokes=${shapes.off.length - 1}`;
+    `${s.cropMarks ? 'cropmarks<=' + s.cropMarkGap + 'mm ' : ''}` +
+    `grid=${grid.cols}x${grid.rows} alive=${auto.on} zones=${shapes.zones} ` +
+    `strokes=${shapes.off.length - 1}`;
 }
 
 function exportSvg() {
@@ -1701,11 +2000,21 @@ function exportSvg() {
   for (let t = 0; t < order.length; t++) {
     const i = order[t], rev = flip[t] === 1;
     const a = off[i], b = off[i + 1];
-    // Every stroke is a horizontal run, so it is one relative line — the smallest the
-    // file can be without giving up the "point the pen the way it travels" ordering.
-    const x0 = rev ? pts[(b - 1) * 2] : pts[a * 2];
-    const x1 = rev ? pts[a * 2] : pts[(b - 1) * 2];
-    d += `M${f(x0)},${f(pts[a * 2 + 1])}l${f(x1 - x0)},0`;
+    const n = b - a;
+    // A hatch run is one horizontal segment, a zone outline a closed rectilinear loop;
+    // both come out as h/v steps, the smallest the file can be without giving up the
+    // "point the pen the way it travels" ordering.
+    let k  = rev ? b - 1 : a;
+    let px = pts[k * 2], py = pts[k * 2 + 1];
+    d += `M${f(px)},${f(py)}`;
+    for (let m = 1; m < n; m++) {
+      k += rev ? -1 : 1;
+      const x = pts[k * 2], y = pts[k * 2 + 1];
+      if (y === py)      d += `h${f(x - px)}`;
+      else if (x === px) d += `v${f(y - py)}`;
+      else               d += `l${f(x - px)},${f(y - py)}`;
+      px = x; py = y;
+    }
 
     if (++held >= CHUNK) { body += `  <path d="${d}"/>\n`; d = ''; held = 0; }
   }
