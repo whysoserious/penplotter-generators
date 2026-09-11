@@ -253,3 +253,22 @@ canvas {
   cursor: grab;
   touch-action: none;
 }
+
+#controls .keys div {
+  margin-top: 2px;
+}
+
+#controls .keys kbd {
+  display: inline-block;
+  min-width: 10px;
+  padding: 0 4px;
+  border: 1px solid #ccc;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: #fff;
+  color: #333;
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-align: center;
+}
