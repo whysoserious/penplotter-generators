@@ -14,12 +14,15 @@
 //      point that cannot see the lamp falls back to the ambient tone: a cast shadow;
 //   4. the tone — up to four hatching layers, each switched on above its own darkness
 //      threshold. The first layer runs one way, the next crosses it (or doubles it), so
-//      a darker face is literally more ink;
+//      a darker face is literally more ink. A texture — noise, strata, a chequer — moves
+//      that threshold point by point, so a face is a material rather than a flat grey;
 //   5. visibility — the grid is its own acceleration structure. A point on a hatch line
 //      or an edge is visible when the walk through the voxels between it and the camera
 //      (Amanatides–Woo) meets nothing; the same walk towards the lamp answers the shadow.
 //      Lines are sampled every SAMPLE_MM on paper and every change is pinned down by
-//      bisection, so a hidden line ends exactly where the occluder's outline passes.
+//      bisection, so a hidden line ends exactly where the occluder's outline passes;
+//   6. the border of a cast shadow, optionally: marching squares over the same shadow
+//      test, chained into contours and cut by the same walk.
 //
 // Nothing here needs WebGL: hidden lines are solved on the grid itself, and the plot is a
 // list of straight segments in millimetres, ordered for the pen and written out as SVG.
@@ -44,6 +47,10 @@ const HATCH_MODES    = ['along edges', 'screen angle'];
 const WALL_HATCH     = ['vertical', 'horizontal'];
 const EDGE_MODES     = ['outlines', 'every voxel', 'none'];
 const CUT_AROUND     = ['drawing', 'drawable area'];
+const TEXTURES       = ['none', 'grain', 'strata', 'marble', 'chequer', 'speckle',
+                        'dome', 'coffer', 'rings'];
+// The ones stamped on the faces themselves, which want one tile per voxel face.
+const FACE_TEXTURES  = ['dome', 'coffer', 'rings'];
 
 // Life-like rules in B/S notation — the digits are neighbour counts that give birth to a
 // dead cell (B) or keep a live one (S).
@@ -83,6 +90,19 @@ const SCENES = [
     generator: 'automaton stack', caRule: 'B1357/S1357', caSeed: 'center',
     sizeX: 63, sizeY: 63, sizeZ: 32, timeDir: 'downwards',
     projection: 'perspective', fov: 80, azimuth: 30, elevation: 14, lightAzimuth: -50 } },
+  { label: 'Eroded dunes', s: {
+    generator: 'terrain', sizeX: 64, sizeY: 64, sizeZ: 18, noiseScale: 22, octaves: 3,
+    elevation: 40, lightElevation: 35, shadowOutline: true,
+    texture: 'grain', textureScale: 4, textureAmount: 0.5 } },
+  { label: 'Marble ziggurat', s: {
+    generator: 'automaton stack', caRule: 'B1357/S02468', caSeed: 'center',
+    sizeX: 49, sizeY: 49, sizeZ: 25, timeDir: 'downwards', lightAzimuth: -55,
+    layers: 4, shadowOutline: true,
+    texture: 'marble', textureScale: 5, textureAmount: 0.55 } },
+  { label: 'Studded blocks', s: {
+    generator: 'terrain', sizeX: 14, sizeY: 14, sizeZ: 7, noiseScale: 8, octaves: 2,
+    hatchSpacing: 0.6, layers: 4, edges: 'every voxel', elevation: 38,
+    texture: 'dome', textureScale: 1, textureAmount: 0.45 } },
   { label: 'Canyon, wide angle', s: {
     generator: 'terrain', sizeX: 96, sizeY: 96, sizeZ: 24, noiseScale: 30, octaves: 4,
     peakGamma: 1.6, projection: 'perspective', fov: 95, azimuth: 20, elevation: 32,
@@ -98,6 +118,9 @@ const DOT_MM         = 0.01;      // mm — length of the stub that stands in fo
 const EPS_OFF        = 1e-4;      // voxels — a test point is lifted this far off its face
 const FRONT_EPS      = 1e-6;      // a face turned further away than this is seen edge-on
 const LINE_JITTER    = 1e-6;      // keeps a hatch line off the exact cell boundaries
+const OUTLINE_MM     = 0.6;       // mm on paper between two samples of a shadow contour
+const OUTLINE_BISECT = 8;         // halvings that pin a contour crossing down
+const OUTLINE_CELLS  = 250_000;   // most sample cells one plane's contour may spend
 const PREVIEW_MAX_PX = 1500;      // preview canvas resolution (paper is measured in mm)
 const MAX_PREVIEW_W  = 900;       // on-screen size of that canvas
 const MAX_PREVIEW_H  = 700;
@@ -180,6 +203,8 @@ const settings = {
   ambient: 15,          // %
   exposure: 0,
   shadows: true,
+  shadowOutline: false, // draw the border of every cast shadow as a line
+
 
   // hatching
   hatchSpacing: 1,      // mm on paper between the lines of one layer
@@ -189,6 +214,12 @@ const settings = {
   wallHatch: 'vertical',
   hatchAngle: 45,       // degrees, for the screen-angle mode
   edges: 'outlines',
+
+  // texture — a field over the solid that makes a face more than one flat tone
+  texture: 'none',
+  textureScale: 8,      // voxels per feature
+  textureAmount: 0.4,   // how far the field shifts the darkness, in tone units
+  textureSeed: 1,
 
   // view + output
   showModel: true,
@@ -208,6 +239,7 @@ let grid     = null;         // { nx, ny, nz, vox, count, sig, bmin, bmax } — 
 let view     = null;         // camera, lamp and the fit onto the paper
 let planes   = null;         // [{ o, ax, sg, L, ua, va, NU, NV, mask, count, bbox }]
 let tones    = null;         // per orientation: how many layers lit, how many in shadow
+let gates    = null;         // per orientation: what decides each layer, point by point
 let shapes   = null;         // { pts, off, hatch } — segments in mm
 let strokes  = 0;            // how many of them, even when there are too many to draw
 let plan     = null;         // { order, flip, ink, travel }
@@ -389,6 +421,157 @@ function fbm(nz, x, y, octaves, lacunarity, persistence) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
+// Texture
+//
+// A scalar field over the solid — 0 the lightest, 1 the darkest — that shifts how dark a
+// point is before the layer thresholds decide how much hatching it gets. A face is then
+// no longer one flat tone: the topmost layer breaks up wherever the field dips and closes
+// up wherever it rises, so the surface reads as a material instead of a shade of grey.
+// The field lives in voxel space and is sampled a hair *inside* the solid, so the top and
+// the side of one cube agree about which cell they belong to.
+//
+//   grain    — fractal noise: rough stone, cast concrete, sand
+//   strata   — bands across a gently dipping bedding plane: sedimentary rock
+//   marble   — the same bands, warped hard until they swirl
+//   chequer  — alternate cells, a mosaic laid over every face
+//   speckle  — one value per small cell: a coarse aggregate
+//
+// The last three are not fields through the solid but a motif in the face's own
+// coordinates, so every face of every voxel carries the same stamp — dome, coffer, rings.
+// The gate knows the orientation it was made for, which names the two axes that lie in
+// the face, so the point can be reduced to where it falls inside its tile.
+//
+// Nothing here changes the geometry. The field only moves tones across the thresholds,
+// so the lines stay on their own hatch grid and the plot stays clean.
+
+const GRAD3 = [
+  [1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0],
+  [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1],
+  [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1],
+];
+
+// Improved Perlin in three dimensions, seeded the same way as the 2D one above.
+function makePerlin3(seed) {
+  const rnd = mulberry32(seed);
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = (rnd() * (i + 1)) | 0;
+    const t = p[i]; p[i] = p[j]; p[j] = t;
+  }
+  const perm = new Uint16Array(512);
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  const mod12 = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) mod12[i] = i % 12;
+
+  const g = (h, x, y, z) => {
+    const G = GRAD3[mod12[h]];
+    return G[0] * x + G[1] * y + G[2] * z;
+  };
+  const mix = (a, b, t) => a + (b - a) * t;
+
+  return function (x, y, z) {
+    const fx = Math.floor(x), fy = Math.floor(y), fz = Math.floor(z);
+    const X = fx & 255, Y = fy & 255, Z = fz & 255;
+    const xf = x - fx, yf = y - fy, zf = z - fz;
+    const u = fade(xf), v = fade(yf), w = fade(zf);
+
+    const A = perm[X] + Y, AA = perm[A] + Z, AB = perm[A + 1] + Z;
+    const B = perm[X + 1] + Y, BA = perm[B] + Z, BB = perm[B + 1] + Z;
+
+    const n0 = mix(g(perm[AA],     xf, yf,     zf),     g(perm[BA],     xf - 1, yf,     zf),     u);
+    const n1 = mix(g(perm[AB],     xf, yf - 1, zf),     g(perm[BB],     xf - 1, yf - 1, zf),     u);
+    const n2 = mix(g(perm[AA + 1], xf, yf,     zf - 1), g(perm[BA + 1], xf - 1, yf,     zf - 1), u);
+    const n3 = mix(g(perm[AB + 1], xf, yf - 1, zf - 1), g(perm[BB + 1], xf - 1, yf - 1, zf - 1), u);
+    return mix(mix(n0, n1, v), mix(n2, n3, v), w);
+  };
+}
+
+function fbm3(nz, x, y, z, octaves) {
+  let amp = 1, freq = 1, sum = 0, norm = 0;
+  for (let o = 0; o < octaves; o++) {
+    sum  += amp * nz(x * freq, y * freq, z * freq);
+    norm += amp;
+    amp  *= 0.5;
+    freq *= 2;
+  }
+  return sum / norm;
+}
+
+// Motifs in a face's own coordinates, (fu, fv) running 0..1 across one tile. Each is
+// symmetric under a quarter turn and mirrors across the tile border, so which way round a
+// face lies never shows and neighbouring tiles meet without a seam.
+const FACE_MOTIF = {
+  // A bead: lightest in the middle, shading down to the flat ground between the beads.
+  dome: (fu, fv) => {
+    const r2 = 4 * ((fu - 0.5) * (fu - 0.5) + (fv - 0.5) * (fv - 0.5));
+    return r2 >= 1 ? 1 : 1 - Math.sqrt(1 - r2);
+  },
+  // A coffered panel: square rings of tone, darkest around the frame.
+  coffer: (fu, fv) => 2 * Math.max(Math.abs(fu - 0.5), Math.abs(fv - 0.5)),
+  // A turned boss: concentric rings, dark in the middle.
+  rings: (fu, fv) => {
+    const r = 2 * Math.hypot(fu - 0.5, fv - 0.5);
+    return 0.5 + 0.5 * Math.cos(3 * Math.PI * r);
+  },
+};
+
+let texField = null;         // (x, y, z, ax) -> 0..1, or null when there is no texture
+let texSig   = '';
+
+function ensureTexture() {
+  const s = settings;
+  const sig = `${s.texture}|${s.textureScale}|${s.textureSeed}`;
+  if (texSig === sig) return;
+  texSig = sig;
+  if (s.texture === 'none') { texField = null; return; }
+
+  const sc = Math.max(0.2, s.textureScale);
+  const seed = Math.floor(s.textureSeed) || 1;
+
+  const motif = FACE_MOTIF[s.texture];
+  if (motif) {
+    // AXES_UV: the face's own two axes follow from the one its normal lies on.
+    texField = (x, y, z, ax) => {
+      const u = (ax === 0 ? y : x) / sc, v = (ax === 2 ? y : z) / sc;
+      return motif(u - Math.floor(u), v - Math.floor(v));
+    };
+    return;
+  }
+
+  if (s.texture === 'chequer') {
+    texField = (x, y, z) =>
+      (Math.floor(x / sc) + Math.floor(y / sc) + Math.floor(z / sc)) & 1 ? 1 : 0;
+    return;
+  }
+  if (s.texture === 'speckle') {
+    texField = (x, y, z) => {
+      let h = Math.imul(Math.floor(x / sc), 374761393) ^
+              Math.imul(Math.floor(y / sc), 668265263) ^
+              Math.imul(Math.floor(z / sc), 1274126177) ^ seed;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      h ^= h >>> 16;
+      return (h >>> 0) / 4294967296;
+    };
+    return;
+  }
+
+  const nz = makePerlin3(seed);
+  if (s.texture === 'grain') {
+    texField = (x, y, z) => clamp(0.5 + 0.8 * fbm3(nz, x / sc, y / sc, z / sc, 3), 0, 1);
+    return;
+  }
+  // The bedding plane dips a little, so the bands cross the tops as well as the walls.
+  const warp = s.texture === 'marble' ? 1.4 : 0.3;
+  const ws = sc * 2.5;
+  texField = (x, y, z) => {
+    const w = warp * fbm3(nz, x / ws, y / ws, z / ws, 3);
+    return 0.5 + 0.5 * Math.sin(2 * Math.PI * ((z + 0.25 * x + 0.18 * y) / sc + w));
+  };
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////
 // Paper
 
 function paperDims() {
@@ -447,16 +630,18 @@ function resizeForPaper() {
 function update() {
   const t0 = performance.now();
   const g = ensureGrid();
+  ensureTexture();
 
   if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
-  view = planes = tones = shapes = plan = modelImg = null;
+  view = planes = tones = gates = shapes = plan = modelImg = null;
   strokes = 0;
   if (g.count > 0) {
     view   = makeView(g);
     planes = buildPlanes(g, view);
     fitView(view, planes);
     tones  = toneTable(view);
-    shapes = buildShapes(g, view, planes, tones);
+    gates  = gateTable(view, tones);
+    shapes = buildShapes(g, view, planes, tones, gates);
     strokes = shapes.off.length - 1;
     // Past the limit nothing is ordered, drawn or exported — the stats say why.
     if (strokes > MAX_STROKES) shapes = null;
@@ -869,6 +1054,11 @@ function orientationName(o) {
 // orientation can only be in two states — lit or in shadow — so all that is needed per
 // orientation is how many layers each state gets. Layers beyond the lit count and
 // within the shadow count are the ones that only draw inside a cast shadow.
+//
+// A texture moves that decision from the orientation down to the point: the darkness it
+// adds can carry a layer over its threshold, or hold it back. What a layer then needs is
+// not a flag but a gate — a test run wherever the hatch line is sampled, next to the
+// visibility walk, which the bisection in cutByPredicate ends exactly on.
 
 function layerThreshold(i, N) { return (i + 1) / (N + 1); }
 
@@ -886,9 +1076,55 @@ function toneTable(v) {
       if (1 - bLit > layerThreshold(i, N)) lit++;
       if (1 - bSh  > layerThreshold(i, N)) sh++;
     }
+    let dLit = 1 - bLit, dSh = 1 - bSh;
     // A face turned away from the lamp is its own shadow — nothing left to cast on it.
-    if (!settings.shadows || lam === 0) sh = lit;
-    out.push({ lam, bLit, bSh, lit, sh });
+    if (!settings.shadows || lam === 0) { sh = lit; dSh = dLit; }
+    out.push({ lam, bLit, bSh, dLit, dSh, lit, sh });
+  }
+  return out;
+}
+
+// What decides layer i on a face of orientation o. `null` draws wherever the point can be
+// seen, GATE_SKIP drops the layer and everything above it, and anything else is a test on
+// the point itself. With no texture the tests collapse back to the plain "only inside a
+// cast shadow" flag, which is how the sketch behaved before there were any.
+const GATE_SKIP = Symbol('skip');
+
+function gateTable(v, tn) {
+  const N = Math.round(clamp(settings.layers, 1, 4));
+  const A = texField ? clamp(settings.textureAmount, 0, 1) : 0;
+  const out = [];
+
+  for (let o = 0; o < 6; o++) {
+    const t = tn[o], same = t.dSh === t.dLit;
+    // The field belongs to the solid, so a test point is pushed back through its face.
+    const off = [0, 0, 0];
+    off[o >> 1] = (o & 1 ? 1 : -1) * 2 * EPS_OFF;
+
+    const ax = o >> 1;               // a face motif needs to know which axis it faces
+
+    const row = [];
+    let n = 0;
+    for (let i = 0; i < N; i++) {
+      const thr = layerThreshold(i, N);
+      // The share of the field above which the layer draws: <= 0 always, >= 1 never.
+      const kOf = d => A > 1e-9 ? (thr - d) / A + 0.5 : (d > thr ? -1 : 2);
+      const kL = kOf(t.dLit), kS = kOf(t.dSh);
+      const lA = kL <= 0, lN = kL >= 1, sA = kS <= 0, sN = kS >= 1;
+
+      if (lN && sN)      { row.push(GATE_SKIP); break; }
+      else if (lA && sA) row.push(null);
+      else if (lN && sA) row.push((x, y, z) => inShadow(v, x, y, z));
+      else if (lA && sN) row.push((x, y, z) => !inShadow(v, x, y, z));
+      else row.push((x, y, z) => {
+        const k = same || !inShadow(v, x, y, z) ? kL : kS;
+        if (k <= 0) return true;
+        if (k >= 1) return false;
+        return texField(x + off[0], y + off[1], z + off[2], ax) > k;
+      });
+      n++;
+    }
+    out.push({ layers: row, n });
   }
   return out;
 }
@@ -914,25 +1150,25 @@ function toneTable(v) {
 // crosses a whole floor in one stroke. Only the part of a plane that lands inside the
 // drawable box is walked, so zooming in does not multiply the work.
 
-function hatchPlanes(v, pl, tn, sink) {
+function hatchPlanes(v, pl, gt, sink) {
   const layers = PATTERN_LAYERS[settings.hatchPattern] || PATTERN_LAYERS.cross;
   const screenPersp = settings.hatchMode === 'screen angle' && v.persp;
 
   for (const P of pl) {
-    const t = tn[P.o];
-    const n = Math.max(t.lit, t.sh);
-    if (!n) continue;
+    const G = gt[P.o];
+    if (!G.n) continue;
     const win = planeWindow(v, P);
     if (!win) continue;
     const fams = [null, null];
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < G.n; i++) {
       const [fam, phase] = layers[i];
+      const gate = G.layers[i];
       if (screenPersp) {
-        hatchScreenPersp(v, P, win, fam, phase, i >= t.lit, sink);
+        hatchScreenPersp(v, P, win, fam, phase, gate, sink);
         continue;
       }
       if (fams[fam] === null) fams[fam] = planeFamily(v, P, fam) || false;
-      if (fams[fam]) hatchFixed(v, P, win, fams[fam], phase, i >= t.lit, sink);
+      if (fams[fam]) hatchFixed(v, P, win, fams[fam], phase, gate, sink);
     }
   }
 }
@@ -984,7 +1220,7 @@ function planeFamily(v, P, fam) {
   return { W, sigma: S / k };
 }
 
-function hatchFixed(v, P, win, F, phase, shadowOnly, sink) {
+function hatchFixed(v, P, win, F, phase, gate, sink) {
   const W = F.W, sig = F.sigma;
   const wu = W[P.ua], wv = W[P.va];
   if (wu * wu + wv * wv < 1e-12) return;
@@ -1000,13 +1236,13 @@ function hatchFixed(v, P, win, F, phase, shadowOnly, sink) {
   }
   const k0 = Math.ceil(cmin / sig - phase), k1 = Math.floor(cmax / sig - phase);
   for (let k = k0; k <= k1; k++) {
-    hatchLine(v, P, win, wu, wv, (k + phase) * sig - wl + LINE_JITTER, shadowOnly, sink);
+    hatchLine(v, P, win, wu, wv, (k + phase) * sig - wl + LINE_JITTER, gate, sink);
   }
 }
 
 // The paper line  X·a + Y·b = c  (a = sin, b = cos of the hatch angle) is the image of the
 // plane  rel · (s·(a·r − b·u) + (c − ox·a − oy·b)·cam) = 0  through the camera.
-function hatchScreenPersp(v, P, win, fam, phase, shadowOnly, sink) {
+function hatchScreenPersp(v, P, win, fam, phase, gate, sink) {
   const S  = Math.max(0.05, settings.hatchSpacing);
   const al = deg(settings.hatchAngle + (fam ? 90 : 0));
   const a = Math.sin(al), b = Math.cos(al);
@@ -1032,21 +1268,21 @@ function hatchScreenPersp(v, P, win, fam, phase, shadowOnly, sink) {
     const cq = (k + phase) * S - v.ox * a - v.oy * b;
     for (let i = 0; i < 3; i++) N[i] = M[i] + cq * v.cam[i];
     const cc = v.C[0] * N[0] + v.C[1] * N[1] + v.C[2] * N[2] - P.L * N[P.ax];
-    hatchLine(v, P, win, N[P.ua], N[P.va], cc + LINE_JITTER, shadowOnly, sink);
+    hatchLine(v, P, win, N[P.ua], N[P.va], cc + LINE_JITTER, gate, sink);
   }
 }
 
 const RUNS = [];                                   // scratch: u0, v0, u1, v1 per run
 const A3 = [0, 0, 0], B3 = [0, 0, 0];
 
-function hatchLine(v, P, win, wu, wv, c, shadowOnly, sink) {
+function hatchLine(v, P, win, wu, wv, c, gate, sink) {
   if (wu * wu + wv * wv < 1e-18) return;
   lineRuns(P, win, wu, wv, c);
   const lift = P.sg * EPS_OFF;                     // test points sit just off the face
   for (let r = 0; r < RUNS.length; r += 4) {
     A3[P.ax] = P.L + lift; A3[P.ua] = RUNS[r];     A3[P.va] = RUNS[r + 1];
     B3[P.ax] = P.L + lift; B3[P.ua] = RUNS[r + 2]; B3[P.va] = RUNS[r + 3];
-    cutSegment(v, A3, B3, shadowOnly, sink);
+    cutSegment(v, A3, B3, gate, sink);
   }
 }
 
@@ -1185,7 +1421,7 @@ function segmentWindow(v, ax, ay, az, bx, by, bz) {
   return [tOf(c[0]), tOf(c[1]), len];
 }
 
-function cutSegment(v, A, B, shadowOnly, sink) {
+function cutSegment(v, A, B, gate, sink) {
   const ax = A[0], ay = A[1], az = A[2];
   const dx = B[0] - ax, dy = B[1] - ay, dz = B[2] - az;
   const w = segmentWindow(v, ax, ay, az, B[0], B[1], B[2]);
@@ -1194,7 +1430,7 @@ function cutSegment(v, A, B, shadowOnly, sink) {
   const pred = t => {
     const x = ax + dx * t, y = ay + dy * t, z = az + dz * t;
     if (!seesCamera(v, x, y, z)) return false;
-    return !shadowOnly || inShadow(v, x, y, z);
+    return !gate || gate(x, y, z);
   };
   const n = Math.max(2, Math.ceil(w[2] / SAMPLE_MM) + 1);
   cutByPredicate(pred, w[0], w[1], n, (t0, t1) => {
@@ -1202,6 +1438,208 @@ function cutSegment(v, A, B, shadowOnly, sink) {
     toPaper(v, ax + dx * t1, ay + dy * t1, az + dz * t1, PB);
     sink.seg(PA[0], PA[1], PB[0], PB[1]);
   });
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// The border of a cast shadow
+//
+// A cast shadow is a region on a surface, so its border is a contour. On every plane that
+// can receive one, "this point lies on a face and cannot see the lamp" is sampled on a
+// grid OUTLINE_MM apart on paper; marching squares turns each cell where the answer
+// changes into a segment, and every crossing is pinned down by bisection along its cell
+// edge, so the line lands on the occluder's silhouette and not on the sample grid.
+//
+// Neighbouring cells meet on a shared cell edge, which is where the crossing was stored,
+// so the segments chain into long polylines — one stroke per contour rather than one per
+// cell. The chains then go through the same visibility walk the hatching uses, and a
+// contour disappears behind whatever stands in front of it.
+//
+// Only cells whose four corners all sit on a face are used: the border between a face and
+// the empty space next to it is the silhouette, and that is the edges' job.
+
+// Marching squares: the corners a=(i,j) b=(i+1,j) c=(i+1,j+1) d=(i,j+1) as bits 0..3,
+// mapped to pairs of the crossed cell edges e0=ab, e1=bc, e2=dc, e3=ad. The two saddles
+// are resolved the same way round, which keeps the chains consistent between cells.
+const MS_LINKS = [
+  [], [3, 0], [0, 1], [3, 1], [1, 2], [3, 0, 1, 2], [0, 2], [2, 3],
+  [2, 3], [0, 2], [0, 1, 2, 3], [1, 2], [1, 3], [0, 1], [0, 3], [],
+];
+
+// One crossing per cell edge, so everything below is indexed by an edge id and the
+// buffers are kept between planes. A generation counter stands in for clearing them.
+let olPU = null, olPV = null, olNA = null, olNB = null, olStamp = null, olSeen = null;
+let olCells = null, olGen = 0;
+
+function olReserve(cells) {
+  if (!olPU || olPU.length < 2 * cells) {
+    const e = 2 * cells;
+    olPU = new Float64Array(e); olPV = new Float64Array(e);
+    olNA = new Int32Array(e);   olNB = new Int32Array(e);
+    olStamp = new Int32Array(e); olSeen = new Int32Array(e);
+  }
+  if (!olCells || olCells.length < cells) olCells = new Uint8Array(cells);
+}
+
+function shadowOutlines(v, pl, tn, sink) {
+  if (!settings.shadows || !settings.shadowOutline) return;
+
+  const c = [0, 0, 0], chain = [];
+  const touched = [];
+  const EID = [0, 0, 0, 0], EU = [0, 0, 0, 0], EV = [0, 0, 0, 0];
+  const FU = [0, 0, 0, 0], FV = [0, 0, 0, 0], ESH = [0, 0, 0, 0];
+
+  const join = (a, b) => {
+    if (olNA[a] < 0) olNA[a] = b; else if (olNB[a] < 0) olNB[a] = b;
+    if (olNA[b] < 0) olNA[b] = a; else if (olNB[b] < 0) olNB[b] = a;
+  };
+
+  for (const P of pl) {
+    // A face turned away from the lamp is already all shadow: nothing casts onto it.
+    if (!(tn[P.o].lam > 0)) continue;
+    const win = planeWindow(v, P);
+    if (!win) continue;
+
+    // The sample step, in plane units, that lands OUTLINE_MM apart on paper — measured at
+    // the centroid of the plane's faces, the way the hatch spacing is.
+    c[P.ax] = P.L; c[P.ua] = P.cu; c[P.va] = P.cv;
+    const [uX, uY] = paperStep(v, c, P.ua);
+    const [vX, vY] = paperStep(v, c, P.va);
+    const lu = Math.hypot(uX, uY), lv = Math.hypot(vX, vY);
+    if (!(lu > 1e-9) || !(lv > 1e-9)) continue;
+
+    let du = OUTLINE_MM / lu, dv = OUTLINE_MM / lv;
+    let W = Math.floor((win.u1 - win.u0) / du) + 2;
+    let H = Math.floor((win.v1 - win.v0) / dv) + 2;
+    if (W * H > OUTLINE_CELLS) {                   // far too fine to pay for — coarsen
+      const k = Math.sqrt(W * H / OUTLINE_CELLS);
+      du *= k; dv *= k;
+      W = Math.floor((win.u1 - win.u0) / du) + 2;
+      H = Math.floor((win.v1 - win.v0) / dv) + 2;
+    }
+    if (W < 2 || H < 2) continue;
+
+    olReserve(W * H);
+    const gen = ++olGen, fl = olCells, lift = P.sg * EPS_OFF;
+
+    const shAt = (uu, vv) => {
+      c[P.ax] = P.L + lift; c[P.ua] = uu; c[P.va] = vv;
+      return inShadow(v, c[0], c[1], c[2]) ? 1 : 0;
+    };
+
+    // bit 0 — the sample sits on a face; bit 1 — and that spot is in shadow.
+    for (let j = 0; j < H; j++) {
+      const vv = win.v0 + j * dv, iv = Math.floor(vv);
+      const row = iv >= P.v0 && iv < P.v1;
+      for (let i = 0; i < W; i++) {
+        const uu = win.u0 + i * du, iu = Math.floor(uu);
+        fl[i + W * j] = row && iu >= P.u0 && iu < P.u1 && P.mask[iu + P.NU * iv]
+          ? 1 | (shAt(uu, vv) << 1) : 0;
+      }
+    }
+
+    // The crossing on one cell edge, bisected between its two corners, stored once.
+    const mark = e => {
+      const id = EID[e];
+      if (olStamp[id] === gen) return;
+      olStamp[id] = gen; olNA[id] = -1; olNB[id] = -1;
+      const s0 = ESH[e], u0 = EU[e], v0 = EV[e], su = FU[e] - u0, sv = FV[e] - v0;
+      let lo = 0, hi = 1;
+      for (let b = 0; b < OUTLINE_BISECT; b++) {
+        const m = (lo + hi) / 2;
+        if (shAt(u0 + su * m, v0 + sv * m) === s0) lo = m; else hi = m;
+      }
+      const m = (lo + hi) / 2;
+      olPU[id] = u0 + su * m;
+      olPV[id] = v0 + sv * m;
+      touched.push(id);
+    };
+
+    touched.length = 0;
+    for (let j = 0; j + 1 < H; j++) {
+      for (let i = 0; i + 1 < W; i++) {
+        const k = i + W * j;
+        const fa = fl[k], fb = fl[k + 1], fd = fl[k + W], fc = fl[k + W + 1];
+        if (!(fa & fb & fc & fd & 1)) continue;    // a corner off the surface: not ours
+        const code = (fa >> 1 & 1) | (fb >> 1 & 1) << 1 | (fc >> 1 & 1) << 2 | (fd >> 1 & 1) << 3;
+        const t = MS_LINKS[code];
+        if (!t.length) continue;
+
+        const ua = win.u0 + i * du, ub = ua + du;
+        const va = win.v0 + j * dv, vb = va + dv;
+        // A cell edge is named by the sample it starts at: 2·k for the one along u,
+        // 2·k + 1 for the one along v, so the two cells sharing it agree on the id.
+        EID[0] = 2 * k;             EU[0] = ua; EV[0] = va; FU[0] = ub; FV[0] = va;
+        EID[1] = 2 * (k + 1) + 1;   EU[1] = ub; EV[1] = va; FU[1] = ub; FV[1] = vb;
+        EID[2] = 2 * (k + W);       EU[2] = ua; EV[2] = vb; FU[2] = ub; FV[2] = vb;
+        EID[3] = 2 * k + 1;         EU[3] = ua; EV[3] = va; FU[3] = ua; FV[3] = vb;
+        ESH[0] = ESH[3] = fa >> 1 & 1;
+        ESH[1] = fb >> 1 & 1;
+        ESH[2] = fd >> 1 & 1;
+
+        for (let m = 0; m < t.length; m += 2) {
+          mark(t[m]);
+          mark(t[m + 1]);
+          join(EID[t[m]], EID[t[m + 1]]);
+        }
+      }
+    }
+
+    const walk = start => {
+      chain.length = 0;
+      let prev = -1, e = start;
+      for (;;) {
+        olSeen[e] = gen;
+        chain.push(olPU[e], olPV[e]);
+        const a = olNA[e], b = olNB[e];
+        const nx = a >= 0 && a !== prev ? a : (b !== prev ? b : -1);
+        if (nx < 0) break;
+        if (olSeen[nx] === gen) {
+          if (nx === start) chain.push(olPU[start], olPV[start]);   // a closed contour
+          break;
+        }
+        prev = e; e = nx;
+      }
+      if (chain.length >= 4) cutChain(v, P, chain, sink);
+    };
+
+    for (const e of touched) {                     // open chains first, from their ends
+      if (olSeen[e] !== gen && (olNA[e] < 0 || olNB[e] < 0)) walk(e);
+    }
+    for (const e of touched) {                     // whatever is left is a loop
+      if (olSeen[e] !== gen) walk(e);
+    }
+  }
+}
+
+// A contour in plane coordinates, lifted onto its face and cut where the camera loses
+// sight of it. Runs that end where the next one starts stay in the same stroke.
+function cutChain(v, P, ch, sink) {
+  const lift = P.sg * EPS_OFF;
+  const A = [0, 0, 0], B = [0, 0, 0], poly = [];
+  const flush = () => { if (poly.length >= 4) sink.poly(poly); poly.length = 0; };
+
+  for (let i = 0; i + 3 < ch.length; i += 2) {
+    A[P.ax] = P.L + lift; A[P.ua] = ch[i];     A[P.va] = ch[i + 1];
+    B[P.ax] = P.L + lift; B[P.ua] = ch[i + 2]; B[P.va] = ch[i + 3];
+    const w = segmentWindow(v, A[0], A[1], A[2], B[0], B[1], B[2]);
+    if (!w || w[2] < 1e-6) { flush(); continue; }
+
+    const dx = B[0] - A[0], dy = B[1] - A[1], dz = B[2] - A[2];
+    const pred = t => seesCamera(v, A[0] + dx * t, A[1] + dy * t, A[2] + dz * t);
+    const n = Math.max(2, Math.ceil(w[2] / SAMPLE_MM) + 1);
+    cutByPredicate(pred, w[0], w[1], n, (t0, t1) => {
+      toPaper(v, A[0] + dx * t0, A[1] + dy * t0, A[2] + dz * t0, PA);
+      toPaper(v, A[0] + dx * t1, A[1] + dy * t1, A[2] + dz * t1, PB);
+      const m = poly.length;
+      if (m && Math.abs(poly[m - 2] - PA[0]) < 1e-7 && Math.abs(poly[m - 1] - PA[1]) < 1e-7) {
+        poly.push(PB[0], PB[1]);
+      } else {
+        flush();
+        poly.push(PA[0], PA[1], PB[0], PB[1]);
+      }
+    });
+  }
+  flush();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -1351,6 +1789,17 @@ function makeSink(box) {
       pts.push(x0, y0, x1, y1);
       off.push(pts.length / 2);
     },
+    // A chain of points already clipped to the box — one stroke, however many corners.
+    poly(xy) {
+      if (xy.length < 4) return;
+      let len = 0;
+      for (let i = 0; i + 3 < xy.length; i += 2) {
+        len += Math.hypot(xy[i + 2] - xy[i], xy[i + 3] - xy[i + 1]);
+      }
+      if (len < MIN_STROKE) return;
+      for (let i = 0; i < xy.length; i++) pts.push(xy[i]);
+      off.push(pts.length / 2);
+    },
     // A dot is a stub too short to see as a line: the pen goes down, and comes back up.
     dot(x, y) {
       pts.push(x - DOT_MM / 2, y, x + DOT_MM / 2, y);
@@ -1406,10 +1855,12 @@ function cutDots(f, sink) {
   return { nx, ny, gapX: w / nx, gapY: h / ny };
 }
 
-function buildShapes(g, v, pl, tn) {
+function buildShapes(g, v, pl, tn, gt) {
   const sink = makeSink(v.box);
-  hatchPlanes(v, pl, tn, sink);
+  hatchPlanes(v, pl, gt, sink);
   const hatch = sink.off.length - 1;
+  shadowOutlines(v, pl, tn, sink);
+  const outline = sink.off.length - 1 - hatch;
   edgeLines(g, v, pl, sink);
   const lines = sink.off.length - 1;
 
@@ -1422,7 +1873,8 @@ function buildShapes(g, v, pl, tn) {
     pts: Float64Array.from(sink.pts),
     off: Int32Array.from(sink.off),
     hatch,
-    edges: lines - hatch,
+    outline,
+    edges: lines - hatch - outline,
     dots: sink.off.length - 1 - lines,
     cut,
   };
@@ -2017,6 +2469,11 @@ function buildControls() {
     'Brightens (+) or darkens (−) every face at once — moves the tones across the ' +
     'layer thresholds.');
   addCheckbox(root, 'Cast shadows', 'shadows');
+  addCheckbox(root, 'Draw a border around them', 'shadowOutline');
+  createDiv('The edge of every cast shadow as a line of its own, cut where the camera ' +
+    'loses sight of it. It reads as a shadow even where the tones are close, and it is ' +
+    'what stops a soft shadow from dissolving into the hatching.')
+    .parent(fieldDivs.shadowOutline).class('note');
 
   // --- Hatching ---
   addSection(root, 'Hatching');
@@ -2036,6 +2493,30 @@ function buildControls() {
   addSelect(root, 'Edges', 'edges', EDGE_MODES, update,
     '<b>outlines</b> — the border of every flat region, and nothing inside it.<br>' +
     '<b>every voxel</b> — each cube face outlined.<br><b>none</b> — tone alone.');
+
+  // --- Texture ---
+  addSection(root, 'Texture');
+  addSelect(root, 'Pattern', 'texture', TEXTURES, onTextureChange,
+    'Something that shifts how dark each point is, so a face is more than one flat ' +
+    'tone.<br><i>Through the solid, so it cuts across the faces:</i><br>' +
+    '<b>grain</b> — fractal noise: rough stone or concrete.<br>' +
+    '<b>strata</b> — bands across a gently dipping bedding plane.<br>' +
+    '<b>marble</b> — the same bands, warped until they swirl.<br>' +
+    '<b>chequer</b> — alternate cells, a mosaic on every face.<br>' +
+    '<b>speckle</b> — one value per cell: a coarse aggregate.<br>' +
+    '<i>Stamped on the faces, the same motif on every side of every voxel:</i><br>' +
+    '<b>dome</b> — a bead, light in the middle.<br>' +
+    '<b>coffer</b> — square rings, a coffered panel.<br>' +
+    '<b>rings</b> — concentric rings, a turned boss.');
+  addSlider(root, 'Feature size (voxels)', 'textureScale', 0.5, 40, 0.5,
+    'The size of one band, blob or tile, measured in voxels — so <b>1</b> puts exactly ' +
+    'one motif on every voxel face, 0.5 puts four. Below a voxel or so the hatching ' +
+    'breaks into very many short strokes — watch the stroke count. Picking a pattern ' +
+    'sets the size its family wants; move it afterwards.');
+  addSlider(root, 'Strength', 'textureAmount', 0, 1, 0.01,
+    'How far the field moves a point across the layer thresholds. Around 0.3 mottles ' +
+    'the edge of a tone; past 0.6 the pattern carries the drawing.');
+  addSeedField(root, 'Texture seed', 'textureSeed');
 
   // --- Scenes ---
   addSection(root, 'Scenes');
@@ -2094,6 +2575,27 @@ function syncVisibility() {
   setVisible('cutAround',    settings.cutMarks);
   setVisible('cutOffset',    settings.cutMarks);
   setVisible('cutGap',       settings.cutMarks);
+  setVisible('shadowOutline', settings.shadows);
+  const tex = settings.texture !== 'none';
+  setVisible('textureScale',  tex);
+  setVisible('textureAmount', tex);
+  setVisible('textureSeed',   settings.texture === 'grain' || settings.texture === 'strata' ||
+                              settings.texture === 'marble' || settings.texture === 'speckle');
+}
+
+// A motif on the faces wants one tile per voxel face, a field through the solid wants
+// features several voxels across — so switching between the two families brings the
+// feature size with it, unless it has already been moved off that family's default.
+function onTextureChange() {
+  const face = FACE_TEXTURES.includes(settings.texture);
+  const want = face ? 1 : DEFAULTS.textureScale;
+  const other = face ? DEFAULTS.textureScale : 1;
+  if (settings.textureScale === other) {
+    settings.textureScale = want;
+    setters.textureScale(want);
+  }
+  syncVisibility();
+  update();
 }
 
 function resetZoom() {
@@ -2327,6 +2829,7 @@ function updateStats() {
     `</div>` +
     `<div>Strokes <b>${groupNum(strokes)}</b> <span class="dim">` +
     `${groupNum(shapes.hatch)} hatch + ${groupNum(shapes.edges)} edges` +
+    `${shapes.outline ? ` + ${groupNum(shapes.outline)} shadow border` : ''}` +
     `${shapes.dots ? ` + ${shapes.dots} dots` : ''}</span></div>` +
     (shapes.cut
       ? `<div>Cut frame <b>${(shapes.cut.x1 - shapes.cut.x0).toFixed(1)} × ` +
@@ -2371,7 +2874,10 @@ function metaComment() {
     `${s.azimuth}°/${s.elevation}° zoom=${s.zoom}% pan=${+s.panX.toFixed(2)},${+s.panY.toFixed(2)} ` +
     `${s.cutMarks ? `cut=${s.cutAround}+${s.cutOffset}mm<=${s.cutGap}mm ` : ''}` +
     `light=${s.lightAzimuth}°/${s.lightElevation}° ambient=${s.ambient}% ` +
-    `exposure=${s.exposure}${s.shadows ? ' shadows' : ''} ` +
+    `exposure=${s.exposure}${s.shadows ? ' shadows' : ''}` +
+    `${s.shadows && s.shadowOutline ? '+border' : ''} ` +
+    `${s.texture === 'none' ? '' : `texture=${s.texture}@${s.textureScale}` +
+      `x${s.textureAmount} seed=${s.textureSeed} `}` +
     `hatch=${s.hatchSpacing}mm x${s.layers} ${s.hatchPattern} ${s.hatchMode}` +
     `${s.hatchMode === 'screen angle' ? '@' + s.hatchAngle + '°' : '/' + s.wallHatch} ` +
     `edges=${s.edges} pen=${s.penWidth}mm strokes=${shapes.off.length - 1}`;
