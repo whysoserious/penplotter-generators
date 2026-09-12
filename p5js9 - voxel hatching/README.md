@@ -60,13 +60,54 @@ It writes `output.svg` next to where it is run.
 While the camera moves only the shaded model follows; the hatching is recomputed once the
 movement settles. Keys are ignored while a text field, a list or a slider has the focus.
 
-## Shadow borders
+## Shadows
 
-**Draw a border around them**, under *Light*, adds the edge of every cast shadow as a line
+A cast shadow can be laid down two ways, under *Light* → **Laid down as**:
+
+- **hatch** — more layers of the same hatching, so the shadow is where the lines close up.
+  This is how the sketch has always drawn it.
+- **stipple** — dots instead, as many of them as the spot is dark. The hatching then stops
+  at the lit tone, and everything the shadow puts on the sheet is the second pen's job.
+
+**Lamp size** is the angular radius of the light, the way the sun is about 0.25°. At 0 it
+is a point and every shadow ends in a knife edge; open it up and the edge grows a
+penumbra, wider the further the shadow falls from whatever casts it. **Rays per test** is
+how many points on the lamp each test looks at — the penumbra can only have as many steps
+as there are rays. The set of directions is fixed for the whole sheet, so the same point
+always gets the same answer and a line always ends in the same place.
+
+The stipple reads the penumbra directly: a dot survives with the probability that the lamp
+is hidden there, so the dots thin out on their own across the half-shadow. **Dots per mm²**
+is the density in full shadow, **Penumbra shape** bends the falloff, and **Dot jitter**
+decides whether the dots sit on a grid or scatter. Lines cannot be half-drawn, so the
+hatching and the border fall on the middle of the penumbra instead.
+
+Every dot is a pen down and up, so the stipple is what the plot time is made of — the
+stats under *Plot* count them.
+
+**Draw a border around them** adds the edge of every cast shadow as a line
 of its own: the shadow keeps its shape even where the tones on either side of it are
 close, and a soft shadow no longer dissolves into the hatching. The border is cut by the
 same visibility test as everything else, so it disappears behind whatever stands in front
 of it.
+
+## Two pens, three files
+
+Everything a cast shadow puts on the sheet — the stipple, the shadow hatching, the shadow
+border — is tagged as the shadow pen's ink, and **Shadow ink** under *Pen* is the colour
+it is drawn and written in. **SVG holds**, under *Plot*, then decides what **Generate SVG**
+writes:
+
+| Option | Writes |
+|---|---|
+| `both` | one sheet with everything on it |
+| `voxels only` | the solid alone — hatching and edges |
+| `shadows only` | the shadow alone |
+| `all three` | all three files at once |
+
+Each file orders its strokes for the pen on its own, and the cut guide dots go into every
+one of them, so two passes in two inks line up on the same sheet. Leave the shadow ink the
+same colour as the ink and `both` stays exactly what it always was: one group, one pen.
 
 ## Texture
 
@@ -107,7 +148,8 @@ into very many short strokes, so keep an eye on the stroke count under *Plot*.
 A motif needs a few hatch lines across one face to read, so tighten the line spacing or
 use fewer, larger voxels; `every voxel` under *Edges* frames each tile and helps.
 
-Three scenes show it off: **Eroded dunes**, **Marble ziggurat** and **Studded blocks**.
+Three scenes show it off: **Eroded dunes**, **Marble ziggurat** and **Studded blocks**;
+**Stippled shadows** shows the soft stipple.
 
 ## Cutting the image out
 

@@ -10,8 +10,11 @@
 //   2. the surface — every face between a filled and an empty cell that turns towards
 //      the camera. Faces with the same orientation that lie in the same plane form one
 //      flat region and are hatched as one, so a line runs unbroken across a whole floor;
-//   3. the light — one directional lamp. Every orientation gets its Lambert tone, and a
-//      point that cannot see the lamp falls back to the ambient tone: a cast shadow;
+//   3. the light — one lamp, with an angular size of its own. Every orientation gets its
+//      Lambert tone, and a point that cannot see the lamp falls back to the ambient tone:
+//      a cast shadow. Give the lamp a size and it is a little disc of directions rather
+//      than one, so the shadow gets a penumbra — how much of the lamp a point can still
+//      see is how deep in shadow it is;
 //   4. the tone — up to four hatching layers, each switched on above its own darkness
 //      threshold. The first layer runs one way, the next crosses it (or doubles it), so
 //      a darker face is literally more ink. A texture — noise, strata, a chequer — moves
@@ -21,8 +24,11 @@
 //      (Amanatides–Woo) meets nothing; the same walk towards the lamp answers the shadow.
 //      Lines are sampled every SAMPLE_MM on paper and every change is pinned down by
 //      bisection, so a hidden line ends exactly where the occluder's outline passes;
-//   6. the border of a cast shadow, optionally: marching squares over the same shadow
-//      test, chained into contours and cut by the same walk.
+//   6. the cast shadow itself, either as more hatching or as a stipple whose density
+//      follows how much of the lamp is hidden — which is what draws a soft edge — and
+//      optionally its border: marching squares over the same test, chained into contours
+//      and cut by the same walk. All of it is tagged as the shadow pen's ink, so the
+//      sheet can be written out as one file or split into two.
 //
 // Nothing here needs WebGL: hidden lines are solved on the grid itself, and the plot is a
 // list of straight segments in millimetres, ordered for the pen and written out as SVG.
@@ -47,6 +53,8 @@ const HATCH_MODES    = ['along edges', 'screen angle'];
 const WALL_HATCH     = ['vertical', 'horizontal'];
 const EDGE_MODES     = ['outlines', 'every voxel', 'none'];
 const CUT_AROUND     = ['drawing', 'drawable area'];
+const SHADOW_STYLES  = ['hatch', 'stipple'];
+const SVG_OUTPUTS    = ['both', 'voxels only', 'shadows only', 'all three'];
 const TEXTURES       = ['none', 'grain', 'strata', 'marble', 'chequer', 'speckle',
                         'dome', 'coffer', 'rings'];
 // The ones stamped on the faces themselves, which want one tile per voxel face.
@@ -99,6 +107,10 @@ const SCENES = [
     sizeX: 49, sizeY: 49, sizeZ: 25, timeDir: 'downwards', lightAzimuth: -55,
     layers: 4, shadowOutline: true,
     texture: 'marble', textureScale: 5, textureAmount: 0.55 } },
+  { label: 'Stippled shadows', s: {
+    generator: 'terrain', sizeX: 20, sizeY: 20, sizeZ: 12, noiseScale: 10, octaves: 2,
+    elevation: 42, lightElevation: 22, lightAzimuth: -70, ambient: 35,
+    shadowStyle: 'stipple', shadowDots: 10, shadowSoftness: 18, shadowSamples: 16 } },
   { label: 'Studded blocks', s: {
     generator: 'terrain', sizeX: 14, sizeY: 14, sizeZ: 7, noiseScale: 8, octaves: 2,
     hatchSpacing: 0.6, layers: 4, edges: 'every voxel', elevation: 38,
@@ -121,6 +133,10 @@ const LINE_JITTER    = 1e-6;      // keeps a hatch line off the exact cell bound
 const OUTLINE_MM     = 0.6;       // mm on paper between two samples of a shadow contour
 const OUTLINE_BISECT = 8;         // halvings that pin a contour crossing down
 const OUTLINE_CELLS  = 250_000;   // most sample cells one plane's contour may spend
+const STIPPLE_CELLS  = 400_000;   // most stipple candidates one plane may spend
+const INK_VOXEL      = 0;         // the three kinds of stroke, for splitting the export
+const INK_SHADOW     = 1;
+const INK_MARK       = 2;
 const PREVIEW_MAX_PX = 1500;      // preview canvas resolution (paper is measured in mm)
 const MAX_PREVIEW_W  = 900;       // on-screen size of that canvas
 const MAX_PREVIEW_H  = 700;
@@ -155,6 +171,7 @@ const settings = {
   margin: 15,
   penWidth: 0.3,        // mm — Rotring nib size
   inkColor: '#000000',
+  shadowColor: '#000000',   // the second pen: everything a cast shadow puts on the sheet
 
   // cut guides — dots around the image, to trim it out with a guillotine or a knife
   cutMarks: false,
@@ -203,6 +220,12 @@ const settings = {
   ambient: 15,          // %
   exposure: 0,
   shadows: true,
+  shadowStyle: 'hatch', // how a cast shadow is laid down: more hatching, or stipple dots
+  shadowSoftness: 0,    // degrees — the angular radius of the lamp; 0 is a point source
+  shadowSamples: 8,     // rays per shadow test once the lamp has a size
+  shadowGamma: 1,       // shapes the penumbra: >1 keeps it light, <1 fills it in
+  shadowDots: 6,        // dots per mm² of paper in full shadow
+  shadowDotJitter: 0.9, // 0..1 — how far a dot may wander inside its cell
   shadowOutline: false, // draw the border of every cast shadow as a line
 
 
@@ -226,6 +249,7 @@ const settings = {
   modelOpacity: 25,
   optimiseOrder: true,
   liveUpdate: true,
+  svgOutput: 'both',
 };
 
 // Captured before anything can touch it — the URL only carries what differs from this,
@@ -840,6 +864,7 @@ function makeView(g) {
 
   const la = deg(settings.azimuth + settings.lightAzimuth), le = deg(settings.lightElevation);
   const light = [Math.cos(le) * Math.cos(la), Math.cos(le) * Math.sin(la), Math.sin(le)];
+  const lightDirs = lampDisc(light);
 
   const persp = settings.projection === 'perspective';
   const Q = [0, 1, 2].map(k => (g.bmin[k] + g.bmax[k]) / 2);
@@ -848,8 +873,34 @@ function makeView(g) {
   const dist = R / Math.sin(deg(clamp(settings.fov, 1, 120)) / 2);
   const C = [0, 1, 2].map(k => Q[k] + dist * cam[k]);
 
-  return { persp, cam, r, u, light, Q, R, dist, C, box: drawBox(),
+  return { persp, cam, r, u, light, lightDirs, Q, R, dist, C, box: drawBox(),
     s: 1, ox: 0, oy: 0, s0: 1, ox0: 0, oy0: 0, zoom: 1, panX: 0, panY: 0 };
+}
+
+// A lamp of some angular size is a little disc of directions rather than one. The set is
+// fixed for the whole sheet — a shadow test has to give the same answer every time it is
+// asked about a point, or the bisection that ends a line would never settle. The points
+// are a sunflower spiral, which spreads them evenly however many are asked for.
+function lampDisc(L) {
+  const half = clamp(settings.shadowSoftness, 0, 45);
+  const n = Math.round(clamp(settings.shadowSamples, 1, 32));
+  if (!(half > 0) || n < 2) return null;
+
+  const a = Math.abs(L[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+  const e1 = [a[1] * L[2] - a[2] * L[1], a[2] * L[0] - a[0] * L[2], a[0] * L[1] - a[1] * L[0]];
+  const m1 = Math.hypot(e1[0], e1[1], e1[2]);
+  for (let k = 0; k < 3; k++) e1[k] /= m1;
+  const e2 = [L[1] * e1[2] - L[2] * e1[1], L[2] * e1[0] - L[0] * e1[2], L[0] * e1[1] - L[1] * e1[0]];
+
+  const rmax = Math.tan(deg(half));
+  const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+  const out = new Float64Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const r = rmax * Math.sqrt((i + 0.5) / n), th = i * GOLDEN;
+    const cu = r * Math.cos(th), cv = r * Math.sin(th);
+    for (let k = 0; k < 3; k++) out[i * 3 + k] = L[k] + cu * e1[k] + cv * e2[k];
+  }
+  return out;
 }
 
 // Screen position before the fit.
@@ -973,7 +1024,38 @@ function seesCamera(v, x, y, z) {
 }
 
 function inShadow(v, x, y, z) {
-  return blockedDir(x, y, z, v.light[0], v.light[1], v.light[2]);
+  if (!v.lightDirs) return blockedDir(x, y, z, v.light[0], v.light[1], v.light[2]);
+  return shadowFraction(v, x, y, z) >= 0.5;          // lines fall on the middle of the penumbra
+}
+
+// How much of the lamp the point cannot see: 0 in the open, 1 in the umbra, in between
+// across the penumbra. Only the stipple can use the in-between — a line is either drawn
+// or it is not, so for the hatching and the shadow border this is thresholded above.
+function shadowFraction(v, x, y, z) {
+  const D = v.lightDirs;
+  if (!D) return blockedDir(x, y, z, v.light[0], v.light[1], v.light[2]) ? 1 : 0;
+  const n = D.length / 3;
+  let hit = 0;
+  for (let i = 0; i < D.length; i += 3) {
+    if (blockedDir(x, y, z, D[i], D[i + 1], D[i + 2])) hit++;
+  }
+  return hit / n;
+}
+
+// The same count, but only ever asked whether it passes `need` — so the walk stops as
+// soon as the answer cannot change. A point in the open or deep in the umbra settles
+// after a few rays, which is most of them.
+function shadowPasses(v, x, y, z, need) {
+  const D = v.lightDirs;
+  if (!D) return blockedDir(x, y, z, v.light[0], v.light[1], v.light[2]) && need < 1;
+  const n = D.length / 3;
+  let hit = 0;
+  for (let i = 0, k = 0; i < D.length; i += 3, k++) {
+    if (blockedDir(x, y, z, D[i], D[i + 1], D[i + 2])) hit++;
+    if (hit > need * n) return true;
+    if (hit + (n - k - 1) <= need * n) return false;
+  }
+  return hit > need * n;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -1093,23 +1175,28 @@ const GATE_SKIP = Symbol('skip');
 function gateTable(v, tn) {
   const N = Math.round(clamp(settings.layers, 1, 4));
   const A = texField ? clamp(settings.textureAmount, 0, 1) : 0;
+  // Stippled shadows are laid down by their own pass, so the hatching stops at the lit
+  // tone and no layer is held back for the shadow.
+  const stipple = settings.shadows && settings.shadowStyle === 'stipple';
   const out = [];
 
   for (let o = 0; o < 6; o++) {
-    const t = tn[o], same = t.dSh === t.dLit;
+    const t = tn[o];
+    const dSh = stipple ? t.dLit : t.dSh;
+    const same = dSh === t.dLit;
     // The field belongs to the solid, so a test point is pushed back through its face.
     const off = [0, 0, 0];
     off[o >> 1] = (o & 1 ? 1 : -1) * 2 * EPS_OFF;
 
     const ax = o >> 1;               // a face motif needs to know which axis it faces
 
-    const row = [];
+    const row = [], ink = [];
     let n = 0;
     for (let i = 0; i < N; i++) {
       const thr = layerThreshold(i, N);
       // The share of the field above which the layer draws: <= 0 always, >= 1 never.
       const kOf = d => A > 1e-9 ? (thr - d) / A + 0.5 : (d > thr ? -1 : 2);
-      const kL = kOf(t.dLit), kS = kOf(t.dSh);
+      const kL = kOf(t.dLit), kS = kOf(dSh);
       const lA = kL <= 0, lN = kL >= 1, sA = kS <= 0, sN = kS >= 1;
 
       if (lN && sN)      { row.push(GATE_SKIP); break; }
@@ -1122,9 +1209,11 @@ function gateTable(v, tn) {
         if (k >= 1) return false;
         return texField(x + off[0], y + off[1], z + off[2], ax) > k;
       });
+      // A layer that never draws on a lit spot is the shadow's own ink, not the solid's.
+      ink.push(lN ? INK_SHADOW : INK_VOXEL);
       n++;
     }
-    out.push({ layers: row, n });
+    out.push({ layers: row, ink, n });
   }
   return out;
 }
@@ -1163,6 +1252,7 @@ function hatchPlanes(v, pl, gt, sink) {
     for (let i = 0; i < G.n; i++) {
       const [fam, phase] = layers[i];
       const gate = G.layers[i];
+      sink.setInk(G.ink[i]);
       if (screenPersp) {
         hatchScreenPersp(v, P, win, fam, phase, gate, sink);
         continue;
@@ -1438,6 +1528,93 @@ function cutSegment(v, A, B, gate, sink) {
     toPaper(v, ax + dx * t1, ay + dy * t1, az + dz * t1, PB);
     sink.seg(PA[0], PA[1], PB[0], PB[1]);
   });
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Stippling the cast shadows
+//
+// Instead of another layer of hatching, a cast shadow can be laid down as dots: the
+// darker the spot, the more of them. Candidates sit one per cell of a grid laid over the
+// plane and sized so that a cell covers 1/density mm² *on paper* — the paper area of a
+// unit cell is the cross product of the two steps, so a face seen edge-on gets its dots
+// spread further apart in space and just as close together on the sheet. Each candidate
+// is jittered inside its cell, so the result is a stipple and not a screen.
+//
+// A candidate survives with the probability the lamp is hidden at that point, which is
+// what makes the edge soft: in the open nothing is kept, in the umbra everything is, and
+// across the penumbra the dots thin out on their own. Both the jitter and the draw come
+// from a hash of the cell, so the same sheet always stipples the same way.
+
+function hashCell(a, b, c, salt) {
+  let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^
+          Math.imul(c | 0, 1442695041) ^ Math.imul(salt | 0, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+function stipplePlanes(v, pl, tn, sink) {
+  if (!settings.shadows || settings.shadowStyle !== 'stipple') return;
+  const dens = Math.max(0.05, settings.shadowDots);      // dots per mm² in full shadow
+  const cell = 1 / Math.sqrt(dens);                      // mm on paper, one candidate each
+  const jit  = clamp(settings.shadowDotJitter, 0, 1);
+  const gam  = Math.max(0.05, settings.shadowGamma);
+  const b    = v.box;
+
+  const c = [0, 0, 0], xy = [0, 0];
+
+  for (const P of pl) {
+    if (!(tn[P.o].lam > 0)) continue;                    // already its own shadow
+    const win = planeWindow(v, P);
+    if (!win) continue;
+
+    c[P.ax] = P.L; c[P.ua] = P.cu; c[P.va] = P.cv;
+    const [uX, uY] = paperStep(v, c, P.ua);
+    const [vX, vY] = paperStep(v, c, P.va);
+    const lu = Math.hypot(uX, uY), lv = Math.hypot(vX, vY);
+    const area = Math.abs(uX * vY - uY * vX);            // mm² of paper per unit cell
+    if (!(lu > 1e-9) || !(lv > 1e-9) || !(area > 1e-12)) continue;
+
+    // Square-ish cells on paper (du·lu = dv·lv) that between them cover cell² of it.
+    let k = cell * Math.sqrt(lu * lv / area);
+    let du = k / lu, dv = k / lv;
+    let W = Math.ceil((win.u1 - win.u0) / du);
+    let H = Math.ceil((win.v1 - win.v0) / dv);
+    if (W * H > STIPPLE_CELLS) {                         // a sanity net, not a normal path
+      const g = Math.sqrt(W * H / STIPPLE_CELLS);
+      du *= g; dv *= g;
+      W = Math.ceil((win.u1 - win.u0) / du);
+      H = Math.ceil((win.v1 - win.v0) / dv);
+    }
+    if (W < 1 || H < 1) continue;
+
+    const lift = P.sg * EPS_OFF;
+    const key = P.o * 8191 + P.L;
+
+    for (let j = 0; j < H; j++) {
+      for (let i = 0; i < W; i++) {
+        const ju = jit * (hashCell(i, j, key, 1) - 0.5);
+        const jv = jit * (hashCell(i, j, key, 2) - 0.5);
+        const uu = win.u0 + (i + 0.5 + ju) * du;
+        const vv = win.v0 + (j + 0.5 + jv) * dv;
+        const iu = Math.floor(uu), iv = Math.floor(vv);
+        if (iu < P.u0 || iu >= P.u1 || iv < P.v0 || iv >= P.v1) continue;
+        if (!P.mask[iu + P.NU * iv]) continue;
+
+        c[P.ax] = P.L + lift; c[P.ua] = uu; c[P.va] = vv;
+        if (v.persp && !(depthOf(v, c[0], c[1], c[2]) > 0)) continue;
+        toPaper(v, c[0], c[1], c[2], xy);
+        if (xy[0] < b.x0 || xy[0] > b.x1 || xy[1] < b.y0 || xy[1] > b.y1) continue;
+        if (!seesCamera(v, c[0], c[1], c[2])) continue;
+
+        // Keep the dot where the lamp is hidden: rnd < fraction^gamma, which is the same
+        // as fraction > rnd^(1/gamma) — and that the walk can answer without finishing.
+        const rnd = hashCell(i, j, key, 3);
+        if (!shadowPasses(v, c[0], c[1], c[2], Math.pow(rnd, 1 / gam))) continue;
+        sink.dot(xy[0], xy[1]);
+      }
+    }
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -1773,9 +1950,12 @@ function clipRange(x0, y0, x1, y1, b) {
 }
 
 function makeSink(box) {
-  const pts = [], off = [0];
+  const pts = [], off = [0], ink = [];
+  let cur = INK_VOXEL;
   return {
-    pts, off,
+    pts, off, ink,
+    // Which pen the strokes from here on belong to, so the export can split them.
+    setInk(k) { cur = k; },
     seg(x0, y0, x1, y1) {
       const inside = x0 >= box.x0 && x0 <= box.x1 && x1 >= box.x0 && x1 <= box.x1 &&
                      y0 >= box.y0 && y0 <= box.y1 && y1 >= box.y0 && y1 <= box.y1;
@@ -1788,6 +1968,7 @@ function makeSink(box) {
       if (Math.hypot(x1 - x0, y1 - y0) < MIN_STROKE) return;
       pts.push(x0, y0, x1, y1);
       off.push(pts.length / 2);
+      ink.push(cur);
     },
     // A chain of points already clipped to the box — one stroke, however many corners.
     poly(xy) {
@@ -1799,11 +1980,13 @@ function makeSink(box) {
       if (len < MIN_STROKE) return;
       for (let i = 0; i < xy.length; i++) pts.push(xy[i]);
       off.push(pts.length / 2);
+      ink.push(cur);
     },
     // A dot is a stub too short to see as a line: the pen goes down, and comes back up.
     dot(x, y) {
       pts.push(x - DOT_MM / 2, y, x + DOT_MM / 2, y);
       off.push(pts.length / 2);
+      ink.push(cur);
     },
   };
 }
@@ -1859,22 +2042,31 @@ function buildShapes(g, v, pl, tn, gt) {
   const sink = makeSink(v.box);
   hatchPlanes(v, pl, gt, sink);
   const hatch = sink.off.length - 1;
+
+  sink.setInk(INK_SHADOW);
+  stipplePlanes(v, pl, tn, sink);
+  const stipple = sink.off.length - 1 - hatch;
   shadowOutlines(v, pl, tn, sink);
-  const outline = sink.off.length - 1 - hatch;
+  const outline = sink.off.length - 1 - hatch - stipple;
+
+  sink.setInk(INK_VOXEL);
   edgeLines(g, v, pl, sink);
   const lines = sink.off.length - 1;
 
   let cut = null;
   if (settings.cutMarks) {
+    sink.setInk(INK_MARK);
     const f = cutFrame(v, sink.pts, sink.off[lines]);
     if (f) cut = { ...f, ...cutDots(f, sink) };
   }
   return {
     pts: Float64Array.from(sink.pts),
     off: Int32Array.from(sink.off),
+    ink: Uint8Array.from(sink.ink),
     hatch,
+    stipple,
     outline,
-    edges: lines - hatch - outline,
+    edges: lines - hatch - stipple - outline,
     dots: sink.off.length - 1 - lines,
     cut,
   };
@@ -2135,23 +2327,27 @@ function drawPreview(dragging, xf) {
   }
 
   if (!dragging && shapes) {
-    const { pts, off } = shapes;
+    const { pts, off, ink } = shapes;
     const n = off.length - 1;
-    ctx.strokeStyle = settings.inkColor;
-    ctx.lineWidth   = settings.penWidth / (xf ? xf.k : 1);
-    ctx.lineCap     = 'round';
-    ctx.lineJoin    = 'round';
+    ctx.lineWidth = settings.penWidth / (xf ? xf.k : 1);
+    ctx.lineCap   = 'round';
+    ctx.lineJoin  = 'round';
 
+    // Two passes, so the shadow pen shows on the sheet the way it will in the file.
     const CHUNK = 4000;
-    for (let i0 = 0; i0 < n; i0 += CHUNK) {
-      const i1 = Math.min(n, i0 + CHUNK);
-      ctx.beginPath();
-      for (let i = i0; i < i1; i++) {
-        const a = off[i], b = off[i + 1];
-        ctx.moveTo(pts[a * 2], pts[a * 2 + 1]);
-        for (let k = a + 1; k < b; k++) ctx.lineTo(pts[k * 2], pts[k * 2 + 1]);
+    for (const pass of [INK_SHADOW, INK_VOXEL]) {
+      ctx.strokeStyle = pass === INK_SHADOW ? settings.shadowColor : settings.inkColor;
+      for (let i0 = 0; i0 < n; i0 += CHUNK) {
+        const i1 = Math.min(n, i0 + CHUNK);
+        ctx.beginPath();
+        for (let i = i0; i < i1; i++) {
+          if ((ink[i] === INK_SHADOW) !== (pass === INK_SHADOW)) continue;
+          const a = off[i], b = off[i + 1];
+          ctx.moveTo(pts[a * 2], pts[a * 2 + 1]);
+          for (let k = a + 1; k < b; k++) ctx.lineTo(pts[k * 2], pts[k * 2 + 1]);
+        }
+        ctx.stroke();
       }
-      ctx.stroke();
     }
   }
   ctx.restore();
@@ -2338,6 +2534,10 @@ function buildControls() {
   addSection(root, 'Pen');
   addSlider(root, 'Pen width (mm)', 'penWidth', 0.1, 2, 0.05);
   addColor(root, 'Ink', 'inkColor');
+  addColor(root, 'Shadow ink', 'shadowColor');
+  createDiv('The second pen: the stipple, the shadow hatching and the shadow border. ' +
+    'Leave it the same as the ink and the drawing stays one pen in one group.')
+    .parent(fieldDivs.shadowColor).class('note');
 
   // --- Paper ---
   addSection(root, 'Paper');
@@ -2469,6 +2669,27 @@ function buildControls() {
     'Brightens (+) or darkens (−) every face at once — moves the tones across the ' +
     'layer thresholds.');
   addCheckbox(root, 'Cast shadows', 'shadows');
+  addSelect(root, 'Laid down as', 'shadowStyle', SHADOW_STYLES,
+    () => { syncVisibility(); update(); },
+    '<b>hatch</b> — more layers of the same hatching, so the shadow is where the lines ' +
+    'close up.<br><b>stipple</b> — dots instead, as many as the spot is dark. The ' +
+    'hatching then stops at the lit tone and the shadow is the second pen\'s whole job.');
+  addSlider(root, 'Lamp size (°)', 'shadowSoftness', 0, 30, 0.5,
+    'The angular radius of the lamp, the way the sun is about 0.25°. At 0 it is a point ' +
+    'and every shadow ends in a knife edge; open it up and the edge grows a penumbra, ' +
+    'wider the further the shadow falls from whatever casts it.');
+  addSlider(root, 'Rays per test', 'shadowSamples', 1, 32, 1,
+    'How many points on the lamp each test looks at. More is smoother and slower — the ' +
+    'penumbra can only have as many steps as there are rays.');
+  addSlider(root, 'Penumbra shape', 'shadowGamma', 0.2, 4, 0.05,
+    'Above 1 the half-shadow stays light and only the core fills in; below 1 it darkens ' +
+    'as soon as the lamp starts to disappear.');
+  addSlider(root, 'Dots per mm²', 'shadowDots', 0.5, 40, 0.5,
+    'The density of the stipple where the lamp is hidden altogether. Every dot is a pen ' +
+    'down and up, so this is what the plot time is made of — watch it under Plot.');
+  addSlider(root, 'Dot jitter', 'shadowDotJitter', 0, 1, 0.05,
+    'How far a dot may wander inside its cell. At 0 the dots sit on a grid and read as ' +
+    'a screen; at 1 they scatter.');
   addCheckbox(root, 'Draw a border around them', 'shadowOutline');
   createDiv('The edge of every cast shadow as a line of its own, cut where the camera ' +
     'loses sight of it. It reads as a shadow even where the tones are close, and it is ' +
@@ -2537,6 +2758,10 @@ function buildControls() {
   addSection(root, 'Plot');
   statsDiv = createDiv('').parent(root).class('stats');
   createButton('Regenerate').parent(root).mousePressed(update);
+  addSelect(root, 'SVG holds', 'svgOutput', SVG_OUTPUTS, () => { syncUrl(); },
+    '<b>both</b> — one sheet with everything on it.<br>' +
+    '<b>voxels only</b> / <b>shadows only</b> — one pen\'s worth, for plotting the two ' +
+    'in different inks on the same sheet.<br><b>all three</b> — writes all three files.');
   createButton('Generate SVG').parent(root).class('primary').mousePressed(exportSvg);
   addCheckbox(root, 'Optimise stroke order', 'optimiseOrder');
 
@@ -2575,7 +2800,14 @@ function syncVisibility() {
   setVisible('cutAround',    settings.cutMarks);
   setVisible('cutOffset',    settings.cutMarks);
   setVisible('cutGap',       settings.cutMarks);
-  setVisible('shadowOutline', settings.shadows);
+  const sh = settings.shadows;
+  setVisible('shadowStyle',     sh);
+  setVisible('shadowSoftness',  sh);
+  setVisible('shadowSamples',   sh);
+  setVisible('shadowGamma',     sh && settings.shadowStyle === 'stipple');
+  setVisible('shadowDots',      sh && settings.shadowStyle === 'stipple');
+  setVisible('shadowDotJitter', sh && settings.shadowStyle === 'stipple');
+  setVisible('shadowOutline', sh);
   const tex = settings.texture !== 'none';
   setVisible('textureScale',  tex);
   setVisible('textureAmount', tex);
@@ -2789,6 +3021,8 @@ function updateStats() {
   const seconds = strokes * PEN_CYCLE_S + plan.ink / DRAW_SPEED + plan.travel / TRAVEL_SPEED;
   const gap = densestGap();
   const voxMm = voxelMm(view);
+  let shadowInk = 0;
+  for (let i = 0; i < strokes; i++) if (shapes.ink[i] === INK_SHADOW) shadowInk++;
 
   let toneRows = '';
   const order = [4, 5, 0, 1, 2, 3];
@@ -2829,8 +3063,15 @@ function updateStats() {
     `</div>` +
     `<div>Strokes <b>${groupNum(strokes)}</b> <span class="dim">` +
     `${groupNum(shapes.hatch)} hatch + ${groupNum(shapes.edges)} edges` +
+    `${shapes.stipple ? ` + ${groupNum(shapes.stipple)} stipple` : ''}` +
     `${shapes.outline ? ` + ${groupNum(shapes.outline)} shadow border` : ''}` +
-    `${shapes.dots ? ` + ${shapes.dots} dots` : ''}</span></div>` +
+    `${shapes.dots ? ` + ${shapes.dots} marks` : ''}</span></div>` +
+    (shadowInk
+      ? `<div>Shadow pen <b>${groupNum(shadowInk)}</b> of them ` +
+        `<span class="dim">= ${(100 * shadowInk / strokes).toFixed(0)} %, its own group ` +
+        `in the file${settings.shadowColor === settings.inkColor
+          ? ' only when its ink differs' : ''}</span></div>`
+      : '') +
     (shapes.cut
       ? `<div>Cut frame <b>${(shapes.cut.x1 - shapes.cut.x0).toFixed(1)} × ` +
         `${(shapes.cut.y1 - shapes.cut.y0).toFixed(1)} mm</b> <span class="dim">dots every ` +
@@ -2874,7 +3115,11 @@ function metaComment() {
     `${s.azimuth}°/${s.elevation}° zoom=${s.zoom}% pan=${+s.panX.toFixed(2)},${+s.panY.toFixed(2)} ` +
     `${s.cutMarks ? `cut=${s.cutAround}+${s.cutOffset}mm<=${s.cutGap}mm ` : ''}` +
     `light=${s.lightAzimuth}°/${s.lightElevation}° ambient=${s.ambient}% ` +
-    `exposure=${s.exposure}${s.shadows ? ' shadows' : ''}` +
+    `exposure=${s.exposure}${s.shadows ? ' shadows=' + s.shadowStyle : ''}` +
+    `${s.shadows && s.shadowStyle === 'stipple' ? '@' + s.shadowDots + '/mm2' +
+      ' jitter=' + s.shadowDotJitter + ' gamma=' + s.shadowGamma : ''}` +
+    `${s.shadows && s.shadowSoftness > 0
+      ? ' lamp=' + s.shadowSoftness + '°x' + s.shadowSamples : ''}` +
     `${s.shadows && s.shadowOutline ? '+border' : ''} ` +
     `${s.texture === 'none' ? '' : `texture=${s.texture}@${s.textureScale}` +
       `x${s.textureAmount} seed=${s.textureSeed} `}` +
@@ -2883,21 +3128,19 @@ function metaComment() {
     `edges=${s.edges} pen=${s.penWidth}mm strokes=${shapes.off.length - 1}`;
 }
 
-function exportSvg() {
-  if (!view || !shapes || !plan || shapes.off.length - 1 === 0) {
-    alert('Nothing to export — the structure is empty, or there are too many strokes.');
-    return;
-  }
-
-  const [W, H] = paperDims();
+// One <g> of one colour: the strokes it holds, ordered for the pen on their own.
+function svgGroup(keep, colour) {
   const { pts, off } = shapes;
-  const { order, flip } = plan;
   const f = n => String(+n.toFixed(3));
   const CHUNK = 400;                       // subpaths per <path>, keeps the DOM small
 
+  const sub = sliceShapes(shapes, keep);
+  if (!sub) return { body: '', strokes: 0 };
+  const { order, flip } = orderShapes(sub);
+
   let body = '', d = '', held = 0;
   for (let t = 0; t < order.length; t++) {
-    const i = order[t], rev = flip[t] === 1;
+    const i = sub.src[order[t]], rev = flip[t] === 1;
     const a = off[i], b = off[i + 1];
     let k  = rev ? b - 1 : a;
     let px = pts[k * 2], py = pts[k * 2 + 1];
@@ -2910,27 +3153,90 @@ function exportSvg() {
       else               d += `l${f(x - px)},${f(y - py)}`;
       px = x; py = y;
     }
-
     if (++held >= CHUNK) { body += `  <path d="${d}"/>\n`; d = ''; held = 0; }
   }
   if (d) body += `  <path d="${d}"/>\n`;
 
-  const svg =
-    `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<!-- ${metaComment()} -->\n` +
+  return {
+    strokes: order.length,
+    body: `<g fill="none" stroke="${colour}" stroke-width="${f(settings.penWidth)}" ` +
+      `stroke-linecap="round" stroke-linejoin="round">\n${body}</g>\n`,
+  };
+}
+
+// The strokes `keep` says yes to, as a { pts, off } of their own plus src, which maps a
+// stroke of the slice back to the one it came from.
+function sliceShapes(sh, keep) {
+  const src = [], pts = [], off = [0];
+  for (let i = 0; i < sh.off.length - 1; i++) {
+    if (!keep(i)) continue;
+    src.push(i);
+    for (let k = sh.off[i]; k < sh.off[i + 1]; k++) pts.push(sh.pts[k * 2], sh.pts[k * 2 + 1]);
+    off.push(pts.length / 2);
+  }
+  return src.length
+    ? { pts: Float64Array.from(pts), off: Int32Array.from(off), src }
+    : null;
+}
+
+// The pen the whole drawing is written with, or the two it is split between. Marks go
+// into every file — they are what lines the sheets up when two pens are run over it.
+function svgFile(part) {
+  const [W, H] = paperDims();
+  const vox = i => shapes.ink[i] !== INK_SHADOW;
+  const shd = i => shapes.ink[i] === INK_SHADOW;
+  const mark = i => shapes.ink[i] === INK_MARK;
+
+  let groups;
+  if (part === 'voxels') groups = [[i => vox(i), settings.inkColor]];
+  else if (part === 'shadows') groups = [[i => shd(i) || mark(i), settings.shadowColor]];
+  else if (settings.shadowColor === settings.inkColor) {
+    groups = [[() => true, settings.inkColor]];          // one pen: one group, as it was
+  } else {
+    groups = [[i => vox(i), settings.inkColor], [i => shd(i), settings.shadowColor]];
+  }
+
+  let body = '', strokes = 0;
+  for (const [keep, colour] of groups) {
+    const g = svgGroup(keep, colour);
+    body += g.body;
+    strokes += g.strokes;
+  }
+  if (!strokes) return null;
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<!-- ${metaComment()}${part === 'both' ? '' : ' part=' + part} -->\n` +
     `<!-- ${location.origin === 'null' ? '' : location.origin}${location.pathname}#${encodeState()} -->\n` +
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
     `width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}">\n` +
-    `<g fill="none" stroke="${settings.inkColor}" stroke-width="${f(settings.penWidth)}" ` +
-    `stroke-linecap="round" stroke-linejoin="round">\n` +
     body +
-    `</g>\n</svg>\n`;
+    `</svg>\n`;
+}
 
-  saveStrings(
-    [svg],
-    `voxels ${structureTag()} ${settings.paper}-${settings.orientation} ` +
+function exportSvg() {
+  if (!view || !shapes || !plan || shapes.off.length - 1 === 0) {
+    alert('Nothing to export — the structure is empty, or there are too many strokes.');
+    return;
+  }
+
+  const out = settings.svgOutput;
+  const parts = out === 'all three' ? ['both', 'voxels', 'shadows']
+    : out === 'voxels only' ? ['voxels']
+    : out === 'shadows only' ? ['shadows']
+    : ['both'];
+
+  const stem = `voxels ${structureTag()} ${settings.paper}-${settings.orientation} ` +
     `${settings.projection === 'perspective' ? 'persp' + settings.fov + ' ' : ''}` +
-    `az${settings.azimuth} el${settings.elevation} pen${settings.penWidth} ${timestamp()}`,
-    'svg'
-  );
+    `az${settings.azimuth} el${settings.elevation} pen${settings.penWidth} ${timestamp()}`;
+
+  const empty = [];
+  for (const part of parts) {
+    const svg = svgFile(part);
+    if (!svg) { empty.push(part); continue; }
+    saveStrings([svg], `${stem}${part === 'both' ? '' : ' ' + part}`, 'svg');
+  }
+  if (empty.length) {
+    alert(`Nothing in the ${empty.join(' and ')} file — ` +
+      `there are no strokes of that kind on this sheet.`);
+  }
 }
