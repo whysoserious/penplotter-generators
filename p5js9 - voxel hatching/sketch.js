@@ -598,6 +598,11 @@ function ensureTexture() {
 ////////////////////////////////////////////////////////////////////////////////////////
 // Paper
 
+function sheetArea() {
+  const [w, h] = paperDims();
+  return w * h;
+}
+
 function paperDims() {
   const [a, b] = PAPER_SIZES[settings.paper];
   return settings.orientation === 'portrait' ? [a, b] : [b, a];
@@ -2982,6 +2987,27 @@ function addSeedField(parent, labelText, key) {
 
 ////////////////////////////////////////////////////////////////////////////////////////
 
+// The widest gap the lightest tone on the sheet leaves — the stripe of paper that is
+// what makes a hatched face read as lines rather than as a wash, and the one the nib has
+// to be thin enough to spare. A tone of `lit` layers is the first `lit` entries of the
+// pattern; where two families cross, the one that closes first is the one that counts.
+function lightestGap(lit) {
+  const layers = (PATTERN_LAYERS[settings.hatchPattern] || PATTERN_LAYERS.cross)
+    .slice(0, Math.max(1, lit));
+  let widest = 0;
+  for (const fam of [0, 1]) {
+    const ph = layers.filter(l => l[0] === fam).map(l => l[1]).sort((a, b) => a - b);
+    if (!ph.length) continue;
+    let w = 0;
+    for (let i = 0; i < ph.length; i++) {
+      const next = i + 1 < ph.length ? ph[i + 1] : ph[0] + 1;
+      w = Math.max(w, next - ph[i]);
+    }
+    widest = widest === 0 ? w : Math.min(widest, w);
+  }
+  return widest * settings.hatchSpacing;
+}
+
 // The smallest gap the darkest tone leaves between two lines of one direction.
 function densestGap() {
   const layers = (PATTERN_LAYERS[settings.hatchPattern] || PATTERN_LAYERS.cross)
@@ -3025,16 +3051,20 @@ function updateStats() {
   for (let i = 0; i < strokes; i++) if (shapes.ink[i] === INK_SHADOW) shadowInk++;
 
   let toneRows = '';
+  let litMin = Infinity;                      // the lightest tone actually on the sheet
   const order = [4, 5, 0, 1, 2, 3];
   for (const o of order) {
     const t = tones[o];
     const n = planes.reduce((a, P) => a + (P.o === o ? P.count : 0), 0);
     if (!n) continue;
+    if (t.lit > 0) litMin = Math.min(litMin, t.lit);
     const sh = t.sh !== t.lit ? ` <span class="dim">· ${t.sh} in shadow</span>` : '';
     toneRows += `<div class="legend"><span class="tone-name">${orientationName(o)}</span>` +
       `<b>${t.lit}</b>&nbsp;layer${t.lit === 1 ? '' : 's'}${sh} ` +
       `<span class="dim">${groupNum(n)} faces</span></div>`;
   }
+
+  const lightGap = Number.isFinite(litMin) ? lightestGap(litMin) : null;
 
   let warn = '';
   if (strokes > BUSY_STROKES) {
@@ -3046,6 +3076,22 @@ function updateStats() {
       `run ${settings.hatchSpacing} mm apart — single cubes will mostly miss the hatch. ` +
       `Tighten the spacing or use a smaller structure.</div>`;
   }
+  // The darkest tone is meant to close up; the lightest is not, and a stripe of paper
+  // thinner than this is not something a nib and a sheet hold evenly. What comes out
+  // instead is lines of uneven weight with the gaps opening and closing between them.
+  const lightPaper = lightGap === null ? null : lightGap - settings.penWidth;
+  if (lightPaper !== null && lightPaper < 0.2) {
+    warn += `<div class="warn">The lightest tone puts its lines ${lightGap.toFixed(2)} mm ` +
+      `apart and the nib is ${settings.penWidth} mm, so only ` +
+      `${Math.max(0, lightPaper).toFixed(2)} mm of paper is left between them` +
+      `${view.persp ? ', and perspective moves that by a tenth either way across the ' +
+        'sheet' : ''}. Ink spreads past the nib and no plotter repeats itself to a ` +
+      `hundredth, so that gap will close in some places and not others: the plot comes ` +
+      `out as lines of uneven weight rather than the even hatch on screen. Give the ` +
+      `spacing at least <b>${(2 * settings.penWidth).toFixed(1)} mm</b> and let the ` +
+      `layers make the dark tones, or fit a nib around ` +
+      `<b>${(lightGap / 2.5).toFixed(2)} mm</b>.</div>`;
+  }
 
   statsDiv.html(
     `<div>Grid <b>${g.nx} × ${g.ny} × ${g.nz}</b> = ${groupNum(cells)} cells</div>` +
@@ -3056,6 +3102,14 @@ function updateStats() {
     `<div>Faces towards the camera <b>${groupNum(faces)}</b> ` +
     `<span class="dim">in ${groupNum(planes.length)} planes</span></div>` +
     toneRows +
+    (lightGap === null ? '' :
+      `<div>Lightest tone <b>${lightGap.toFixed(2)} mm</b> apart — ` +
+      (lightGap - settings.penWidth >= 0.2
+        ? `<span class="ok">${(lightGap - settings.penWidth).toFixed(2)} mm of paper ` +
+          `between the lines</span>`
+        : `<span class="warn">only ${Math.max(0, lightGap - settings.penWidth).toFixed(2)} ` +
+          `mm of paper between the lines</span>`) +
+      `</div>`) +
     `<div>Densest gap <b>${gap.toFixed(2)} mm</b> — ` +
     (gap <= settings.penWidth
       ? `<span class="ok">the darkest tone closes up solid</span>`
@@ -3079,6 +3133,8 @@ function updateStats() {
       : '') +
     `<div>Draws <b>${(plan.ink / 1000).toFixed(1)} m</b>, travels ` +
     `<b>${(plan.travel / 1000).toFixed(1)} m</b> with the pen up</div>` +
+    `<div>Ink covers <b>${(100 * plan.ink * settings.penWidth / sheetArea()).toFixed(0)} %` +
+    `</b> <span class="dim">of the sheet, overlaps counted twice</span></div>` +
     `<div>Rough plot time <b>${formatDuration(seconds)}</b></div>` +
     `<div class="dim">generated in ${Math.round(lastMs)} ms</div>` +
     warn
