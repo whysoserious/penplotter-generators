@@ -106,8 +106,15 @@ html, body {
 #controls .checkbox-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
+}
+
+/* a note that explains its own checkbox belongs under it, not squeezed in beside it */
+#controls .checkbox-row .note {
+  flex-basis: 100%;
+  margin-top: 2px;
 }
 
 #controls .inline-btn {

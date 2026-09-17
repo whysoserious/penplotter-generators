@@ -231,6 +231,8 @@ const settings = {
 
   // hatching
   hatchSpacing: 1,      // mm on paper between the lines of one layer
+  autoSpacing: false,   // work that spacing out from the voxel and the nib instead
+  linesPerFace: 3,      // how many lines the lightest tone should put across one face
   layers: 3,
   hatchPattern: 'cross',
   hatchMode: 'along edges',
@@ -258,6 +260,7 @@ const DEFAULTS = { ...settings };
 
 const setters   = {};        // settings key -> function that moves its control
 const fieldDivs = {};        // settings key -> the .field wrapper, for showing/hiding
+let spacingDiv;
 let statsDiv, ruleInput, ruleInfoDiv, linkDiv, autoGroup, terrGroup;
 let grid     = null;         // { nx, ny, nz, vox, count, sig, bmin, bmax } — the voxels
 let view     = null;         // camera, lamp and the fit onto the paper
@@ -269,6 +272,7 @@ let strokes  = 0;            // how many of them, even when there are too many t
 let plan     = null;         // { order, flip, ink, travel }
 let modelImg = null;         // offscreen canvas with the shaded faces, built on demand
 let lastMs   = 0;
+let hatchMm  = 1;            // the spacing this sheet is actually hatched at, in mm
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
@@ -670,6 +674,7 @@ function update() {
     fitView(view, planes);
     tones  = toneTable(view);
     gates  = gateTable(view, tones);
+    hatchMm = effectiveSpacing(view);
     shapes = buildShapes(g, view, planes, tones, gates);
     strokes = shapes.off.length - 1;
     // Past the limit nothing is ordered, drawn or exported — the stats say why.
@@ -1281,7 +1286,7 @@ function paperStep(v, c, axis) {
 
 // { W, sigma } for the along-edges family, or the orthographic screen-angle one.
 function planeFamily(v, P, fam) {
-  const S = Math.max(0.05, settings.hatchSpacing);
+  const S = Math.max(0.05, hatchMm);
 
   if (settings.hatchMode === 'screen angle') {
     const a = deg(settings.hatchAngle + (fam ? 90 : 0));
@@ -1338,7 +1343,7 @@ function hatchFixed(v, P, win, F, phase, gate, sink) {
 // The paper line  X·a + Y·b = c  (a = sin, b = cos of the hatch angle) is the image of the
 // plane  rel · (s·(a·r − b·u) + (c − ox·a − oy·b)·cam) = 0  through the camera.
 function hatchScreenPersp(v, P, win, fam, phase, gate, sink) {
-  const S  = Math.max(0.05, settings.hatchSpacing);
+  const S  = Math.max(0.05, hatchMm);
   const al = deg(settings.hatchAngle + (fam ? 90 : 0));
   const a = Math.sin(al), b = Math.cos(al);
 
@@ -2703,6 +2708,16 @@ function buildControls() {
 
   // --- Hatching ---
   addSection(root, 'Hatching');
+  addCheckbox(root, 'Work the spacing out from the voxel and the nib', 'autoSpacing');
+  createDiv('The widest spacing that still puts the asked-for number of lines across a ' +
+    'face, held between twice the nib — under which the lightest tone has no paper to ' +
+    'show — and the spacing at which the darkest tone stops closing up solid.')
+    .parent(fieldDivs.autoSpacing).class('note');
+  addSlider(root, 'Lines across a face', 'linesPerFace', 2, 6, 1,
+    'How many lines of the lightest tone one voxel face should carry. Two is the least ' +
+    'that reads as hatching rather than as a stray mark; past four the spacing is ' +
+    'usually down against the nib anyway.');
+  spacingDiv = createDiv('').parent(root).class('note');
   addSlider(root, 'Line spacing (mm)', 'hatchSpacing', 0.2, 5, 0.05,
     'The spacing of one layer on paper, the same on every face whatever its angle.');
   addSlider(root, 'Tone layers', 'layers', 1, 4, 1,
@@ -2799,6 +2814,8 @@ function syncVisibility() {
   setVisible('seedRadius',   settings.caSeed === 'random disc');
   setVisible('seedValue',    settings.caSeed !== 'center');
   setVisible('wallHatch',    settings.hatchMode === 'along edges');
+  setVisible('hatchSpacing', !settings.autoSpacing);
+  setVisible('linesPerFace', settings.autoSpacing);
   setVisible('hatchAngle',   settings.hatchMode === 'screen angle');
   setVisible('modelOpacity', settings.showModel);
   setVisible('fov',          settings.projection === 'perspective');
@@ -2987,6 +3004,54 @@ function addSeedField(parent, labelText, key) {
 
 ////////////////////////////////////////////////////////////////////////////////////////
 
+// Working the line spacing out instead of being told it
+//
+// Three numbers decide what spacing a sheet can actually hold, and two of them are
+// already known by the time the hatching runs.
+//
+//   from the nib, below   the lightest tone is a line every S: for it to read as lines
+//                         at all rather than as a wash, the paper it leaves has to be a
+//                         match for the ink, so S >= 2·pen.
+//   from the nib, above   the darkest tone is a line every S/4 — S/2 for cross-hatching,
+//                         where the layers are split between two directions — and it is
+//                         meant to close up solid, so S <= 4·pen (2·pen crossed).
+//   from the voxel        a face only a line or two across cannot carry a tone, whatever
+//                         the nib is doing. A face is one voxel edge on paper, so
+//                         S <= voxel / linesPerFace.
+//
+// The voxel edge under perspective is the one at the centre of the sheet, which is what
+// the stats have always reported. When the two ceilings fall below the floor there is no
+// spacing that works and the answer is not a number but a smaller structure or a bigger
+// sheet — `reason` says which wall was hit so the stats can say so too.
+
+function spacingWindow(v) {
+  const pen  = Math.max(0.01, settings.penWidth);
+  const cross = (PATTERN_LAYERS[settings.hatchPattern] || PATTERN_LAYERS.cross)
+    .some(l => l[0] === 1);
+  const lo   = 2 * pen;
+  const hiPen = (cross ? 2 : 4) * pen;
+  const hiVox = voxelMm(v) / Math.max(1, settings.linesPerFace);
+  return { lo, hiPen, hiVox, hi: Math.min(hiPen, hiVox), cross };
+}
+
+function autoSpacing(v) {
+  const w = spacingWindow(v);
+  const want = Math.round(w.hi / 0.05) * 0.05;
+  const S = clamp(want, 0.05, 5);
+  return {
+    S: Math.max(S, Math.round(w.lo / 0.05) * 0.05),
+    reason: w.hi < w.lo ? 'none' : w.hiVox <= w.hiPen ? 'voxel' : 'nib',
+    ...w,
+  };
+}
+
+// What the hatching is actually spaced at this update, which is the setting or the number
+// worked out from it. Everything that lays a line down or reports one reads this.
+function effectiveSpacing(v) {
+  if (!settings.autoSpacing || !v) return Math.max(0.05, settings.hatchSpacing);
+  return autoSpacing(v).S;
+}
+
 // The widest gap the lightest tone on the sheet leaves — the stripe of paper that is
 // what makes a hatched face read as lines rather than as a wash, and the one the nib has
 // to be thin enough to spare. A tone of `lit` layers is the first `lit` entries of the
@@ -3005,7 +3070,7 @@ function lightestGap(lit) {
     }
     widest = widest === 0 ? w : Math.min(widest, w);
   }
-  return widest * settings.hatchSpacing;
+  return widest * hatchMm;
 }
 
 // The smallest gap the darkest tone leaves between two lines of one direction.
@@ -3020,7 +3085,7 @@ function densestGap() {
       best = Math.min(best, next - ph[i]);
     }
   }
-  return best * settings.hatchSpacing;
+  return best * hatchMm;
 }
 
 function updateStats() {
@@ -3065,15 +3130,40 @@ function updateStats() {
   }
 
   const lightGap = Number.isFinite(litMin) ? lightestGap(litMin) : null;
+  const auto = settings.autoSpacing ? autoSpacing(view) : null;
+
+  if (spacingDiv) {
+    spacingDiv.html(!auto ? ''
+      : auto.reason === 'none'
+        ? `<span class="warn">Nothing fits: the nib wants ${auto.lo.toFixed(2)} mm at ` +
+          `least and a ${voxMm.toFixed(2)} mm voxel leaves room for ` +
+          `${auto.hiVox.toFixed(2)} mm at most.</span>`
+        : `Working out <b>${hatchMm.toFixed(2)} mm</b> — ` +
+          (auto.reason === 'voxel'
+            ? `${settings.linesPerFace} lines across a ${voxMm.toFixed(2)} mm voxel is ` +
+              `what holds it, with the nib allowing up to ${auto.hiPen.toFixed(2)} mm.`
+            : `the ${settings.penWidth} mm nib is what holds it, with the voxel allowing ` +
+              `up to ${auto.hiVox.toFixed(2)} mm.`));
+  }
 
   let warn = '';
+  if (auto && auto.reason === 'none') {
+    warn += `<div class="warn">No spacing works on this sheet. The lightest tone needs ` +
+      `${auto.lo.toFixed(2)} mm to leave any paper under a ${settings.penWidth} mm nib, ` +
+      `and a voxel ${voxMm.toFixed(2)} mm across only has room for ` +
+      `${auto.hiVox.toFixed(2)} mm before a face stops carrying ${settings.linesPerFace} ` +
+      `lines. The spacing was held at the nib. Fit a nib around ` +
+      `<b>${(auto.hiVox / 2).toFixed(2)} mm</b>, use a smaller structure, or plot it on ` +
+      `paper <b>${(auto.lo / auto.hiVox).toFixed(1)}×</b> the size — one paper step up ` +
+      `is 1.4×.</div>`;
+  }
   if (strokes > BUSY_STROKES) {
     warn += `<div class="warn">${groupNum(strokes)} strokes is a very long plot — and a ` +
       `big SVG.</div>`;
   }
-  if (settings.hatchSpacing > voxMm * 1.5) {
+  if (hatchMm > voxMm * 1.5) {
     warn += `<div class="warn">A voxel is ${voxMm.toFixed(2)} mm on paper and the lines ` +
-      `run ${settings.hatchSpacing} mm apart — single cubes will mostly miss the hatch. ` +
+      `run ${hatchMm.toFixed(2)} mm apart — single cubes will mostly miss the hatch. ` +
       `Tighten the spacing or use a smaller structure.</div>`;
   }
   // The darkest tone is meant to close up; the lightest is not, and a stripe of paper
@@ -3179,7 +3269,8 @@ function metaComment() {
     `${s.shadows && s.shadowOutline ? '+border' : ''} ` +
     `${s.texture === 'none' ? '' : `texture=${s.texture}@${s.textureScale}` +
       `x${s.textureAmount} seed=${s.textureSeed} `}` +
-    `hatch=${s.hatchSpacing}mm x${s.layers} ${s.hatchPattern} ${s.hatchMode}` +
+    `hatch=${hatchMm.toFixed(2)}mm${s.autoSpacing ? '(auto/' + s.linesPerFace + ')' : ''}` +
+    ` x${s.layers} ${s.hatchPattern} ${s.hatchMode}` +
     `${s.hatchMode === 'screen angle' ? '@' + s.hatchAngle + '°' : '/' + s.wallHatch} ` +
     `edges=${s.edges} pen=${s.penWidth}mm strokes=${shapes.off.length - 1}`;
 }
