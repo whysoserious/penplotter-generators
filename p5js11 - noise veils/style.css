@@ -1,0 +1,310 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: #222;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+#controls {
+  width: 290px;
+  padding: 14px 16px 20px;
+  overflow-y: auto;
+  border-right: 1px solid #ddd;
+  background: #f7f7f8;
+  box-sizing: border-box;
+}
+
+#controls .field {
+  margin-top: 12px;
+}
+
+#controls .label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #333;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+#controls .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#controls input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+#controls .row input[type="number"],
+#controls .row input[type="text"] {
+  width: 64px;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+
+#controls input[type="color"] {
+  width: 100%;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #ccc;
+  background: none;
+  cursor: pointer;
+}
+
+#controls select {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+#controls button {
+  width: 100%;
+  padding: 8px;
+  background: #222;
+  color: white;
+  border: none;
+  cursor: pointer;
+  margin-top: 10px;
+  border-radius: 2px;
+  font-size: 13px;
+}
+
+#controls button:hover {
+  background: #000;
+}
+
+#controls .primary {
+  background: #1a6dd1;
+}
+
+#controls .primary:hover {
+  background: #1257b0;
+}
+
+#controls .btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+#controls .btn-row button {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 4px;
+  font-size: 12px;
+}
+
+#controls .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+#controls .inline-btn {
+  width: auto;
+  margin-top: 0;
+  padding: 3px 8px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+#controls .section {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid #dcdce0;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #1a6dd1;
+}
+
+#controls .section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+#controls .note {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #777;
+}
+
+#controls .note b {
+  color: #444;
+  font-family: 'Courier New', monospace;
+}
+
+#controls .stats {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: #555;
+}
+
+#controls .stats b {
+  color: #222;
+}
+
+#controls .stats .big {
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+#controls .stats .big b {
+  font-size: 16px;
+}
+
+#controls .legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#controls .ok   { color: #1a7f37; }
+#controls .dim  { color: #999; }
+#controls .warn { color: #b23a00; font-weight: 600; }
+
+#controls .stats .warn {
+  display: block;
+  margin-top: 6px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+#canvas-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e9e9ec;
+  overflow: auto;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+canvas {
+  display: block;
+  background: white;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
+
+#controls .rule-info {
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  color: #888;
+  margin-top: 4px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.rule-hex {
+  color: #1a6dd1;
+  font-weight: 700;
+}
+
+.rule-bin {
+  color: #aaa;
+  letter-spacing: 0.05em;
+}
+
+#controls .link {
+  margin-top: 8px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: #999;
+  word-break: break-all;
+  font-family: 'Courier New', monospace;
+  max-height: 62px;
+  overflow: hidden;
+}
+
+#controls .copied {
+  color: #1a7f37;
+  font-weight: 600;
+}
+
+/* a section that opens a group which can be hidden still gets its rule and spacing */
+#controls .group > .section:first-child {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid #dcdce0;
+}
+
+#controls .legend .tone-name {
+  width: 78px;
+  flex-shrink: 0;
+  color: #444;
+}
+
+#controls .legend .sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+}
+
+#canvas-container canvas {
+  cursor: crosshair;
+  touch-action: none;
+}
+
+#controls .keys div {
+  margin-top: 2px;
+}
+
+#controls .keys kbd {
+  display: inline-block;
+  min-width: 10px;
+  padding: 0 4px;
+  border: 1px solid #ccc;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: #fff;
+  color: #333;
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* the handles for the hole and the centre live on the canvas, so the pointer says so */
+#canvas-container canvas {
+  cursor: grab;
+}
+
+#canvas-container canvas.dragging {
+  cursor: grabbing;
+}
+
+/* one row per pen: swatch, what it draws, how much of it */
+#controls .pen-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: #555;
+}
+
+#controls .pen-row .sw {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+}
