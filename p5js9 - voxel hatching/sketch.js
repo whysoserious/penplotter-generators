@@ -48,6 +48,7 @@ const GENERATORS     = ['automaton stack', 'terrain'];
 const CA_SEEDS       = ['center', 'random', 'random disc'];
 const NEIGHBOURHOODS = ['moore', 'von neumann'];
 const TIME_DIRS      = ['downwards', 'upwards'];
+const HATCH_LATTICES = ['one lattice', 'per plane'];
 const HATCH_PATTERNS = ['cross', 'parallel'];
 const HATCH_MODES    = ['along edges', 'screen angle'];
 const WALL_HATCH     = ['vertical', 'horizontal'];
@@ -231,6 +232,7 @@ const settings = {
 
   // hatching
   hatchSpacing: 1,      // mm on paper between the lines of one layer
+  hatchLattice: 'one lattice',   // or 'per plane', which is how it used to be
   autoSpacing: false,   // work that spacing out from the voxel and the nib instead
   linesPerFace: 3,      // how many lines the lightest tone should put across one face
   layers: 3,
@@ -273,6 +275,8 @@ let plan     = null;         // { order, flip, ink, travel }
 let modelImg = null;         // offscreen canvas with the shaded faces, built on demand
 let lastMs   = 0;
 let hatchMm  = 1;            // the spacing this sheet is actually hatched at, in mm
+let hatchRef = null;         // the point the along-edges spacing is measured at
+let hatchFams = null;        // (axis, family) -> the lattice it shares, when it shares one
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
@@ -674,7 +678,9 @@ function update() {
     fitView(view, planes);
     tones  = toneTable(view);
     gates  = gateTable(view, tones);
-    hatchMm = effectiveSpacing(view);
+    hatchMm  = effectiveSpacing(view);
+    hatchRef = hatchReference(planes);
+    hatchFams = [];
     shapes = buildShapes(g, view, planes, tones, gates);
     strokes = shapes.off.length - 1;
     // Past the limit nothing is ordered, drawn or exported — the stats say why.
@@ -1284,7 +1290,35 @@ function paperStep(v, c, axis) {
   return [(STEP_A[0] - STEP_B[0]) / (2 * h), (STEP_A[1] - STEP_B[1]) / (2 * h)];
 }
 
+// The middle of everything that is drawn, weighted by how many faces each plane holds.
+// One lattice for the whole model has to be measured somewhere, and this is the point at
+// which the spacing on paper comes out at the setting exactly.
+function hatchReference(pl) {
+  let wx = 0, wy = 0, wz = 0, n = 0;
+  for (const P of pl) {
+    const c = [0, 0, 0];
+    c[P.ax] = P.L; c[P.ua] = P.cu; c[P.va] = P.cv;
+    wx += c[0] * P.count; wy += c[1] * P.count; wz += c[2] * P.count;
+    n += P.count;
+  }
+  return n ? [wx / n, wy / n, wz / n] : [0, 0, 0];
+}
+
 // { W, sigma } for the along-edges family, or the orthographic screen-angle one.
+//
+// Under perspective a lattice fixed to the model cannot also have a fixed spacing on
+// paper — the two are the same thing only in orthographic. Measuring the spacing at each
+// plane's own centroid, which is what this used to do, chooses neither: every plane gets
+// a lattice of its own, and since the centroids are scattered through the model at
+// different depths and angles, sigma comes out up to three times larger on one plane
+// than on its neighbour. Walls show it worst, because a wall plane is a slab clean
+// through the structure and its centroid is nowhere near the faces of it you can see.
+// Two faces side by side on the sheet then carry two different spacings for no reason
+// the drawing can explain.
+//
+// One lattice measures once, at the middle of the drawing, and every plane of that axis
+// shares it. The spacing on paper then varies only with depth, the way the cube edges
+// themselves do, and faces that sit together agree.
 function planeFamily(v, P, fam) {
   const S = Math.max(0.05, hatchMm);
 
@@ -1304,20 +1338,25 @@ function planeFamily(v, P, fam) {
     across = (fam === 0) === verticalFirst ? horizontal : 2;
   }
   const along = 3 - ax - across;
+  const one = settings.hatchLattice === 'one lattice' && hatchRef;
+  if (one) {
+    const hit = hatchFams[ax * 2 + fam];
+    if (hit !== undefined) return hit;
+  }
 
   // Paper spacing of lines one unit apart along `across`: the projected offset measured
   // perpendicular to the projected line direction.
-  const c = [0, 0, 0];
-  c[ax] = P.L; c[P.ua] = P.cu; c[P.va] = P.cv;
+  const c = one ? hatchRef.slice() : [0, 0, 0];
+  if (!one) { c[ax] = P.L; c[P.ua] = P.cu; c[P.va] = P.cv; }
   const [dX, dY] = paperStep(v, c, along);
   const [wX, wY] = paperStep(v, c, across);
+  // A family whose lines project to points, or near enough, has no spacing to speak of.
   const dl = Math.hypot(dX, dY);
-  if (dl < 1e-9) return null;                      // the lines would project to points
-  const k = Math.abs(dX * wY - dY * wX) / dl;
-  if (k < 1e-9) return null;
-  const W = [0, 0, 0];
-  W[across] = 1;
-  return { W, sigma: S / k };
+  const k  = dl < 1e-9 ? 0 : Math.abs(dX * wY - dY * wX) / dl;
+  const out = k < 1e-9 ? null : { W: [0, 0, 0], sigma: S / k };
+  if (out) out.W[across] = 1;
+  if (one) hatchFams[ax * 2 + fam] = out;
+  return out;
 }
 
 function hatchFixed(v, P, win, F, phase, gate, sink) {
@@ -2729,6 +2768,15 @@ function buildControls() {
   addSelect(root, 'Direction', 'hatchMode', HATCH_MODES, () => { syncVisibility(); update(); },
     '<b>along edges</b> — the lines follow the cube edges, so every face reads as a ' +
     'plane in space.<br><b>screen angle</b> — one angle on the whole sheet, like a print.');
+  addSelect(root, 'Lattice', 'hatchLattice', HATCH_LATTICES, update,
+    'Under perspective a lattice fixed to the model cannot also hold one spacing on ' +
+    'paper — orthographic is the only place the two are the same thing, and there these ' +
+    'two draw the same sheet.<br><b>one lattice</b> — measured once at the middle of the ' +
+    'drawing and shared by every plane of an axis, so the spacing on paper changes only ' +
+    'with depth and faces that sit together agree.<br><b>per plane</b> — measured again ' +
+    'at each plane\'s own centroid, which is how this used to work. A wall plane is a ' +
+    'slab clean through the structure and its centroid is nowhere near the faces of it ' +
+    'you can see, so neighbouring walls come out at spacings that differ by half again.');
   addSelect(root, 'First layer on walls', 'wallHatch', WALL_HATCH, update);
   addSlider(root, 'Hatch angle (°)', 'hatchAngle', 0, 180, 1);
   addSelect(root, 'Edges', 'edges', EDGE_MODES, update,
@@ -2814,6 +2862,7 @@ function syncVisibility() {
   setVisible('seedRadius',   settings.caSeed === 'random disc');
   setVisible('seedValue',    settings.caSeed !== 'center');
   setVisible('wallHatch',    settings.hatchMode === 'along edges');
+  setVisible('hatchLattice', settings.hatchMode === 'along edges');
   setVisible('hatchSpacing', !settings.autoSpacing);
   setVisible('linesPerFace', settings.autoSpacing);
   setVisible('hatchAngle',   settings.hatchMode === 'screen angle');
