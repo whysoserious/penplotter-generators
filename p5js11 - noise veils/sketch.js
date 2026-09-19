@@ -50,10 +50,14 @@ const SHAPES    = ['rings', 'lines', 'spiral', 'spokes'];
 const FALLOFFS  = ['even', 'grows outward', 'fades outward'];
 const HOLE_MODES = ['none', 'cut', 'push'];
 const PEN_SPLITS = ['bands', 'interleaved', 'by fold'];
-const SVG_OUTPUTS = ['one file', 'one file per colour', 'both'];
+const FILL_REGIONS = ['none', 'the disc', 'a ring around it', 'everything outside it'];
+const FILL_STYLES  = ['spiral', 'rings', 'hatch'];
+const SVG_OUTPUTS = ['one file', 'one file per pen', 'both'];
 
 const MAX_PENS       = 3;
 const INK_MARK       = -1;        // cut guides: drawn with every pen
+const INK_FILL       = -2;        // the filled area: its own colour, its own nib, first
+const FILL_SAG       = 0.05;      // mm a filled arc may cut the corner by
 const MAX_STROKES    = 400_000;   // past this nothing is ordered, drawn or exported
 const BUSY_STROKES   = 80_000;    // above this, warn about the plot time
 const MAX_POINTS     = 12e6;      // field lookups one update is allowed to ask for
@@ -118,6 +122,16 @@ const settings = {
   holeSoft: 8,          // mm — the band the pushed-out material is spread over
   holeOutline: false,   // draw the rim as a circle of its own
 
+  // the fill — a second pass over the middle of the sheet, in a pen of its own
+  fillRegion: 'none',
+  fillStyle: 'spiral',  // spiral is one stroke and never lifts the pen
+  fillPen: 1,           // mm — the thick nib that does the filling
+  fillGap: 85,          // % of that nib between one pass of it and the next
+  fillInset: 0.5,       // mm the fill keeps clear of the rim, so it misses the veil ends
+  fillBand: 12,         // mm — how wide the ring is, for `a ring around it`
+  fillAngle: 0,         // deg — for `hatch`
+  fillColor: '#b23a00',
+
   // pens
   pens: 1,
   penSplit: 'bands',
@@ -176,6 +190,7 @@ let shapes  = null;          // { pts, off, ink } — polylines in mm
 let strokes = 0;             // how many of them, even when there are too many to draw
 let plan    = null;          // { order, flip, ink, travel }
 let perPen  = null;          // per pen: { strokes, ink }
+let fillStat = null;         // the filled area on its own: { strokes, ink }
 let lastMs  = 0;
 let lastPoints = 0;
 let drag    = null;          // 'hole' | 'centre' while the mouse is down on a handle
@@ -417,19 +432,26 @@ function estimatePoints() {
   const r1 = Math.max(r0 + sp, outerR());
   const frac = clamp(settings.span, 1, 360) / 360;
 
+  let fill = 0;
+  const rr = settings.fillRegion === 'none' ? null : fillRadii();
+  if (rr) {
+    const fs = fillSpacing();
+    fill = Math.PI * (rr[1] * rr[1] - rr[0] * rr[0]) / (fs * Math.max(0.4, arcStep(rr[1])));
+  }
+
   switch (settings.shape) {
     case 'lines': {
       const d = Math.hypot(a.w, a.h) + 2 * padMm();
-      return (d / sp) * (d / st);
+      return fill + (d / sp) * (d / st);
     }
     case 'spokes': {
       const n = Math.max(1, Math.round(frac * 2 * Math.PI * r1 / sp));
-      return n * ((r1 - r0) / st + 1);
+      return fill + n * ((r1 - r0) / st + 1);
     }
     case 'spiral':
-      return Math.PI * (r1 * r1 - r0 * r0) / (sp * st);
+      return fill + Math.PI * (r1 * r1 - r0 * r0) / (sp * st);
     default:
-      return frac * Math.PI * (r1 * r1 - r0 * r0) / (sp * st);
+      return fill + frac * Math.PI * (r1 * r1 - r0 * r0) / (sp * st);
   }
 }
 
@@ -1012,6 +1034,134 @@ function holeOutlineShape(sink) {
   emitPath(WX, WY, GV, m + 1, false, true, sink, 0);
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
+// The filled area
+//
+// A second pass over the middle of the sheet, and the one place in this sketch where the
+// point is to cover paper rather than to draw a line. It is always the same shape — a
+// ring about the centre of the hole, between two radii — so the disc, a band around the
+// rim and the whole sheet outside it are one piece of machinery given different radii.
+//
+// It is a pass of its own: its own colour, its own nib and, if you like, its own file.
+// The nib is the reason. Filling with the pen that drew the veils would take hours, and
+// a 1 mm nib covers five times the paper a 0.2 mm one does for the same length of line,
+// so the fill wants the thickest pen in the drawer and the veils the thinnest.
+
+function fillOn() {
+  return settings.fillRegion !== 'none' && fillRadii() !== null;
+}
+
+// The two radii, measured from the centre of the hole.
+function fillRadii() {
+  const R = Math.max(0, settings.holeR);
+  const inset = settings.fillInset;
+  let r0, r1;
+  switch (settings.fillRegion) {
+    case 'the disc':
+      r0 = 0; r1 = R - inset; break;
+    case 'a ring around it':
+      r0 = R + inset; r1 = r0 + Math.max(0, settings.fillBand); break;
+    case 'everything outside it':
+      r0 = R + inset; r1 = fillReach(); break;
+    default:
+      return null;
+  }
+  return r1 > r0 + 1e-6 ? [Math.max(0, r0), r1] : null;
+}
+
+// Far enough to leave no corner of the sheet bare.
+function fillReach() {
+  const [hx, hy] = holeMm();
+  let r = 0;
+  for (const x of [area.x0, area.x1]) {
+    for (const y of [area.y0, area.y1]) r = Math.max(r, Math.hypot(x - hx, y - hy));
+  }
+  return r;
+}
+
+// How far apart two passes of the fill nib sit. At 100 % they just touch and the paper
+// between them is left; below that they overlap, which is what makes it read as solid.
+function fillSpacing() {
+  return Math.max(0.05, Math.max(0.05, settings.fillPen) * clamp(settings.fillGap, 20, 200) / 100);
+}
+
+// Arc to walk before laying the next point down, from how far a chord may cut the corner.
+function arcStep(r) {
+  return clamp(Math.sqrt(8 * FILL_SAG * Math.max(FILL_SAG, r)), 0.4, 6);
+}
+
+function fillRingPass(sink, r0, r1, sp, hx, hy) {
+  const first = r0 > 1e-6 ? r0 : sp / 2;
+  for (let r = first; r <= r1 + 1e-9; r += sp) {
+    const m = Math.max(8, Math.ceil(2 * Math.PI * r / arcStep(r)));
+    needBuf(m + 1);
+    for (let k = 0; k <= m; k++) {
+      const a = 2 * Math.PI * (k % m) / m;
+      WX[k] = hx + r * Math.cos(a);
+      WY[k] = hy + r * Math.sin(a);
+    }
+    emitPath(WX, WY, GV, m + 1, false, true, sink, INK_FILL);
+  }
+}
+
+// One stroke for the whole area: the pen goes down once and comes up at the outside.
+function fillSpiralPass(sink, r0, r1, sp, hx, hy) {
+  const k = sp / (2 * Math.PI);
+  const aEnd = (r1 - r0) / k;
+  const xs = [], ys = [];
+  for (let a = 0; a < aEnd; ) {
+    const r = r0 + k * a;
+    xs.push(hx + r * Math.cos(a));
+    ys.push(hy + r * Math.sin(a));
+    a += arcStep(r) / Math.max(0.2, r);
+    if (xs.length > (1 << 21)) break;
+  }
+  const r = r0 + k * aEnd;
+  xs.push(hx + r * Math.cos(aEnd));
+  ys.push(hy + r * Math.sin(aEnd));
+
+  const n = xs.length;
+  needBuf(n);
+  for (let i = 0; i < n; i++) { WX[i] = xs[i]; WY[i] = ys[i]; }
+  emitPath(WX, WY, GV, n, false, false, sink, INK_FILL);
+}
+
+// Straight lines across the area, cut where they leave it. The gate is the distance from
+// the centre against both radii at once, so one number decides a ring and a disc alike.
+function fillHatchPass(sink, r0, r1, sp, hx, hy) {
+  const th = radians(settings.fillAngle);
+  const dx = Math.cos(th), dy = Math.sin(th);
+  const ux = -dy, uy = dx;
+  const step = Math.min(arcStep(r1), sp);
+
+  const a0 = -r1, a1 = r1, c0 = -r1, c1 = r1;      // the area sits inside its own circle
+  const n = Math.max(2, Math.ceil((a1 - a0) / step) + 1);
+  needBuf(n);
+
+  for (let c = c0; c <= c1 + 1e-9; c += sp) {
+    for (let k = 0; k < n; k++) {
+      const a = a0 + (a1 - a0) * k / (n - 1);
+      const x = hx + dx * a + ux * c, y = hy + dy * a + uy * c;
+      WX[k] = x; WY[k] = y;
+      const rx = x - hx, ry = y - hy;
+      const d = Math.sqrt(rx * rx + ry * ry);
+      GV[k] = Math.min(d - r0, r1 - d);
+    }
+    emitPath(WX, WY, GV, n, true, false, sink, INK_FILL);
+  }
+}
+
+function fillShapes(sink) {
+  const rr = fillRadii();
+  if (!rr) return;
+  const [r0, r1] = rr;
+  const sp = fillSpacing();
+  const [hx, hy] = holeMm();
+  if (settings.fillStyle === 'hatch') fillHatchPass(sink, r0, r1, sp, hx, hy);
+  else if (settings.fillStyle === 'rings') fillRingPass(sink, r0, r1, sp, hx, hy);
+  else fillSpiralPass(sink, r0, r1, sp, hx, hy);
+}
+
 function cropMarkShapes(sink) {
   const [W, H] = paperDims();
   const step = Math.max(1, settings.cropMarkGap);
@@ -1038,6 +1188,7 @@ function buildShapes() {
   const sink = makeSink();
   const pens = Math.round(clamp(settings.pens, 1, MAX_PENS));
   perPen = [];
+  fillStat = null;
   for (let i = 0; i < pens; i++) perPen.push({ strokes: 0, ink: 0 });
 
   switch (settings.shape) {
@@ -1048,9 +1199,14 @@ function buildShapes() {
   }
   if (WANT_DISP) assignByFold(sink);
   if (settings.holeOutline && settings.holeMode !== 'none') holeOutlineShape(sink);
+  if (settings.fillRegion !== 'none') fillShapes(sink);
   if (settings.cropMarks) cropMarkShapes(sink);
 
-  for (const id of sink.ink) if (id >= 0 && perPen[id]) perPen[id].strokes++;
+  fillStat = { strokes: 0, ink: 0 };
+  for (const id of sink.ink) {
+    if (id >= 0 && perPen[id]) perPen[id].strokes++;
+    else if (id === INK_FILL) fillStat.strokes++;
+  }
 
   return {
     pts: Float64Array.from(sink.pts),
@@ -1228,6 +1384,7 @@ function measurePlan(sh, order, flip) {
     ink += run;
     const id = sh.ink[i];
     if (perPen && id >= 0 && perPen[id]) perPen[id].ink += run;
+    else if (id === INK_FILL && fillStat) fillStat.ink += run;
     px = pts[inB * 2];
     py = pts[inB * 2 + 1];
   }
@@ -1244,7 +1401,12 @@ function measurePlan(sh, order, flip) {
 
 function inkColor(id) {
   if (id === INK_MARK) return '#666';
+  if (id === INK_FILL) return settings.fillColor;
   return settings['ink' + clamp(id, 0, MAX_PENS - 1)];
+}
+
+function inkWidth(id) {
+  return id === INK_FILL ? Math.max(0.05, settings.fillPen) : settings.penWidth;
 }
 
 function drawPreview() {
@@ -1264,7 +1426,6 @@ function drawStrokes(ctx, s) {
 
   ctx.save();
   ctx.scale(s, s);
-  ctx.lineWidth = settings.penWidth;
   ctx.lineCap   = 'round';
   ctx.lineJoin  = 'round';
 
@@ -1274,6 +1435,7 @@ function drawStrokes(ctx, s) {
   while (t < order.length) {
     const id = shapes.ink[order[t]];
     ctx.strokeStyle = inkColor(id);
+    ctx.lineWidth   = inkWidth(id);
     ctx.beginPath();
     let held = 0;
     while (t < order.length && shapes.ink[order[t]] === id) {
@@ -1447,12 +1609,22 @@ function syncVisibility() {
   setVisible('span', radial && !spiral);
   setVisible('spanFrom', radial && !spiral);
   setVisible('falloffPower', settings.falloff !== 'even');
-  setVisible('holeR', settings.holeMode !== 'none');
-  setVisible('holeLinked', settings.holeMode !== 'none' && radial);
-  setVisible('holeU', settings.holeMode !== 'none' && (!settings.holeLinked || !radial));
-  setVisible('holeV', settings.holeMode !== 'none' && (!settings.holeLinked || !radial));
+  const filling = settings.fillRegion !== 'none';
+  setVisible('holeR', settings.holeMode !== 'none' || filling);
+  setVisible('holeLinked', (settings.holeMode !== 'none' || filling) && radial);
+  setVisible('holeU', (settings.holeMode !== 'none' || filling) &&
+                      (!settings.holeLinked || !radial));
+  setVisible('holeV', (settings.holeMode !== 'none' || filling) &&
+                      (!settings.holeLinked || !radial));
   setVisible('holeSoft', settings.holeMode === 'push');
   setVisible('holeOutline', settings.holeMode !== 'none');
+  setVisible('fillPen', filling);
+  setVisible('fillStyle', filling);
+  setVisible('fillAngle', filling && settings.fillStyle === 'hatch');
+  setVisible('fillGap', filling);
+  setVisible('fillInset', filling);
+  setVisible('fillBand', filling && settings.fillRegion === 'a ring around it');
+  setVisible('fillColor', filling);
   setVisible('penSplit', pens > 1);
   setVisible('ink1', pens > 1);
   setVisible('ink2', pens > 2);
@@ -1708,6 +1880,36 @@ function buildControls() {
   addSlider(root, 'Hole down (%)', 'holeV', -20, 120, 0.5);
   addCheckbox(root, 'Draw the rim', 'holeOutline');
 
+  // --- The fill ---
+  addSection(root, 'Fill');
+  addSelect(root, 'Lay colour over', 'fillRegion', FILL_REGIONS,
+    () => { syncVisibility(); update(); },
+    'A second pass over the middle of the sheet, in a pen of its own — plotted on its ' +
+    'own, and exported on its own if you ask for a file per pen.<br>' +
+    '<b>the disc</b> — the hole itself, so the white circle becomes a coloured one.<br>' +
+    '<b>a ring around it</b> — a band just outside the rim.<br>' +
+    '<b>everything outside it</b> — the whole sheet but the disc. That is a lot of ' +
+    'paper: watch the length it reports before you start it.');
+  addSlider(root, 'Fill nib (mm)', 'fillPen', 0.1, 6, 0.05,
+    'The pen that does the filling, which wants to be the thickest one in the drawer. ' +
+    'It sets both the spacing of the passes and the stroke width in the file, and a ' +
+    '1 mm nib covers five times the paper a 0.2 mm one does for the same length of line.');
+  addSelect(root, 'Laid down as', 'fillStyle', FILL_STYLES,
+    () => { syncVisibility(); update(); },
+    '<b>spiral</b> — one stroke for the whole area, so the pen goes down once.<br>' +
+    '<b>rings</b> — one closed stroke per turn.<br>' +
+    '<b>hatch</b> — straight lines across it, cut at the edge.');
+  addSlider(root, 'Hatch angle (°)', 'fillAngle', 0, 180, 1);
+  addSlider(root, 'Pass spacing (% of the nib)', 'fillGap', 20, 200, 1,
+    'At 100 % two passes of the nib just touch and the paper between them is left. ' +
+    'Below that they overlap, which is what makes it read as solid; 80–90 % is the ' +
+    'usual answer for a fibre tip, less for anything that skips.');
+  addSlider(root, 'Keep clear of the rim (mm)', 'fillInset', -10, 20, 0.5,
+    'How far short of the hole the fill stops, so a thick nib does not paint over the ' +
+    'ends of the veils. Negative runs it under them instead.');
+  addSlider(root, 'Ring width (mm)', 'fillBand', 1, 200, 1);
+  addColor(root, 'Fill ink', 'fillColor');
+
   // --- Output ---
   addSection(root, 'Output');
   addSlider(root, 'Simplify (mm)', 'simplifyTol', 0, 0.5, 0.01,
@@ -1737,17 +1939,28 @@ function buildControls() {
   syncVisibility();
 }
 
+// One row per plot pass, since each is a separate sitting at the plotter with a
+// different pen in the holder.
 function refreshPenList() {
   if (!penListDiv) return;
   const pens = Math.round(clamp(settings.pens, 1, MAX_PENS));
-  if (pens < 2 || !perPen) { penListDiv.html(''); return; }
+  const showFill = fillOn() && fillStat && fillStat.strokes;
+  if ((pens < 2 && !showFill) || !perPen) { penListDiv.html(''); return; }
+
+  const row = (colour, name, st, ink, nib) =>
+    `<div class="pen-row"><span class="sw" style="background:${colour}"></span>` +
+    `<span>${name} — <b>${groupNum(st)}</b> strokes, <b>${(ink / 1000).toFixed(1)}</b> m ` +
+    `of ${nib} mm, ${formatDuration(st * PEN_CYCLE_S + ink / DRAW_SPEED)}</span></div>`;
 
   let html = '';
+  if (showFill) {
+    html += row(settings.fillColor, 'fill', fillStat.strokes, fillStat.ink, settings.fillPen);
+  }
   for (let i = 0; i < pens; i++) {
     const p = perPen[i] || { strokes: 0, ink: 0 };
-    html += `<div class="pen-row"><span class="sw" style="background:${inkColor(i)}"></span>` +
-      `<span>pen ${i + 1} — <b>${groupNum(p.strokes)}</b> strokes, ` +
-      `<b>${(p.ink / 1000).toFixed(1)}</b> m</span></div>`;
+    if (!p.strokes) continue;
+    html += row(inkColor(i), pens > 1 ? 'pen ' + (i + 1) : 'veils',
+                p.strokes, p.ink, settings.penWidth);
   }
   penListDiv.html(html);
 }
@@ -1789,12 +2002,18 @@ function updateStats() {
   }
 
   const seconds = strokes * PEN_CYCLE_S + plan.ink / DRAW_SPEED + plan.travel / TRAVEL_SPEED;
-  const cover = clamp(plan.ink * settings.penWidth / sheetArea(), 0, 1);
+  const fs = (fillOn() && fillStat) ? fillStat : { strokes: 0, ink: 0 };
+  const lineInk = plan.ink - fs.ink;
+  // Every pass covers paper at its own nib width, so the two are weighed separately.
+  const cover = clamp((lineInk * settings.penWidth +
+                       fs.ink * Math.max(0.05, settings.fillPen)) / sheetArea(), 0, 1);
   const pts = shapes.off[shapes.off.length - 1];
 
   let html =
-    `<div class="big"><b>${groupNum(strokes)}</b> strokes, ` +
-    `<b>${(plan.ink / 1000).toFixed(1)}</b> m of ${settings.penWidth} mm line</div>` +
+    `<div class="big"><b>${groupNum(strokes - fs.strokes)}</b> strokes, ` +
+    `<b>${(lineInk / 1000).toFixed(1)}</b> m of ${settings.penWidth} mm line` +
+    `${fs.strokes ? ` · fill <b>${(fs.ink / 1000).toFixed(1)}</b> m of ` +
+      `${settings.fillPen} mm` : ''}</div>` +
     `<div>${groupNum(pts)} points after thinning, ` +
     `${groupNum(lastPoints)} warped to get them</div>` +
     `<div>Pen up for ${(plan.travel / 1000).toFixed(1)} m between strokes</div>` +
@@ -1813,6 +2032,17 @@ function updateStats() {
     html += `<div class="warn">${(100 * cover).toFixed(0)} % of the sheet ends up under ` +
       `ink. Thin paper will cockle and the nib will run dry — widen the spacing or take ` +
       `a finer nib.</div>`;
+  }
+  if (fs.strokes && settings.fillGap > 100) {
+    html += `<div class="warn">The fill lays its passes ${settings.fillGap} % of a nib ` +
+      `apart, so they never meet and the area will come out striped rather than solid. ` +
+      `Under 100 % is what covers paper.</div>`;
+  }
+  if (fs.ink / DRAW_SPEED > 3600) {
+    html += `<div class="warn">The fill alone is ` +
+      `${formatDuration(fs.strokes * PEN_CYCLE_S + fs.ink / DRAW_SPEED)} of drawing. ` +
+      `A thicker nib is the only cheap way out — the length falls off with the square ` +
+      `of it.</div>`;
   }
   if (strokes > BUSY_STROKES) {
     html += `<div class="warn">${groupNum(strokes)} strokes is a long sitting at the ` +
@@ -1862,13 +2092,18 @@ function metaComment() {
     `strength=${s.falloff}${s.falloff === 'even' ? '' : '^' + s.falloffPower} ` +
     `hole=${hole} ` +
     `pens=${s.pens}${s.pens > 1 ? '/' + s.penSplit : ''} ` +
+    `fill=${s.fillRegion === 'none' ? 'none'
+      : `${s.fillRegion}/${s.fillStyle}/${s.fillPen}mm@${s.fillGap}%` +
+        `${s.fillRegion === 'a ring around it' ? '/band' + s.fillBand + 'mm' : ''}` +
+        `${s.fillStyle === 'hatch' ? '/' + s.fillAngle + '°' : ''}` +
+        `/inset${s.fillInset}mm@${s.fillColor}`} ` +
     `simplify=${s.simplifyTol}mm ` +
     `${s.cropMarks ? 'cropmarks<=' + s.cropMarkGap + 'mm ' : ''}` +
     `pen=${s.penWidth}mm strokes=${strokes}`;
 }
 
 // The strokes of one pen, in plot order, as one <g>.
-function svgGroup(keep, colour) {
+function svgGroup(keep, colour, width) {
   const { pts, off } = shapes;
   const { order, flip } = plan;
   const f = n => String(+n.toFixed(3));
@@ -1901,42 +2136,46 @@ function svgGroup(keep, colour) {
 
   return {
     count,
-    body: `<g fill="none" stroke="${colour}" stroke-width="${f(settings.penWidth)}" ` +
+    body: `<g fill="none" stroke="${colour}" stroke-width="${f(width)}" ` +
       `stroke-linecap="round" stroke-linejoin="round">\n${body}</g>\n`,
   };
 }
 
-// The colours actually put down on this sheet, in the order the pens are drawn.
-function colourList() {
+// The passes this sheet actually needs, in the order the plotter should run them: the
+// fill first, so the thick colour goes down and the veils are drawn over it, then a pass
+// per pen that has anything to draw. Each carries its own nib, which is the whole reason
+// the fill is a pass and not just another colour.
+function passList() {
   const out = [];
+  if (fillOn() && fillStat && fillStat.strokes) {
+    out.push({ tag: 'fill', colour: settings.fillColor, width: Math.max(0.05, settings.fillPen),
+               keep: i => shapes.ink[i] === INK_FILL });
+  }
   const pens = Math.round(clamp(settings.pens, 1, MAX_PENS));
   for (let i = 0; i < pens; i++) {
     if (!perPen || !perPen[i] || !perPen[i].strokes) continue;
-    const c = inkColor(i);
-    if (!out.includes(c)) out.push(c);
+    out.push({ tag: pens > 1 ? 'pen' + (i + 1) : 'veils', colour: inkColor(i),
+               width: settings.penWidth, keep: j => shapes.ink[j] === i });
   }
   return out;
 }
 
-// The whole sheet, or the one pen `colour` draws. The cut guides are in every file —
-// they are what lines the passes up on the paper.
-function svgFile(colour) {
+// The whole sheet, or one pass of it. The cut guides are in every file — they are what
+// lines the passes up on the paper.
+function svgFile(pass) {
   const [W, H] = paperDims();
-  const pens = Math.round(clamp(settings.pens, 1, MAX_PENS));
+  const list = pass ? [pass] : passList();
   const groups = [];
 
   if (settings.cropMarks) {
-    groups.push([i => shapes.ink[i] === INK_MARK, colour || colourList()[0] || '#000000']);
+    groups.push([i => shapes.ink[i] === INK_MARK,
+                 (list[0] && list[0].colour) || '#000000', settings.penWidth]);
   }
-  for (let i = 0; i < pens; i++) {
-    const c = inkColor(i);
-    if (colour && c !== colour) continue;
-    groups.push([j => shapes.ink[j] === i, c]);
-  }
+  for (const p of list) groups.push([p.keep, p.colour, p.width]);
 
   let body = '', count = 0;
-  for (const [keep, col] of groups) {
-    const g = svgGroup(keep, col);
+  for (const [keep, col, width] of groups) {
+    const g = svgGroup(keep, col, width);
     if (!g) continue;
     body += g.body;
     count += g.count;
@@ -1944,7 +2183,7 @@ function svgFile(colour) {
   if (!count) return null;
 
   return `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<!-- ${metaComment()}${colour ? ' pen=' + colour : ''} -->\n` +
+    `<!-- ${metaComment()}${pass ? ' pass=' + pass.tag + '@' + pass.width + 'mm' : ''} -->\n` +
     `<!-- ${location.origin === 'null' ? '' : location.origin}${location.pathname}` +
     `#${encodeState()} -->\n` +
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
@@ -1959,20 +2198,20 @@ function exportSvg() {
     return;
   }
 
-  const colours = colourList();
+  const list = passList();
   const out = settings.svgOutput;
   const parts = out === 'one file' ? [null]
-    : out === 'one file per colour' ? colours
-    : [null, ...colours];
+    : out === 'one file per pen' ? list
+    : [null, ...list];
 
   const stem = `veils ${settings.shape} seed${settings.seed} ` +
-    `${settings.paper}-${settings.orientation} pen${settings.penWidth}`;
+    `${settings.paper}-${settings.orientation}`;
   const stamp = timestamp();
 
-  for (const colour of parts) {
-    const svg = svgFile(colour);
+  for (const pass of parts) {
+    const svg = svgFile(pass);
     if (!svg) continue;
-    const tag = colour ? ' pen' + colour.replace('#', '') : '';
+    const tag = pass ? ` ${pass.tag} pen${pass.width}` : ` pen${settings.penWidth}`;
     saveStrings([svg], `${stem}${tag} ${stamp}`, 'svg');
   }
 }

@@ -123,6 +123,41 @@ inwards and the sheet never shows a bald edge. **Fan** draws less than a full tu
 centre of the family: untick *the hole sits where the family is centred* and it gets its
 own position.
 
+## The fill
+
+A second pass over the middle of the sheet, and the one place in this sketch where the
+point is to cover paper rather than to draw a line. It has its own colour, its own nib
+and, if you ask for a file per pen, its own file.
+
+The nib is the reason it is a pass and not just another colour. Filling with the pen that
+drew the veils would take hours: a 1 mm nib covers five times the paper a 0.2 mm one does
+for the same length of line, so the fill wants the thickest pen in the drawer and the
+veils the thinnest, and the two cannot share a `<g>`.
+
+**Lay colour over** picks the area, which is always a ring about the centre of the hole:
+
+- **the disc** — the hole itself, so the white circle comes out a coloured one.
+- **a ring around it** — a band just outside the rim, **Ring width** wide, leaving the
+  disc white.
+- **everything outside it** — the whole sheet but the disc.
+
+**Laid down as** picks how it is covered. **spiral** is one stroke for the whole area and
+the pen goes down exactly once, which is the cheapest thing a plotter can be asked to do;
+**rings** is one closed stroke per turn; **hatch** is straight lines, and it is the one
+to use for *everything outside it* because the other two leave the sheet edge scalloped
+where their turns are cut by it.
+
+**Pass spacing** is given as a share of the fill nib: at 100 % two passes just touch and
+the paper between them is left, and below that they overlap, which is what makes the area
+read as solid. 80–90 % is the usual answer. **Keep clear of the rim** stops the fill short
+of the hole so a thick nib does not paint over the ends of the veils; negative runs it
+under them instead.
+
+The stats break the fill out on its own line — its strokes, its length at its own nib and
+how long that pass alone will take — because it is a separate sitting at the plotter.
+Going one nib size up is the only cheap way to shorten it: the length falls off with the
+square of the nib.
+
 ## Pens
 
 Up to three, one plotter pass each. **Split** decides which thread goes to which:
@@ -135,9 +170,15 @@ Up to three, one plotter pass each. **Split** decides which thread goes to which
 
 ## What ends up in the file
 
-One `<g>` per pen, no fills and no background rectangle — everything in the file is meant
-to be plotted. `stroke-width` is the pen width and the caps are round, so the file
-previews as the finished plot looks.
+One `<g>` per pass, no fills and no background rectangle — everything in the file is meant
+to be plotted. `stroke-width` is that pass's own nib and the caps are round, so the file
+previews as the finished plot looks. The fill comes first, so the thick colour goes down
+and the veils are drawn over it.
+
+**SVG** picks whether that is one file or one per pass. *One file per pen* writes the
+fill and the veils separately, which is what you want when they are plotted with
+different pens anyway — each file carries the cut guides, so the passes line up on the
+paper.
 
 Strokes come out in the order the pen should visit them, each already flipped to the end
 it should be entered from: greedy nearest-neighbour over the endpoints, one pen at a time,
