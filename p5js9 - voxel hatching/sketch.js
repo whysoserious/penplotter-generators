@@ -237,6 +237,7 @@ const settings = {
   linesPerFace: 3,      // how many lines the lightest tone should put across one face
   layers: 3,
   hatchPattern: 'cross',
+  depthLevels: false,   // let the lattice drop or gain a halving with distance
   hatchMode: 'along edges',
   wallHatch: 'vertical',
   hatchAngle: 45,       // degrees, for the screen-angle mode
@@ -1258,6 +1259,8 @@ function gateTable(v, tn) {
 function hatchPlanes(v, pl, gt, sink) {
   const layers = PATTERN_LAYERS[settings.hatchPattern] || PATTERN_LAYERS.cross;
   const screenPersp = settings.hatchMode === 'screen angle' && v.persp;
+  const adaptive = settings.depthLevels && v.persp && !screenPersp;
+  const plans = adaptive ? gt.map(G => levelPlan(layers, G)) : null;
 
   for (const P of pl) {
     const G = gt[P.o];
@@ -1265,16 +1268,22 @@ function hatchPlanes(v, pl, gt, sink) {
     const win = planeWindow(v, P);
     if (!win) continue;
     const fams = [null, null];
-    for (let i = 0; i < G.n; i++) {
-      const [fam, phase] = layers[i];
-      const gate = G.layers[i];
-      sink.setInk(G.ink[i]);
+    const row = plans ? plans[P.o] : null;
+    const n = row ? row.length : G.n;
+    for (let i = 0; i < n; i++) {
+      const fam   = row ? row[i].fam   : layers[i][0];
+      const phase = row ? row[i].phase : layers[i][1];
+      let   gate  = row ? row[i].gate  : G.layers[i];
+      sink.setInk(row ? row[i].ink : G.ink[i]);
       if (screenPersp) {
         hatchScreenPersp(v, P, win, fam, phase, gate, sink);
         continue;
       }
       if (fams[fam] === null) fams[fam] = planeFamily(v, P, fam) || false;
-      if (fams[fam]) hatchFixed(v, P, win, fams[fam], phase, gate, sink);
+      const F = fams[fam];
+      if (!F) continue;
+      if (row) gate = levelGate(v, P, F, fam, gate, row[i].need, row[i].top);
+      hatchFixed(v, P, win, F, phase, gate, sink);
     }
   }
 }
@@ -1304,6 +1313,25 @@ function hatchReference(pl) {
   return n ? [wx / n, wy / n, wz / n] : [0, 0, 0];
 }
 
+// The axis a family counts its spacing along. On a top face the two families run with
+// the two ground axes; on a wall one runs up and the other along it.
+function acrossAxis(ax, fam) {
+  if (ax === 2) return fam === 0 ? 1 : 0;
+  const horizontal = ax === 0 ? 1 : 0;
+  const verticalFirst = settings.wallHatch === 'vertical';
+  return (fam === 0) === verticalFirst ? horizontal : 2;
+}
+
+// Paper millimetres a unit step across the lines is worth, measured perpendicular to
+// them, at one point of one plane.
+function paperAcross(v, c, ax, fam) {
+  const across = acrossAxis(ax, fam), along = 3 - ax - across;
+  const [dX, dY] = paperStep(v, c, along);
+  const [wX, wY] = paperStep(v, c, across);
+  const dl = Math.hypot(dX, dY);
+  return dl < 1e-9 ? 0 : Math.abs(dX * wY - dY * wX) / dl;
+}
+
 // { W, sigma } for the along-edges family, or the orthographic screen-angle one.
 //
 // Under perspective a lattice fixed to the model cannot also have a fixed spacing on
@@ -1329,14 +1357,7 @@ function planeFamily(v, P, fam) {
   }
 
   const ax = P.ax;
-  let across;                                      // the axis the lines are spaced along
-  if (ax === 2) {
-    across = fam === 0 ? 1 : 0;
-  } else {
-    const horizontal = ax === 0 ? 1 : 0;
-    const verticalFirst = settings.wallHatch === 'vertical';
-    across = (fam === 0) === verticalFirst ? horizontal : 2;
-  }
+  const across = acrossAxis(ax, fam);              // the axis the lines are spaced along
   const along = 3 - ax - across;
   const one = settings.hatchLattice === 'one lattice' && hatchRef;
   if (one) {
@@ -1357,6 +1378,92 @@ function planeFamily(v, P, fam) {
   if (out) out.W[across] = 1;
   if (one) hatchFams[ax * 2 + fam] = out;
   return out;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Lattice levels
+//
+// A lattice fixed to the model keeps its spacing in model units, and the projection then
+// squeezes it by however much the face is turned away from the camera and however much
+// further off it is than the point the spacing was measured at. Over one sheet the two
+// together reach a factor of three, which is not a small error in a drawing whose tone
+// *is* the spacing: the same shade comes out solid black on a wall seen at a glance and
+// airy on one facing the camera.
+//
+// The layers of a pattern already form a nested ladder — layer 0 lays the lattice down at
+// its full pitch and each later layer of the same family halves what came before, so the
+// lines of a coarse level are a subset of the lines of a fine one. That is the same
+// arrangement a mip-map has, and it can be read the same way. The level is picked from
+// the pitch the lattice actually puts on paper at that point, which folds the distance
+// and the foreshortening into one number: where the lines have closed up past the
+// setting the finest layer is dropped, where they have opened out past it an extra layer
+// the pattern does not normally have is gained. Because the levels are nested no line
+// ever moves — it only starts or stops, and always at the exact place the swap falls,
+// since the gate that decides it is bisected like any other.
+//
+// Rounding to whole halvings leaves the pitch within a factor of sqrt(2) of the setting.
+
+const MAX_LEVEL_GAIN = 1;    // halvings past the pattern that a slack face may use
+
+// Which halving of the base pitch each layer belongs to: the first line of a family is
+// the lattice itself, the second halves it, the third and fourth quarter it.
+function layerLevels(layers, n) {
+  const seen = [0, 0], out = [];
+  for (let i = 0; i < n; i++) out.push(Math.ceil(Math.log2(++seen[layers[i][0]])));
+  return out;
+}
+
+// The phases that halve a lit set once more: one new line midway between each pair of
+// neighbours of the same family, wrapping round the period. For the four layers of
+// `parallel` that is the eighths; for a set of three it also evens the odd gap out.
+function refinePhases(layers, n) {
+  const out = [];
+  for (let f = 0; f < 2; f++) {
+    const ph = [];
+    for (let i = 0; i < n; i++) if (layers[i][0] === f) ph.push(layers[i][1]);
+    if (!ph.length) continue;
+    ph.sort((a, b) => a - b);
+    for (let i = 0; i < ph.length; i++) {
+      const a = ph[i], b = i + 1 < ph.length ? ph[i + 1] : ph[0] + 1;
+      out.push([f, ((a + b) / 2) % 1]);
+    }
+  }
+  return out;
+}
+
+// The lit layers of one orientation with the halving each costs, then the extra layer a
+// slack part of the sheet can afford. `need` is what the level test has to clear.
+function levelPlan(layers, G) {
+  if (!G.n) return [];
+  const lv = layerLevels(layers, G.n), top = lv[G.n - 1], out = [];
+  for (let i = 0; i < G.n; i++) {
+    out.push({ fam: layers[i][0], phase: layers[i][1], gate: G.layers[i],
+               need: lv[i] - top, top, ink: G.ink[i] });
+  }
+  for (const [f, ph] of refinePhases(layers, G.n)) {
+    out.push({ fam: f, phase: ph, gate: G.layers[G.n - 1],
+               need: MAX_LEVEL_GAIN, top, ink: G.ink[G.n - 1] });
+  }
+  return out;
+}
+
+const LVL_C = [0, 0, 0];
+
+// Halvings this point may spend past the setting, from the pitch the base lattice really
+// lays down here: paper displacement across the lines, measured perpendicular to them.
+function levelShift(v, P, F, fam, top, x, y, z) {
+  LVL_C[0] = x; LVL_C[1] = y; LVL_C[2] = z;
+  const pitch = F.sigma * paperAcross(v, LVL_C, P.ax, fam);
+  if (!(pitch > 1e-9)) return 0;
+  const s = Math.round(Math.log2(pitch / Math.max(0.05, hatchMm)));
+  // Below level 0 there is nothing left to drop — the base lattice is the whole drawing.
+  return s < -top ? -top : s > MAX_LEVEL_GAIN ? MAX_LEVEL_GAIN : s;
+}
+
+function levelGate(v, P, F, fam, gate, need, top) {
+  if (need === 0 && top === 0) return gate;         // one layer: nothing to drop or gain
+  return (x, y, z) =>
+    levelShift(v, P, F, fam, top, x, y, z) >= need && (!gate || gate(x, y, z));
 }
 
 function hatchFixed(v, P, win, F, phase, gate, sink) {
@@ -2777,6 +2884,18 @@ function buildControls() {
     'at each plane\'s own centroid, which is how this used to work. A wall plane is a ' +
     'slab clean through the structure and its centroid is nowhere near the faces of it ' +
     'you can see, so neighbouring walls come out at spacings that differ by half again.');
+  addCheckbox(root, 'Pick the lattice level from the spacing on paper', 'depthLevels');
+  createDiv(
+    'The lattice keeps its spacing in the model, so the projection squeezes it by ' +
+    'however much a face is turned away and however much further off it is than the ' +
+    'middle of the drawing — and the tone goes with it, the same shade printing solid ' +
+    'on a wall seen at a glance and airy on one facing you. The layers of a pattern are ' +
+    'already a nested ladder, each halving the one before, so the level can be read off ' +
+    'the pitch that actually lands on the sheet, the way a mip-map is: where the lines ' +
+    'have closed up the finest layer is dropped, where they have opened out an extra ' +
+    'one is gained. No line moves — they only start and stop, at the exact place the ' +
+    'swap falls. Perspective and <b>along edges</b> only.')
+    .parent(fieldDivs.depthLevels).class('note');
   addSelect(root, 'First layer on walls', 'wallHatch', WALL_HATCH, update);
   addSlider(root, 'Hatch angle (°)', 'hatchAngle', 0, 180, 1);
   addSelect(root, 'Edges', 'edges', EDGE_MODES, update,
@@ -2863,6 +2982,8 @@ function syncVisibility() {
   setVisible('seedValue',    settings.caSeed !== 'center');
   setVisible('wallHatch',    settings.hatchMode === 'along edges');
   setVisible('hatchLattice', settings.hatchMode === 'along edges');
+  setVisible('depthLevels', settings.hatchMode === 'along edges' &&
+                            settings.projection === 'perspective');
   setVisible('hatchSpacing', !settings.autoSpacing);
   setVisible('linesPerFace', settings.autoSpacing);
   setVisible('hatchAngle',   settings.hatchMode === 'screen angle');
@@ -3320,7 +3441,9 @@ function metaComment() {
       `x${s.textureAmount} seed=${s.textureSeed} `}` +
     `hatch=${hatchMm.toFixed(2)}mm${s.autoSpacing ? '(auto/' + s.linesPerFace + ')' : ''}` +
     ` x${s.layers} ${s.hatchPattern} ${s.hatchMode}` +
-    `${s.hatchMode === 'screen angle' ? '@' + s.hatchAngle + '°' : '/' + s.wallHatch} ` +
+    `${s.hatchMode === 'screen angle' ? '@' + s.hatchAngle + '°' : '/' + s.wallHatch}` +
+    `${s.depthLevels && s.hatchMode === 'along edges' && s.projection === 'perspective'
+       ? ' levels' : ''} ` +
     `edges=${s.edges} pen=${s.penWidth}mm strokes=${shapes.off.length - 1}`;
 }
 
