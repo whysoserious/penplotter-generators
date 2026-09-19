@@ -134,27 +134,46 @@ drew the veils would take hours: a 1 mm nib covers five times the paper a 0.2 mm
 for the same length of line, so the fill wants the thickest pen in the drawer and the
 veils the thinnest, and the two cannot share a `<g>`.
 
-**Lay colour over** picks the area, which is always a ring about the centre of the hole:
+**Lay colour over** picks the area. The first two are not a shape at all but whatever
+paper the veils actually left empty; the last three are a ring about the centre of the
+hole, drawn whatever the veils happen to be doing.
 
-- **the disc** — the hole itself, so the white circle comes out a coloured one.
+- **the blank round the disc** — the hole *together with the white it opens into*. The
+  strokes already drawn are stamped into a grid, fattened by the nib that will draw them
+  and by *Keep clear*, and what is left unmarked is the blank; a flood out from the middle
+  of the hole claims the one piece of it the hole belongs to. The result is bounded by the
+  veils themselves, so it bulges wherever they left a gap and stops dead where they close
+  up.
+- **every blank patch** — the same walk started everywhere at once, so every gap the
+  veils left is coloured in. **Smallest patch** drops the ones not worth putting the pen
+  down for.
+- **the disc** — the hole as a circle, ignoring the drawing.
 - **a ring around it** — a band just outside the rim, **Ring width** wide, leaving the
   disc white.
 - **everything outside it** — the whole sheet but the disc.
 
-**Laid down as** picks how it is covered. **spiral** is one stroke for the whole area and
-the pen goes down exactly once, which is the cheapest thing a plotter can be asked to do;
-**rings** is one closed stroke per turn; **hatch** is straight lines, and it is the one
-to use for *everything outside it* because the other two leave the sheet edge scalloped
-where their turns are cut by it.
+The blank is measured on a grid, and **Blank measured at** is its cell. Finer follows the
+edge of the veils more closely and costs more to work out; half the fill nib is plenty,
+since the nib is wider than the error. If the middle of the hole is itself under ink there
+is nothing to flood and the stats say so.
+
+**Laid down as** applies to the three geometric areas. **spiral** is one stroke for the
+whole area and the pen goes down exactly once, which is the cheapest thing a plotter can
+be asked to do; **rings** is one closed stroke per turn; **hatch** is straight lines, and
+it is the one to use for *everything outside it* because the other two leave the sheet
+edge scalloped where their turns are cut by it. A blank area has no centre to spiral
+about, so it is always hatched, at **Hatch angle**.
 
 **Pass spacing** is given as a share of the fill nib: at 100 % two passes just touch and
 the paper between them is left, and below that they overlap, which is what makes the area
-read as solid. 80–90 % is the usual answer. **Keep clear of the rim** stops the fill short
-of the hole so a thick nib does not paint over the ends of the veils; negative runs it
+read as solid. 80–90 % is the usual answer. **Keep clear** stops the fill short of
+whatever it is filling up to — the rim of the hole, or every line of the veils when it is
+the blank paper being coloured — so a thick nib does not paint over them; negative runs it
 under them instead.
 
 The stats break the fill out on its own line — its strokes, its length at its own nib and
-how long that pass alone will take — because it is a separate sitting at the plotter.
+how long that pass alone will take — because it is a separate sitting at the plotter. For
+a blank area they also report how much paper the flood found.
 Going one nib size up is the only cheap way to shorten it: the length falls off with the
 square of the nib.
 

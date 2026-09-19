@@ -50,7 +50,8 @@ const SHAPES    = ['rings', 'lines', 'spiral', 'spokes'];
 const FALLOFFS  = ['even', 'grows outward', 'fades outward'];
 const HOLE_MODES = ['none', 'cut', 'push'];
 const PEN_SPLITS = ['bands', 'interleaved', 'by fold'];
-const FILL_REGIONS = ['none', 'the disc', 'a ring around it', 'everything outside it'];
+const FILL_REGIONS = ['none', 'the blank round the disc', 'every blank patch',
+                      'the disc', 'a ring around it', 'everything outside it'];
 const FILL_STYLES  = ['spiral', 'rings', 'hatch'];
 const SVG_OUTPUTS = ['one file', 'one file per pen', 'both'];
 
@@ -58,6 +59,7 @@ const MAX_PENS       = 3;
 const INK_MARK       = -1;        // cut guides: drawn with every pen
 const INK_FILL       = -2;        // the filled area: its own colour, its own nib, first
 const FILL_SAG       = 0.05;      // mm a filled arc may cut the corner by
+const BLANK_CELLS    = 4e6;       // most cells the blank is ever measured on
 const MAX_STROKES    = 400_000;   // past this nothing is ordered, drawn or exported
 const BUSY_STROKES   = 80_000;    // above this, warn about the plot time
 const MAX_POINTS     = 12e6;      // field lookups one update is allowed to ask for
@@ -127,8 +129,10 @@ const settings = {
   fillStyle: 'spiral',  // spiral is one stroke and never lifts the pen
   fillPen: 1,           // mm — the thick nib that does the filling
   fillGap: 85,          // % of that nib between one pass of it and the next
-  fillInset: 0.5,       // mm the fill keeps clear of the rim, so it misses the veil ends
+  fillInset: 0.5,       // mm the fill keeps clear of whatever it is filling up to
   fillBand: 12,         // mm — how wide the ring is, for `a ring around it`
+  fillGrid: 0.5,        // mm — the cell the blank paper is measured on
+  fillMinPatch: 40,     // mm² — a blank patch smaller than this is not worth a pen-down
   fillAngle: 0,         // deg — for `hatch`
   fillColor: '#b23a00',
 
@@ -433,10 +437,16 @@ function estimatePoints() {
   const frac = clamp(settings.span, 1, 360) / 360;
 
   let fill = 0;
-  const rr = settings.fillRegion === 'none' ? null : fillRadii();
-  if (rr) {
-    const fs = fillSpacing();
-    fill = Math.PI * (rr[1] * rr[1] - rr[0] * rr[0]) / (fs * Math.max(0.4, arcStep(rr[1])));
+  if (blankRegion()) {
+    // Scanned over the whole box: what the flood actually claims is only knowable later.
+    const fs = fillSpacing(), cell = clamp(settings.fillGrid, 0.15, 4) / 2;
+    fill = (a.w / fs) * (Math.hypot(a.w, a.h) / cell);
+  } else if (settings.fillRegion !== 'none') {
+    const rr = fillRadii();
+    if (rr) {
+      const fs = fillSpacing();
+      fill = Math.PI * (rr[1] * rr[1] - rr[0] * rr[0]) / (fs * Math.max(0.4, arcStep(rr[1])));
+    }
   }
 
   switch (settings.shape) {
@@ -1048,7 +1058,13 @@ function holeOutlineShape(sink) {
 // so the fill wants the thickest pen in the drawer and the veils the thinnest.
 
 function fillOn() {
-  return settings.fillRegion !== 'none' && fillRadii() !== null;
+  return blankRegion() ? true : settings.fillRegion !== 'none' && fillRadii() !== null;
+}
+
+// The two regions that are not a shape but whatever the veils left empty.
+function blankRegion() {
+  return settings.fillRegion === 'the blank round the disc' ||
+         settings.fillRegion === 'every blank patch';
 }
 
 // The two radii, measured from the centre of the hole.
@@ -1151,7 +1167,165 @@ function fillHatchPass(sink, r0, r1, sp, hx, hy) {
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
+// The blank paper
+//
+// The geometric fills above know their shape in advance. This one does not: the area
+// worth colouring is whatever paper the veils happened to leave empty, and that is only
+// knowable once they are drawn. So the strokes already in the sink are stamped into a
+// grid, fattened by the nib that will draw them and by however far the fill is asked to
+// keep clear, and what is left unmarked is the blank. A flood from the middle of the
+// hole picks out the one piece of it the hole belongs to — the disc together with the
+// white it opens into — and every piece at once is the same walk started everywhere.
+//
+// The grid is the only approximation here, and the fill nib is wide enough that half a
+// cell of slop on the edge never shows.
+
+let blank = null;            // { m, nx, ny, g, x0, y0, cells } — 1 where the fill may go
+
+function blankGrid(sink, seeded) {
+  const g = clamp(settings.fillGrid, 0.15, 4);
+  const nx = Math.ceil(area.w / g) + 1, ny = Math.ceil(area.h / g) + 1;
+  if (nx * ny > BLANK_CELLS || nx < 2 || ny < 2) return null;
+
+  // 0 is bare paper, 1 is under ink, 2 is bare paper the fill has claimed.
+  const m = new Uint8Array(nx * ny);
+  const x0 = area.x0, y0 = area.y0;
+  const r = Math.max(0, settings.penWidth / 2 + settings.fillInset);
+  const rc = Math.ceil(r / g), r2 = (r / g) * (r / g);
+
+  const stamp = (px, py) => {
+    const cx = (px - x0) / g, cy = (py - y0) / g;
+    const i0 = Math.max(0, Math.floor(cx - rc)), i1 = Math.min(nx - 1, Math.ceil(cx + rc));
+    const j0 = Math.max(0, Math.floor(cy - rc)), j1 = Math.min(ny - 1, Math.ceil(cy + rc));
+    for (let j = j0; j <= j1; j++) {
+      const dy = j - cy, dy2 = dy * dy;
+      for (let i = i0; i <= i1; i++) {
+        const dx = i - cx;
+        if (dx * dx + dy2 <= r2 + 0.25) m[i + nx * j] = 1;
+      }
+    }
+  };
+
+  // Every stroke the pens will actually put down, walked at half a cell.
+  const { pts, off, ink } = sink;
+  const half = g / 2;
+  for (let k = 0; k < ink.length; k++) {
+    if (ink[k] < 0) continue;                  // cut guides are not ink on the drawing
+    for (let i = off[k]; i < off[k + 1] - 1; i++) {
+      const ax = pts[i * 2], ay = pts[i * 2 + 1];
+      const bx = pts[i * 2 + 2], by = pts[i * 2 + 3];
+      const len = Math.hypot(bx - ax, by - ay);
+      const steps = Math.max(1, Math.ceil(len / half));
+      for (let t = 0; t <= steps; t++) stamp(ax + (bx - ax) * t / steps, ay + (by - ay) * t / steps);
+    }
+  }
+
+  // Flood the bare paper. Scanline fill: push a cell, run the row out both ways, look at
+  // the row above and below for more of it.
+  const stack = [];
+  const push = (i, j) => { if (i >= 0 && i < nx && j >= 0 && j < ny && m[i + nx * j] === 0) stack.push(i, j); };
+
+  if (seeded) {
+    const [hx, hy] = holeMm();
+    push(Math.round((hx - x0) / g), Math.round((hy - y0) / g));
+    if (!stack.length) return null;            // the middle of the hole is under ink
+  }
+
+  const patch = [];                            // cells of the run being flooded
+  let claimed = 0;
+
+  const flood = () => {
+    let n = 0;
+    patch.length = 0;
+    while (stack.length) {
+      const j = stack.pop(), i = stack.pop();
+      if (m[i + nx * j] !== 0) continue;
+      let a = i, b = i;
+      const row = nx * j;
+      while (a > 0 && m[a - 1 + row] === 0) a--;
+      while (b < nx - 1 && m[b + 1 + row] === 0) b++;
+      for (let x = a; x <= b; x++) {
+        m[x + row] = 2;
+        patch.push(x, j);
+        n++;
+        if (j > 0) push(x, j - 1);
+        if (j < ny - 1) push(x, j + 1);
+      }
+    }
+    return n;
+  };
+
+  if (seeded) {
+    claimed = flood();
+  } else {
+    const min = Math.max(0, settings.fillMinPatch) / (g * g);
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        if (m[i + nx * j] !== 0) continue;
+        stack.push(i, j);
+        const n = flood();
+        if (n >= min) { claimed += n; continue; }
+        for (let t = 0; t < patch.length; t += 2) m[patch[t] + nx * patch[t + 1]] = 0;
+      }
+    }
+  }
+
+  if (!claimed) return null;
+  // Everything that was not claimed becomes ink as far as the fill is concerned.
+  for (let i = 0; i < m.length; i++) m[i] = m[i] === 2 ? 1 : 0;
+  return { m, nx, ny, g, x0, y0, cells: claimed };
+}
+
+// The claimed grid, read as a continuous number so a scan line ends part-way across a
+// cell rather than on its corner. Positive means the fill may draw here.
+function blankAt(B, x, y) {
+  const cx = (x - B.x0) / B.g, cy = (y - B.y0) / B.g;
+  const i = Math.floor(cx), j = Math.floor(cy);
+  if (i < 0 || j < 0 || i >= B.nx - 1 || j >= B.ny - 1) return -0.5;
+  const fx = cx - i, fy = cy - j;
+  const m = B.m, nx = B.nx;
+  const a = m[i + nx * j],       b = m[i + 1 + nx * j];
+  const c = m[i + nx * (j + 1)], d = m[i + 1 + nx * (j + 1)];
+  const top = a + (b - a) * fx, bot = c + (d - c) * fx;
+  return top + (bot - top) * fy - 0.5;
+}
+
+// Scan lines across whatever the flood claimed, cut where they leave it.
+function fillBlankPass(sink, B, sp) {
+  const th = radians(settings.fillAngle);
+  const dx = Math.cos(th), dy = Math.sin(th);
+  const ux = -dy, uy = dx;
+  const step = Math.max(0.1, B.g / 2);
+
+  let a0 = Infinity, a1 = -Infinity, c0 = Infinity, c1 = -Infinity;
+  for (const x of [area.x0, area.x1]) {
+    for (const y of [area.y0, area.y1]) {
+      const a = x * dx + y * dy, c = x * ux + y * uy;
+      if (a < a0) a0 = a; if (a > a1) a1 = a;
+      if (c < c0) c0 = c; if (c > c1) c1 = c;
+    }
+  }
+
+  const n = Math.max(2, Math.ceil((a1 - a0) / step) + 1);
+  needBuf(n);
+  for (let c = c0; c <= c1 + 1e-9; c += sp) {
+    for (let k = 0; k < n; k++) {
+      const a = a0 + (a1 - a0) * k / (n - 1);
+      const x = dx * a + ux * c, y = dy * a + uy * c;
+      WX[k] = x; WY[k] = y;
+      GV[k] = blankAt(B, x, y);
+    }
+    emitPath(WX, WY, GV, n, true, false, sink, INK_FILL);
+  }
+}
+
 function fillShapes(sink) {
+  if (blankRegion()) {
+    blank = blankGrid(sink, settings.fillRegion === 'the blank round the disc');
+    if (blank) fillBlankPass(sink, blank, fillSpacing());
+    return;
+  }
   const rr = fillRadii();
   if (!rr) return;
   const [r0, r1] = rr;
@@ -1189,6 +1363,7 @@ function buildShapes() {
   const pens = Math.round(clamp(settings.pens, 1, MAX_PENS));
   perPen = [];
   fillStat = null;
+  blank = null;
   for (let i = 0; i < pens; i++) perPen.push({ strokes: 0, ink: 0 });
 
   switch (settings.shape) {
@@ -1610,7 +1785,8 @@ function syncVisibility() {
   setVisible('spanFrom', radial && !spiral);
   setVisible('falloffPower', settings.falloff !== 'even');
   const filling = settings.fillRegion !== 'none';
-  setVisible('holeR', settings.holeMode !== 'none' || filling);
+  const blankFill = blankRegion();
+  setVisible('holeR', settings.holeMode !== 'none' || (filling && !blankFill));
   setVisible('holeLinked', (settings.holeMode !== 'none' || filling) && radial);
   setVisible('holeU', (settings.holeMode !== 'none' || filling) &&
                       (!settings.holeLinked || !radial));
@@ -1619,11 +1795,13 @@ function syncVisibility() {
   setVisible('holeSoft', settings.holeMode === 'push');
   setVisible('holeOutline', settings.holeMode !== 'none');
   setVisible('fillPen', filling);
-  setVisible('fillStyle', filling);
-  setVisible('fillAngle', filling && settings.fillStyle === 'hatch');
+  setVisible('fillStyle', filling && !blankFill);
+  setVisible('fillAngle', filling && (blankFill || settings.fillStyle === 'hatch'));
   setVisible('fillGap', filling);
   setVisible('fillInset', filling);
   setVisible('fillBand', filling && settings.fillRegion === 'a ring around it');
+  setVisible('fillGrid', blankFill);
+  setVisible('fillMinPatch', settings.fillRegion === 'every blank patch');
   setVisible('fillColor', filling);
   setVisible('penSplit', pens > 1);
   setVisible('ink1', pens > 1);
@@ -1884,9 +2062,14 @@ function buildControls() {
   addSection(root, 'Fill');
   addSelect(root, 'Lay colour over', 'fillRegion', FILL_REGIONS,
     () => { syncVisibility(); update(); },
-    'A second pass over the middle of the sheet, in a pen of its own — plotted on its ' +
-    'own, and exported on its own if you ask for a file per pen.<br>' +
-    '<b>the disc</b> — the hole itself, so the white circle becomes a coloured one.<br>' +
+    'A second pass in a pen of its own — plotted on its own, and exported on its own if ' +
+    'you ask for a file per pen.<br>' +
+    '<b>the blank round the disc</b> — not a shape but whatever paper the veils actually ' +
+    'left empty: the hole together with the white it opens into, found by flooding out ' +
+    'from the middle of the hole until it runs into ink.<br>' +
+    '<b>every blank patch</b> — the same, started everywhere at once, so every gap the ' +
+    'veils left is coloured in.<br>' +
+    '<b>the disc</b> — the hole as a circle, whatever the veils are doing.<br>' +
     '<b>a ring around it</b> — a band just outside the rim.<br>' +
     '<b>everything outside it</b> — the whole sheet but the disc. That is a lot of ' +
     'paper: watch the length it reports before you start it.');
@@ -1904,10 +2087,17 @@ function buildControls() {
     'At 100 % two passes of the nib just touch and the paper between them is left. ' +
     'Below that they overlap, which is what makes it read as solid; 80–90 % is the ' +
     'usual answer for a fibre tip, less for anything that skips.');
-  addSlider(root, 'Keep clear of the rim (mm)', 'fillInset', -10, 20, 0.5,
-    'How far short of the hole the fill stops, so a thick nib does not paint over the ' +
-    'ends of the veils. Negative runs it under them instead.');
+  addSlider(root, 'Keep clear (mm)', 'fillInset', -10, 20, 0.5,
+    'How far the fill stops short of what it is filling up to — the rim of the hole, or ' +
+    'every line of the veils when it is the blank paper being coloured — so a thick nib ' +
+    'does not paint over them. Negative runs it under them instead.');
   addSlider(root, 'Ring width (mm)', 'fillBand', 1, 200, 1);
+  addSlider(root, 'Blank measured at (mm)', 'fillGrid', 0.15, 4, 0.05,
+    'The cell the empty paper is found on. Finer follows the edge of the veils more ' +
+    'closely and costs more to work out; half the fill nib is plenty, since the nib is ' +
+    'wider than the error.');
+  addSlider(root, 'Smallest patch (mm²)', 'fillMinPatch', 0, 2000, 10,
+    'A gap smaller than this is left alone — not worth putting the pen down for.');
   addColor(root, 'Fill ink', 'fillColor');
 
   // --- Output ---
@@ -2032,6 +2222,18 @@ function updateStats() {
     html += `<div class="warn">${(100 * cover).toFixed(0)} % of the sheet ends up under ` +
       `ink. Thin paper will cockle and the nib will run dry — widen the spacing or take ` +
       `a finer nib.</div>`;
+  }
+  if (fs.strokes && blank) {
+    const mm2 = blank.cells * blank.g * blank.g;
+    html += `<div>The fill found <b>${(mm2 / 100).toFixed(0)} cm²</b> of blank paper, ` +
+      `<b>${(100 * mm2 / sheetArea()).toFixed(0)} %</b> of the sheet</div>`;
+  }
+  if (blankRegion() && !blank) {
+    html += `<div class="warn">No blank paper to fill — ` +
+      `${settings.fillRegion === 'every blank patch'
+        ? 'every gap is smaller than the smallest patch, or the veils cover the sheet'
+        : 'the middle of the hole is under ink. Cut a hole, or move it somewhere empty'}` +
+      `.</div>`;
   }
   if (fs.strokes && settings.fillGap > 100) {
     html += `<div class="warn">The fill lays its passes ${settings.fillGap} % of a nib ` +
