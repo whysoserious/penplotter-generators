@@ -305,3 +305,31 @@ canvas {
 }
 
 #canvas-container canvas.dragging { cursor: grabbing; }
+
+/* ---- a small button that sits beside a text field ---- */
+
+#controls .inline-btn {
+  width: auto;
+  margin-top: 0;
+  padding: 3px 8px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* ---- the link that rebuilds the sheet ---- */
+
+#controls .link {
+  margin-top: 8px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: #999;
+  word-break: break-all;
+  font-family: 'Courier New', monospace;
+  max-height: 62px;
+  overflow: hidden;
+}
+
+#controls .copied {
+  color: #1a7f37;
+  font-weight: 600;
+}

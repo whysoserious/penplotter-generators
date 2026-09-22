@@ -99,6 +99,7 @@ const settings = {
   colorFrom: 0,
   colorTo: 255,
   invert: false,
+  seed: 1,                        // Random and Stipple draw their coin flips from this
 
   // the nib that draws the dither
   penWidth: 0.5,
@@ -133,7 +134,7 @@ let sel = -1;                     // index of the selected circle, or -1
 
 const setters   = {};             // settings key -> function that moves its control
 const fieldDivs = {};             // settings key -> the .field wrapper, for showing/hiding
-let statsDiv, circleListDiv, penListDiv;
+let statsDiv, circleListDiv, penListDiv, linkDiv;
 
 // Strokes, flat and interleaved as [x, y, dx, ink, ...]. A stroke starts at (x, y) and
 // runs dx to the right; dx === 0 is a single dot, and a negative dx is a run the pen
@@ -185,6 +186,105 @@ function formatDuration(sec) {
   if (h) return `${h} h`;
   if (m) return `${m} min`;
   return `${Math.round(sec)} s`;
+}
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// A circle lives on a tenth-of-a-millimetre grid. The link carries it exactly, so the
+// sheet it rebuilds is this sheet and not one a rounding away from it.
+function mm(v) { return Math.round(v * 10) / 10; }
+
+////////////////////////////////////////////////////////////////////////////////////////
+// The URL is the document
+//
+// Every setting that differs from its default is written into the hash, debounced, with
+// replaceState so the back button stays usable, and the circles ride along as
+// `circles=x,y,r,colour;…`. Opening that link anywhere rebuilds the same sheet — the seed
+// is in there too, so not even Random or Stipple is left to chance.
+
+let urlTimer = null;
+let urlWritten = '';
+
+function encodeState() {
+  const parts = [];
+  for (const k of Object.keys(DEFAULTS)) {
+    const v = settings[k], d = DEFAULTS[k];
+    if (v === d) continue;
+    const raw = typeof d === 'boolean' ? (v ? '1' : '0') : String(v);
+    parts.push(`${k}=${encodeURIComponent(raw)}`);
+  }
+  if (circles.length) {
+    const list = circles.map(c => `${c.x},${c.y},${c.r},${c.col.replace('#', '')}`).join(';');
+    parts.push(`circles=${encodeURIComponent(list)}`);
+  }
+  return parts.join('&');
+}
+
+function applyState(str) {
+  const q = new URLSearchParams(str);
+  for (const [k, raw] of q) {
+    if (k === 'circles') { applyCircles(raw); continue; }
+    if (!Object.prototype.hasOwnProperty.call(DEFAULTS, k)) continue;
+    const d = DEFAULTS[k];
+    let v;
+    if (typeof d === 'number') {
+      v = parseNum(raw);
+      if (v === null) continue;
+    } else if (typeof d === 'boolean') {
+      v = raw === '1' || raw === 'true';
+    } else {
+      v = raw;
+    }
+    settings[k] = v;
+  }
+}
+
+function applyCircles(raw) {
+  circles.length = 0;
+  sel = -1;
+  for (const item of raw.split(';')) {
+    const [x, y, r, col] = item.split(',');
+    const c = { x: parseNum(x), y: parseNum(y), r: parseNum(r), col: '#' + (col || '000000') };
+    if (c.x === null || c.y === null || c.r === null) continue;
+    if (!/^#[0-9a-fA-F]{6}$/.test(c.col)) c.col = settings.circleColor;
+    c.r = Math.max(0.5, c.r);
+    circles.push(c);
+  }
+}
+
+function syncUrl() {
+  if (urlTimer) clearTimeout(urlTimer);
+  urlTimer = setTimeout(() => {
+    urlTimer = null;
+    urlWritten = encodeState();
+    const b = location.pathname + location.search;
+    history.replaceState(null, '', urlWritten ? b + '#' + urlWritten : b);
+    if (linkDiv) linkDiv.html(location.href);
+  }, 250);
+}
+
+function refreshControls() {
+  for (const k in setters) if (k in settings) setters[k](settings[k]);
+  syncVisibility();
+}
+
+function onHashChange() {
+  const h = location.hash.replace(/^#/, '');
+  if (h === urlWritten) return;                    // our own write coming back
+  Object.assign(settings, DEFAULTS);
+  circles.length = 0;
+  sel = -1;
+  applyState(h);
+  urlWritten = h;
+  refreshControls();
+  resizeForPaper();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -239,6 +339,10 @@ function canvasEl() {
 ////////////////////////////////////////////////////////////////////////////////////////
 
 function setup() {
+  applyState(location.hash.replace(/^#/, ''));
+  urlWritten = encodeState();
+  window.addEventListener('hashchange', onHashChange);
+
   const [w, h] = paperDims();
   const s = previewScale();
   pixelDensity(1);                // the canvas is already supersampled against its display
@@ -311,6 +415,7 @@ function circlesChanged() {
     drawPreview();
     refreshCircleList();
     updateStats();
+    syncUrl();
   } else {
     liveUpdate();
   }
@@ -457,6 +562,7 @@ function regenerate() {
   drawPreview();
   syncVisibility();
   updateStats();
+  syncUrl();
 }
 
 function regenerateGrid() {
@@ -552,14 +658,15 @@ function regenerateStipple() {
   const nBands = Math.max(1, Math.ceil(h / pitch));
   const perBand = Math.ceil(nCandidates / nBands);
   const band = [];
+  const rnd = mulberry32(settings.seed);
   for (let b = 0; b < nBands; b++) {
     band.length = 0;
     const y0 = m + b * h / nBands;
     const bandH = h / nBands;
     for (let i = 0; i < perBand; i++) {
-      const x = m + Math.random() * w;
-      const y = y0 + Math.random() * bandH;
-      if (Math.random() > intensityAt(x, y, p)) band.push([x, y]);
+      const x = m + rnd() * w;
+      const y = y0 + rnd() * bandH;
+      if (rnd() > intensityAt(x, y, p)) band.push([x, y]);
     }
     band.sort(b % 2 === 0 ? (q, v) => q[0] - v[0] : (q, v) => v[0] - q[0]);
     for (let i = 0; i < band.length; i++) {
@@ -630,9 +737,10 @@ function ditherRows(cols, rows, algo, fillIntensity, emitRow) {
   }
 
   if (algo === 'Random') {
+    const rnd = mulberry32(settings.seed);
     for (let r = 0; r < rows; r++) {
       fillIntensity(r, row);
-      for (let c = 0; c < cols; c++) mask[c] = row[c] < Math.random() ? 1 : 0;
+      for (let c = 0; c < cols; c++) mask[c] = row[c] < rnd() ? 1 : 0;
       if (emitRow(r, mask) === false) return;
     }
     return;
@@ -725,7 +833,8 @@ function bayerMatrix(n) {
 // the mouse grabs first.
 
 function addCircle(x, y) {
-  circles.push({ x, y, r: Math.max(0.5, settings.circleR), col: settings.circleColor });
+  circles.push({ x: mm(x), y: mm(y), r: Math.max(0.5, mm(settings.circleR)),
+                 col: settings.circleColor });
   sel = circles.length - 1;
 }
 
@@ -773,8 +882,8 @@ function circleAt(x, y) {
 function clampCircles() {
   const [W, H] = paperDims();
   for (const c of circles) {
-    c.x = clamp(c.x, 0, W);
-    c.y = clamp(c.y, 0, H);
+    c.x = mm(clamp(c.x, 0, W));
+    c.y = mm(clamp(c.y, 0, H));
   }
 }
 
@@ -785,6 +894,7 @@ function circlesEdited() {
   if (settings.circleEffect === 'nothing' && !tintOn()) {
     drawPreview();
     updateStats();
+    syncUrl();
   } else {
     regenerate();
   }
@@ -985,7 +1095,7 @@ function attachPointer() {
       i = sel;
     }
     const c = circles[i];
-    c.r = clamp(c.r - e.deltaY * WHEEL_MM, 0.5, 2000);
+    c.r = mm(clamp(c.r - e.deltaY * WHEEL_MM, 0.5, 2000));
     settings.circleR = +c.r.toFixed(1);
     if (setters.circleR) setters.circleR(settings.circleR);
     circlesChanged();
@@ -997,12 +1107,12 @@ function moveHandle(x, y) {
   const c = circles[sel];
   if (!c) return;
   if (drag === 'size') {
-    c.r = Math.max(0.5, Math.hypot(x - c.x, y - c.y));
-    settings.circleR = +c.r.toFixed(1);
+    c.r = Math.max(0.5, mm(Math.hypot(x - c.x, y - c.y)));
+    settings.circleR = c.r;
     if (setters.circleR) setters.circleR(settings.circleR);
   } else {
-    c.x = x;
-    c.y = y;
+    c.x = mm(x);
+    c.y = mm(y);
   }
   circlesChanged();
 }
@@ -1025,6 +1135,17 @@ function attachKeys() {
       settings.showGuides = !settings.showGuides;
       if (setters.showGuides) setters.showGuides(settings.showGuides);
       drawPreview();
+      syncUrl();
+      e.preventDefault();
+    } else if (usesSeed() && (e.key === 'r' || e.key === 'R')) {
+      settings.seed = Math.floor(Math.random() * 100000);
+      if (setters.seed) setters.seed(settings.seed);
+      regenerate();
+      e.preventDefault();
+    } else if (usesSeed() && (e.key === '[' || e.key === ']')) {
+      settings.seed = Math.max(0, Math.round(settings.seed) + (e.key === ']' ? 1 : -1));
+      if (setters.seed) setters.seed(settings.seed);
+      regenerate();
       e.preventDefault();
     }
   });
@@ -1041,7 +1162,12 @@ function setVisible(key, on) {
   if (fieldDivs[key]) fieldDivs[key].style('display', on ? '' : 'none');
 }
 
+function usesSeed() {
+  return settings.algorithm === 'Random' || settings.algorithm === 'Stipple';
+}
+
 function syncVisibility() {
+  setVisible('seed', usesSeed());
   setVisible('minRun', settings.mergeMode !== 'off');
   setVisible('circlePen', settings.drawCircles);
   setVisible('tintDots', circles.length > 0);
@@ -1058,13 +1184,14 @@ function addSlider(parent, labelText, key, min, max, step, hint, onChange) {
   num.attribute('inputmode', 'decimal');
   if (hint) createDiv(hint).parent(field).class('note');
 
-  const done = onChange || regenerate;
+  const done = () => { (onChange || regenerate)(); syncUrl(); };
   setters[key] = v => { sl.value(v); num.value(String(v)); };
 
   sl.input(() => {
     settings[key] = Number(sl.value());
     num.value(String(settings[key]));
     if (onChange) onChange(); else liveUpdate();
+    syncUrl();
   });
   sl.changed(() => done());
   num.input(() => {
@@ -1086,7 +1213,7 @@ function addSelect(parent, labelText, key, options, onChange, hint) {
   sel2.selected(settings[key]);
   if (hint) createDiv(hint).parent(field).class('note');
   setters[key] = v => sel2.selected(v);
-  sel2.changed(() => { settings[key] = sel2.value(); (onChange || regenerate)(); });
+  sel2.changed(() => { settings[key] = sel2.value(); (onChange || regenerate)(); syncUrl(); });
   return sel2;
 }
 
@@ -1095,8 +1222,60 @@ function addCheckbox(parent, labelText, key, onChange) {
   fieldDivs[key] = row;
   const cb = createCheckbox(labelText, settings[key]).parent(row);
   setters[key] = v => cb.checked(!!v);
-  cb.changed(() => { settings[key] = cb.checked(); (onChange || regenerate)(); });
+  cb.changed(() => { settings[key] = cb.checked(); (onChange || regenerate)(); syncUrl(); });
   return cb;
+}
+
+function addSeedField(parent) {
+  const field = createDiv('').parent(parent).class('field');
+  fieldDivs.seed = field;
+  createSpan('Seed').parent(field).class('label');
+  const row = createDiv('').parent(field).class('row');
+  const num = createInput(String(settings.seed)).parent(row);
+  num.attribute('type', 'text');
+  num.attribute('inputmode', 'numeric');
+  const btn = createButton('Roll').parent(row).class('inline-btn');
+  createDiv('Random and Stipple throw a coin for every dot, and this number decides how ' +
+    'they land. <b>R</b> rolls a new one, <b>[</b> and <b>]</b> step through them.')
+    .parent(field).class('note');
+
+  setters.seed = v => num.value(String(v));
+  num.input(() => {
+    const v = parseNum(num.value());
+    if (v === null) return;
+    settings.seed = clamp(Math.round(v), 0, 1e9);
+    regenerate();
+  });
+  btn.mousePressed(() => {
+    settings.seed = Math.floor(Math.random() * 100000);
+    num.value(String(settings.seed));
+    regenerate();
+  });
+}
+
+function copyLink(btn) {
+  const done = () => {
+    btn.html('Copied');
+    btn.addClass('copied');
+    setTimeout(() => { btn.html('Copy link'); btn.removeClass('copied'); }, 1200);
+  };
+  // The clipboard API is blocked on file:// in some browsers, hence the old fallback.
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(location.href).then(done, () => legacyCopy(location.href, done));
+  } else {
+    legacyCopy(location.href, done);
+  }
+}
+
+function legacyCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) { /* nothing else to try */ }
+  document.body.removeChild(ta);
 }
 
 function addColor(parent, labelText, key, onChange) {
@@ -1105,7 +1284,7 @@ function addColor(parent, labelText, key, onChange) {
   createSpan(labelText).parent(field).class('label');
   const cp = createColorPicker(settings[key]).parent(field);
   setters[key] = v => cp.value(v);
-  cp.input(() => { settings[key] = cp.value(); (onChange || regenerate)(); });
+  cp.input(() => { settings[key] = cp.value(); (onChange || regenerate)(); syncUrl(); });
   return cp;
 }
 
@@ -1115,7 +1294,7 @@ function circleParamChanged(field) {
   const c = circles[sel];
   if (!c) { refreshCircleList(); return; }
   if (field === 'r') {
-    c.r = Math.max(0.5, settings.circleR);
+    c.r = Math.max(0.5, mm(settings.circleR));
     circlesChanged();
     return;
   }
@@ -1123,6 +1302,7 @@ function circleParamChanged(field) {
   renderDither();
   drawPreview();
   updateStats();
+  syncUrl();
 }
 
 function buildControls() {
@@ -1148,6 +1328,7 @@ function buildControls() {
   addSlider(root, 'Tone at the start (0–255)', 'colorFrom', 0, 255, 1);
   addSlider(root, 'Tone at the end (0–255)', 'colorTo', 0, 255, 1);
   addCheckbox(root, 'Invert the ramp', 'invert');
+  addSeedField(root);
 
   // --- The nib ---
   addSection(root, 'Dither pen');
@@ -1221,17 +1402,19 @@ function buildControls() {
   addCheckbox(root, 'Follow the sliders live', 'liveUpdate', () => {});
   addCheckbox(root, 'Show the margin and the handles', 'showGuides', () => drawPreview());
 
-  const outBtns = createDiv('').parent(root).class('btn-row');
-  createButton('Regenerate').parent(outBtns).mousePressed(regenerate);
-  createButton('Reset settings').parent(outBtns).mousePressed(resetAll);
   const dl = createButton('Download SVG').parent(root);
   dl.class('primary');
   dl.mousePressed(exportSvg);
+  const outBtns = createDiv('').parent(root).class('btn-row');
+  createButton('Copy link').parent(outBtns).mousePressed(function () { copyLink(this); });
+  createButton('Regenerate').parent(outBtns).mousePressed(regenerate);
+  createButton('Reset settings').parent(outBtns).mousePressed(resetAll);
 
   // --- What it costs ---
   addSection(root, 'The sheet');
   statsDiv = createDiv('').parent(root).class('stats');
   penListDiv = createDiv('').parent(root);
+  linkDiv = createDiv(location.href).parent(root).class('link');
 }
 
 // Back to the defaults, but the circles stay: they are the drawing, not a setting.
@@ -1445,6 +1628,7 @@ function metaComment() {
     `angle=${s.angle}° tone=${s.colorFrom}-${s.colorTo}${s.invert ? ' inverted' : ''} ` +
     `pen=${s.penWidth}mm pitch=${cellPitch().toFixed(3)}mm (${s.solidFillSpacing}%) ` +
     `margin=${s.margin}mm ` +
+    `${usesSeed() ? 'seed=' + s.seed + ' ' : ''}` +
     `merge=${s.mergeMode}${s.mergeMode === 'off' ? '' : '/min' + s.minRun} ` +
     `dots=${nDots} lines=${nRuns} ` +
     `circles=${circles.length}${circles.length ? '/' + s.circleEffect +
@@ -1485,6 +1669,8 @@ function svgFile(pass) {
   const out = [
     '<?xml version="1.0" encoding="UTF-8"?>\n',
     `<!-- ${metaComment()}${pass ? ' pass=' + pass.tag + '@' + pass.width + 'mm' : ''} -->\n`,
+    `<!-- ${location.origin === 'null' ? '' : location.origin}${location.pathname}` +
+    `#${encodeState()} -->\n`,
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}mm" height="${H}mm" ` +
     `viewBox="0 0 ${W} ${H}">\n`,
   ];
