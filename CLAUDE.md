@@ -33,6 +33,12 @@ p5jsN - nazwa/
 Jeden punkt na canvasie = 1 mm papieru. Eksport leci do SVG w milimetrach,
 a dalej przez `vpype-process.sh`.
 
+p5js11, p5js8 i p5js4 mają uproszczone, publiczne wersje w osobnym repo
+`~/Dev/penplotter-generators-site`. Tamtejsze `public/<gen>/engine.js` to kopie
+tutejszych `sketch.js` 1:1, więc zmiana tutaj nie trafia tam sama. Kod zamówienia
+ze strony (część po `#`) otwiera się też tutaj, doklejony do adresu szkicu, dlatego
+nie zmieniaj znaczenia istniejących kluczy w `settings`.
+
 **Nie dodawaj `p5.sound.min.js`.** Żaden szkic nie używa audio, a pod `file://`
 ta biblioteka sypie błędami: brakującym source mapem i odmową załadowania
 audio workletu z blob URL (null origin w Safari).
