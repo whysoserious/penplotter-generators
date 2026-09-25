@@ -958,6 +958,7 @@ function terraceLines(g, a, t, sol, sink) {
   const rowMask = Array.from({ length: 5 }, () => new Uint8Array(cols));
   const carry   = new Uint8Array(cols);
   const edge    = new Uint8Array(cols);   // per column on a tile boundary: 0 none, 1 up, 2 centred, 3 down
+  const pinned  = new Uint8Array(cols);   // the same, where a zone's own outline already fixes it
 
   const emit = (mask, y) => {
     let start = -1;
@@ -974,11 +975,26 @@ function terraceLines(g, a, t, sol, sink) {
   // reads as one edge, and a full pen width of step halfway across it is a worse fault
   // than the half pen the inset was there to save. A run whose columns agree keeps the
   // offset they ask for, which is every run that does not straddle a terrace change.
-  const emitEdge = (code, yTop) => {
+  //
+  // A zone overrules all of that. Its outline is offset into the zone by the same inset,
+  // so the ink of a top edge starts exactly on the boundary and the ink of a bottom edge
+  // ends exactly on it — and unlike a line, an outline cannot be moved to meet anything.
+  // A run that touches one, beside it or along it, therefore takes the zone's side, or
+  // the black steps by half a pen right where the line meets the rectangle. Zones on both
+  // sides of a run pulling opposite ways is the one case nothing can satisfy: centre it.
+  const emitEdge = (code, pin, yTop) => {
     let start = -1, first = 0, mixed = 0;
     const flush = end => {
-      const dy = mixed || first === 2 ? 0 : first === 1 ? -inset : inset;
-      sink.line(g.x0 + start * g.cs, yTop + dy, g.x0 + end * g.cs);
+      let zone = 0, clash = 0;
+      for (let c = start - 1; c <= end; c++) {          // the run, plus the column each side
+        const v = c < 0 || c >= cols ? 0 : pin[c];
+        if (!v) continue;
+        if (!zone) zone = v; else if (v !== zone) clash = 1;
+      }
+      const at = clash ? 2 : zone || (mixed ? 2 : first);
+      sink.line(g.x0 + start * g.cs,
+                yTop + (at === 1 ? -inset : at === 3 ? inset : 0),
+                g.x0 + end * g.cs);
       start = -1; mixed = 0;
     };
     for (let c = 0; c < cols; c++) {
@@ -1020,14 +1036,26 @@ function terraceLines(g, a, t, sol, sink) {
       // Shared wins, so past it `bot` alone already means the tile above asks and the one
       // below does not, and `top` alone the other way round.
       edge[c] = ((top & bot) | (top & solAbove) | (bot & solBelow)) ? 2 : bot ? 1 : top ? 3 : 0;
+      // Black on both sides and the boundary is inside the zone: no outline runs along it
+      // and nothing is pinned. Black on one side only and its outline does.
+      pinned[c] = solAbove & solBelow ? 0 : solBelow ? 3 : solAbove ? 1 : 0;
     }
 
     const yTop = g.y0 + r * g.cs;
-    emitEdge(edge, yTop);
+    emitEdge(edge, pinned, yTop);
     for (let j = 1; j < 4; j++) emit(rowMask[j], yTop + j * q);
     carry.set(rowMask[4]);
   }
-  emit(carry, g.y0 + g.rows * g.cs - inset);        // the last bottom edge, nothing below
+
+  // The last bottom edge. Nothing below it, so a run can only be pulled up — which is
+  // also the way a zone in the last row pins it, its bottom outline ending on the sheet
+  // edge exactly as the run does.
+  const last = (g.rows - 1) * cols;
+  for (let c = 0; c < cols; c++) {
+    edge[c]   = carry[c] ? 1 : 0;
+    pinned[c] = sol[last + c] ? 1 : 0;
+  }
+  emitEdge(edge, pinned, g.y0 + g.rows * g.cs);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
