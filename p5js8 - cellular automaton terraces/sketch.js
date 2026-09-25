@@ -957,9 +957,7 @@ function terraceLines(g, a, t, sol, sink) {
   const inset = zoneInset(g.cs);
   const rowMask = Array.from({ length: 5 }, () => new Uint8Array(cols));
   const carry   = new Uint8Array(cols);
-  const topOnly = new Uint8Array(cols);
-  const botOnly = new Uint8Array(cols);
-  const shared  = new Uint8Array(cols);
+  const edge    = new Uint8Array(cols);   // per column on a tile boundary: 0 none, 1 up, 2 centred, 3 down
 
   const emit = (mask, y) => {
     let start = -1;
@@ -968,6 +966,27 @@ function terraceLines(g, a, t, sol, sink) {
       else if (start >= 0) { sink.line(g.x0 + start * g.cs, y, g.x0 + c * g.cs); start = -1; }
     }
     if (start >= 0) sink.line(g.x0 + start * g.cs, y, g.x0 + cols * g.cs);
+  };
+
+  // A tile boundary is emitted one contiguous run at a time, and the run — not the
+  // column — decides where it sits. A run whose columns disagree, the tile above asking
+  // for the boundary along part of it and the tile below along the rest, is centred: it
+  // reads as one edge, and a full pen width of step halfway across it is a worse fault
+  // than the half pen the inset was there to save. A run whose columns agree keeps the
+  // offset they ask for, which is every run that does not straddle a terrace change.
+  const emitEdge = (code, yTop) => {
+    let start = -1, first = 0, mixed = 0;
+    const flush = end => {
+      const dy = mixed || first === 2 ? 0 : first === 1 ? -inset : inset;
+      sink.line(g.x0 + start * g.cs, yTop + dy, g.x0 + end * g.cs);
+      start = -1; mixed = 0;
+    };
+    for (let c = 0; c < cols; c++) {
+      const v = code[c];
+      if (v) { if (start < 0) { start = c; first = v; } else if (v !== first) mixed = 1; }
+      else if (start >= 0) flush(c);
+    }
+    if (start >= 0) flush(cols);
   };
 
   for (let r = 0; r < g.rows; r++) {
@@ -985,7 +1004,8 @@ function terraceLines(g, a, t, sol, sink) {
     // instead of standing that much past it — a line beside a black zone then starts and
     // ends where the zone's own outline does. Where both tiles ask for the boundary the
     // two share one stroke, and a shared stroke stays centred on it: it belongs to both
-    // and cannot lean into either.
+    // and cannot lean into either. This is only the column's request, though: emitEdge
+    // above decides per run, and drops the inset wherever a run's columns disagree.
     //
     // A black tile across the boundary is the one case where the line stays centred even
     // though only one tile asks for it: the half pen it then stands past the boundary
@@ -997,15 +1017,13 @@ function terraceLines(g, a, t, sol, sink) {
       const top = rowMask[0][c], bot = carry[c];
       const solBelow = sol[base + c];
       const solAbove = r > 0 ? sol[base - cols + c] : 0;
-      topOnly[c] = top & (bot ^ 1) & (solAbove ^ 1);
-      botOnly[c] = bot & (top ^ 1) & (solBelow ^ 1);
-      shared[c]  = (top & bot) | (top & solAbove) | (bot & solBelow);
+      // Shared wins, so past it `bot` alone already means the tile above asks and the one
+      // below does not, and `top` alone the other way round.
+      edge[c] = ((top & bot) | (top & solAbove) | (bot & solBelow)) ? 2 : bot ? 1 : top ? 3 : 0;
     }
 
     const yTop = g.y0 + r * g.cs;
-    emit(botOnly, yTop - inset);
-    emit(shared,  yTop);
-    emit(topOnly, yTop + inset);
+    emitEdge(edge, yTop);
     for (let j = 1; j < 4; j++) emit(rowMask[j], yTop + j * q);
     carry.set(rowMask[4]);
   }
