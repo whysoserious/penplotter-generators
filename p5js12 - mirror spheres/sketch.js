@@ -56,6 +56,12 @@
 // density on paper stays between the gap asked for and twice that all the way to the
 // horizon, and the lines that carry on branch like a tree.
 //
+// Not every pattern nests like that. A honeycomb has no coarser honeycomb inside it and
+// a crater is only ever one crater, so the patterns made of pieces — hexagons, bricks,
+// scales, arches, flagstones, craters — are measured instead by how large one piece of
+// them comes out on paper where it lies, and fade out whole where it grows too small to
+// draw. Only the part of a face that can still show them is laid with them at all.
+//
 // The camera is turned by dragging on the sheet and the ball raised and lowered with the
 // wheel; everything else lives in the sidebar and in the URL, so a plot is reproduced by
 // pasting its link.
@@ -69,7 +75,10 @@ const PAPER_SIZES = {
 };
 
 const SCENE_KINDS = ['room', 'open'];
-const PATTERNS    = ['none', 'grid', 'stripes', 'rings', 'rays'];
+const PATTERNS    = ['none', 'grid', 'stripes', 'diamonds', 'triangles', 'hexagons',
+                     'bricks', 'scales', 'arches', 'cells', 'craters', 'rings', 'polygons',
+                     'spiral', 'rays', 'whirl', 'posts', 'net'];
+const UNSIZED     = ['none', 'rays', 'whirl', 'net'];   // patterns the tile does not scale
 const SVG_OUTPUTS = ['one file', 'one file per pen', 'both'];
 
 const MAX_PENS       = 3;
@@ -84,6 +93,7 @@ const CULL_OCT       = -1;        // a piece this many octaves under its gap at 
 const NO_GATE        = 1e9;
 const EDGE_EPS       = 1e-6;      // units — a grid line this close to the edge of a face is the edge
 const MAX_CURVES     = 60_000;    // past this nothing is traced
+const MAX_ELEMS      = 12_000;    // pieces a fading pattern may lay on one face
 const MAX_MAPS       = 30e6;      // mirror lookups one update is allowed
 const BUSY_MAPS      = 3e6;       // above this, dragging stops following live
 const MAX_STROKES    = 400_000;   // past this nothing is ordered, drawn or exported
@@ -133,8 +143,15 @@ const settings = {
   floor: 'grid',
   ceiling: 'grid',
   walls: 'grid',
+  floorScale: 1,        // × tile — how large each surface's pattern is laid
+  ceilingScale: 1,
+  wallScale: 1,
   tile: 0.25,           // units — one tile, one ring, one stripe
-  rays: 96,             // how many a `rays` surface fans out into
+  rays: 96,             // how many a `rays` or `whirl` surface fans out into
+  twist: 1.2,           // how hard a `whirl` bends its rays: radians per e-fold outwards
+  sides: 8,             // of every ring of `polygons`
+  postH: 0.6,           // units — how far a `posts` post stands off its surface
+  seed: 1,              // which flagstones, which craters
   edges: true,          // the corners of the room, as lines of their own
   horizon: true,        // the horizon itself, when the floor is open
 
@@ -180,6 +197,32 @@ const SCENES = [
   { label: 'Planet', s: {
       scene: 'open', floor: 'rings', ceiling: 'rays', rays: 128, tile: 0.15, ballH: 1,
       roomH: 6, yaw: 0 } },
+  { label: 'Moon', s: {
+      floor: 'craters', ceiling: 'craters', walls: 'cells',
+      floorScale: 2, ceilingScale: 2, wallScale: 2 } },
+  { label: 'Geodesic net', s: {
+      floor: 'net', ceiling: 'net', walls: 'net', edges: false } },
+  { label: 'Forest of posts', s: {
+      scene: 'open', floor: 'posts', floorScale: 2, postH: 0.9, ceiling: 'none',
+      ballH: 1.2, yaw: 0, pitch: 0 } },
+  { label: 'Cloister', s: {
+      roomW: 12, roomD: 12, roomH: 6, ballH: 1.5, walls: 'arches', wallScale: 2,
+      floor: 'polygons', floorScale: 2, ceiling: 'polygons', ceilingScale: 2,
+      yaw: 0, pitch: 0 } },
+  { label: 'Rotunda from above', s: {
+      roomW: 8, roomD: 8, roomH: 8, ballH: 4, floor: 'polygons', ceiling: 'polygons',
+      walls: 'arches', sides: 6, floorScale: 2, ceilingScale: 2, wallScale: 1.5,
+      yaw: 0, pitch: 60 } },
+  { label: 'Honeycomb', s: {
+      floor: 'hexagons', ceiling: 'hexagons', walls: 'hexagons',
+      floorScale: 1.5, ceilingScale: 1.5, wallScale: 1.5 } },
+  { label: 'Whirlpool', s: {
+      scene: 'open', floor: 'whirl', ceiling: 'whirl', rays: 96, twist: 1.2, roomH: 6,
+      yaw: 0, pitch: 8 } },
+  { label: 'Flagstones and bricks', s: {
+      floor: 'cells', floorScale: 2, walls: 'bricks', ceiling: 'diamonds', ceilingScale: 2 } },
+  { label: 'Fish scales', s: {
+      floor: 'scales', walls: 'scales', ceiling: 'spiral', floorScale: 1.5, wallScale: 1.5 } },
   { label: 'Everything, piled up', s: { minGap: 0 } },
   { label: 'Two pens', s: { pens: 2, wallPen: 2, edgePen: 2 } },
 ];
@@ -455,53 +498,91 @@ function toPaper() {
 // Everything drawn is a curve with a direction for every value of its own parameter s.
 // `curveAt(c, s, e)` writes that direction into HD — and, for e other than 0, the
 // direction of the same point on the curve e spacings over in its family, which is how
-// the gap between two neighbours is measured on paper.
+// the gap between two neighbours is measured on paper. HW is the weight the direction
+// was written with: the point itself is HD / HW, so a step along the surface can be
+// added to it.
 //
 //   0  a straight line, walked by angle   (A + e·N)·cos s + p·D·sin s
-//   1  a ray fanning out of a foot point  F·cos s + p·D(θ + e·dθ)·sin s
-//   2  a circle on a plane                F + (r + e·dr)·(cos s·U + sin s·V)
+//   1  a ray fanning out of a foot point  F·cos s + p·D(θ(s) + e·dθ)·sin s
+//   2  a circle or a spiral on a plane    C + (r + g·s + e·dr)·(cos s·U + sin s·V)
 //   3  a great circle                     cos s·U + sin s·V
+//   4  a polyline laid on a face          F + u(s)·U + v(s)·V, straight between points
 //
 // A is the point of the line nearest the ball, p its distance and N the step across to
 // the next line of the family; the neighbour is looked up at the same distance along
-// its own line, which is what makes the two points face one another across the gap.
+// its own line, which is what makes the two points face one another across the gap. A
+// ray may be bent — θ turns by `tw` for every e-fold it runs further out — and the
+// neighbour of a polyline is the same polyline moved by N, or grown about the foot of
+// its face by nk for every step.
+//
+// A curve that is one of a lattice of copies of itself — su along U, sv along V — is
+// measured against the two copies next to it instead, square to its own tangent, by
+// whichever of them stands the further off: a copy that only slides along it on paper
+// is lined up behind it, not crowding it.
 
 const C = {
   t: 0, ax: 0, ay: 0, az: 0, dx: 0, dy: 0, dz: 0, nx: 0, ny: 0, nz: 0,
   ux: 0, uy: 0, uz: 0, vx: 0, vy: 0, vz: 0,
-  p: 1, r: 0, dr: 0, th: 0, dth: 0,
+  p: 1, r: 0, g: 0, dr: 0, th: 0, dth: 0, tw: 0,
+  pu: null, pv: null, pn: 0,
+  nm: 0, nk: 0, sux: 0, suy: 0, suz: 0, svx: 0, svy: 0, svz: 0,
   s0: 0, s1: 1, n0: 8, level: -1, closed: false, id: 0,
 };
+const NB_FAMILY = 0, NB_GROW = 1, NB_LATTICE = 2;    // what C.nm measures the gap against
+let HW = 1;
 
 function curveAt(c, s, e) {
-  const cs = Math.cos(s), sn = Math.sin(s);
   switch (c.t) {
     case 0: {
-      const k = c.p * sn;
+      const cs = Math.cos(s), k = c.p * Math.sin(s);
       HD[0] = (c.ax + e * c.nx) * cs + k * c.dx;
       HD[1] = (c.ay + e * c.ny) * cs + k * c.dy;
       HD[2] = (c.az + e * c.nz) * cs + k * c.dz;
+      HW = cs;
       return;
     }
     case 1: {
-      const th = c.th + e * c.dth, ct = Math.cos(th), st = Math.sin(th);
-      const k = c.p * sn;
+      const cs = Math.cos(s), sn = Math.sin(s);
+      let th = c.th + e * c.dth;
+      if (c.tw !== 0) th += c.tw * Math.log1p(Math.max(0, sn / cs));
+      const ct = Math.cos(th), st = Math.sin(th), k = c.p * sn;
       HD[0] = c.ax * cs + k * (ct * c.ux + st * c.vx);
       HD[1] = c.ay * cs + k * (ct * c.uy + st * c.vy);
       HD[2] = c.az * cs + k * (ct * c.uz + st * c.vz);
+      HW = cs;
       return;
     }
     case 2: {
-      const r = c.r + e * c.dr;
+      const cs = Math.cos(s), sn = Math.sin(s), r = c.r + c.g * s + e * c.dr;
       HD[0] = c.ax + r * (cs * c.ux + sn * c.vx);
       HD[1] = c.ay + r * (cs * c.uy + sn * c.vy);
       HD[2] = c.az + r * (cs * c.uz + sn * c.vz);
+      HW = 1;
       return;
     }
-    default:
+    case 3: {
+      const cs = Math.cos(s), sn = Math.sin(s);
       HD[0] = cs * c.ux + sn * c.vx;
       HD[1] = cs * c.uy + sn * c.vy;
       HD[2] = cs * c.uz + sn * c.vz;
+      HW = 0;
+      return;
+    }
+    default: {
+      const n = c.pn;
+      let i = Math.floor(s);
+      if (i < 0) i = 0; else if (i > n - 2) i = n - 2;
+      const f = s - i;
+      const u = c.pu[i] + (c.pu[i + 1] - c.pu[i]) * f;
+      const v = c.pv[i] + (c.pv[i + 1] - c.pv[i]) * f;
+      let k = 1, ox = 0, oy = 0, oz = 0;
+      if (e !== 0 && c.nm === NB_GROW) k = 1 + e * c.nk;
+      else if (e !== 0 && c.nm === NB_FAMILY) { ox = e * c.nx; oy = e * c.ny; oz = e * c.nz; }
+      HD[0] = c.ax + k * (u * c.ux + v * c.vx) + ox;
+      HD[1] = c.ay + k * (u * c.uy + v * c.vy) + oy;
+      HD[2] = c.az + k * (u * c.uz + v * c.vz) + oz;
+      HW = 1;
+    }
   }
 }
 
@@ -552,13 +633,36 @@ function gateAt(c, s, x, y) {
   let g = NO_GATE;
   LAST_LOD = NO_GATE;
   if (LOD_ON && c.level >= 0) {
-    curveAt(c, s + TAN_DS, 0);
-    const okT = toPaper(), tx = PX - x, ty = PY - y;
-    curveAt(c, s, GAP_E);
-    if (okT && toPaper()) {
-      const nx = PX - x, ny = PY - y;
-      const tl = Math.sqrt(tx * tx + ty * ty);
-      const across = tl > 1e-12 ? Math.abs(nx * ty - ny * tx) / tl : Math.sqrt(nx * nx + ny * ny);
+    let across = -1;
+    if (c.nm === NB_LATTICE) {
+      curveAt(c, s, 0);
+      const w = HW * GAP_E, hx = HD[0], hy = HD[1], hz = HD[2];
+      HD[0] = hx + w * c.sux; HD[1] = hy + w * c.suy; HD[2] = hz + w * c.suz;
+      if (toPaper()) {
+        const ax = PX - x, ay = PY - y;
+        HD[0] = hx + w * c.svx; HD[1] = hy + w * c.svy; HD[2] = hz + w * c.svz;
+        if (toPaper()) {
+          const bx = PX - x, by = PY - y;
+          curveAt(c, s + TAN_DS, 0);
+          if (toPaper()) {
+            const tx = PX - x, ty = PY - y, tl = Math.hypot(tx, ty);
+            across = tl > 1e-12
+              ? Math.max(Math.abs(ax * ty - ay * tx), Math.abs(bx * ty - by * tx)) / tl
+              : Math.max(Math.hypot(ax, ay), Math.hypot(bx, by));
+          }
+        }
+      }
+    } else {
+      curveAt(c, s + TAN_DS, 0);
+      const okT = toPaper(), tx = PX - x, ty = PY - y;
+      curveAt(c, s, GAP_E);
+      if (okT && toPaper()) {
+        const nx = PX - x, ny = PY - y;
+        const tl = Math.sqrt(tx * tx + ty * ty);
+        across = tl > 1e-12 ? Math.abs(nx * ty - ny * tx) / tl : Math.sqrt(nx * nx + ny * ny);
+      }
+    }
+    if (across >= 0) {
       g = across > 0 ? Math.max(-60, Math.log2(across / (GAP_E * MIN_GAP)) + c.level) : -60;
       LAST_LOD = g;
     }
@@ -569,6 +673,15 @@ function gateAt(c, s, x, y) {
     if (rg < g) g = rg;
   }
   return g;
+}
+
+// The smaller singular value of the 2×2 map with columns (ax, ay) and (bx, by): how
+// short the thinnest way across the square they are the images of comes out. Neither
+// column alone will do — seen along a diagonal, a face is foreshortened between them.
+function sigmaMin(ax, ay, bx, by) {
+  const p = ax * ax + ay * ay, q = bx * bx + by * by, r = ax * bx + ay * by;
+  const d = Math.sqrt((p - q) * (p - q) + 4 * r * r);
+  return Math.sqrt(Math.max(0, 0.5 * (p + q - d)));
 }
 
 function segDist2(px, py, ax, ay, bx, by) {
@@ -663,22 +776,59 @@ function traceCurve(c, sink) {
   flushRun(sink, c.id, c.closed && !broken);
 }
 
+// The setting up every curve shares, so that nothing one curve left in C leaks into the
+// next.
+function begin(t, id, level) {
+  C.t = t; C.id = id; C.level = level;
+  C.nm = NB_FAMILY; C.closed = false; C.g = 0; C.tw = 0;
+}
+
+function onFace(f) {
+  C.ax = f.F[0]; C.ay = f.F[1]; C.az = f.F[2];
+  C.ux = f.U[0]; C.uy = f.U[1]; C.uz = f.U[2];
+  C.vx = f.V[0]; C.vy = f.V[1]; C.vz = f.V[2];
+}
+
+// Measure the curve as one of a lattice of copies of itself on face f, a apart along U
+// and b apart along V.
+function byLattice(f, a, b) {
+  C.nm = NB_LATTICE;
+  C.sux = a * f.U[0]; C.suy = a * f.U[1]; C.suz = a * f.U[2];
+  C.svx = b * f.V[0]; C.svy = b * f.V[1]; C.svz = b * f.V[2];
+}
+
 // A straight line from t0 to t1 along D, measured from A, its point nearest the ball.
-// Either end may be infinite.
-function lineCurve(ax, ay, az, dx, dy, dz, t0, t1, nx, ny, nz, level, id, sink) {
+// Either end may be infinite. Given a face, the line is measured as one of a lattice of
+// copies of itself on that face instead of by the next line of a family.
+function lineCurve(ax, ay, az, dx, dy, dz, t0, t1, nx, ny, nz, level, id, sink, lf, la, lb) {
   const p = Math.sqrt(ax * ax + ay * ay + az * az);
   if (p < 1e-9 || !(t1 > t0)) return;          // a line through the ball itself
-  C.t = 0;
+  begin(0, id, level);
   C.ax = ax; C.ay = ay; C.az = az;
   C.dx = dx; C.dy = dy; C.dz = dz;
   C.nx = nx; C.ny = ny; C.nz = nz;
   C.p = p;
+  if (lf) byLattice(lf, la, lb);
   C.s0 = Math.atan2(t0, p);
   C.s1 = Math.atan2(t1, p);
   C.n0 = Math.max(4, Math.ceil((C.s1 - C.s0) / (Math.PI / 48)));
-  C.level = level;
-  C.closed = false;
-  C.id = id;
+  traceCurve(C, sink);
+}
+
+// A polyline laid on face f, in the face's own u and v. Each straight piece of it is one
+// piece of the walk to start with, and the walk bends it from there. `nb` says how it
+// is thinned: its pen, its level, and what its gap is measured against.
+function polyCurve(f, us, vs, closed, nb, sink) {
+  const n = us.length;
+  if (n < 2) return;
+  begin(4, nb.id, nb.level);
+  onFace(f);
+  C.pu = us; C.pv = vs; C.pn = n;
+  C.closed = closed;
+  if (nb.mode === NB_GROW) { C.nm = NB_GROW; C.nk = nb.k; }
+  else { C.nx = nb.N[0]; C.ny = nb.N[1]; C.nz = nb.N[2]; }
+  C.s0 = 0; C.s1 = n - 1;
+  C.n0 = n - 1;
   traceCurve(C, sink);
 }
 
@@ -895,104 +1045,383 @@ function roomBox() {
            z0: -D * bz, z1: D * (1 - bz), y0: -h, y1: H - h };
 }
 
+// Every face with what it is laid with, the size one piece of that is, and a salt of its
+// own, so that two faces laid with the same scatter do not repeat one another.
 function faces(B) {
   const s = settings;
   const X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
   const xc = (B.x0 + B.x1) / 2, zc = (B.z0 + B.z1) / 2;
+  const tile = Math.max(0.01, s.tile);
+  const size = k => tile * Math.max(0.05, k);
+  const salt = i => Math.round(s.seed) * 1013 + i * 7919;
   const flat = { U: X, V: Z, u0: B.x0, u1: B.x1, v0: B.z0, v1: B.z1, uc: xc, vc: zc };
   const out = [
-    { ...flat, pat: s.floor,   id: penId(s.floorPen),   F: [0, B.y0, 0] },
-    { ...flat, pat: s.ceiling, id: penId(s.ceilingPen), F: [0, B.y1, 0] },
+    { ...flat, pat: s.floor,   id: penId(s.floorPen),   size: size(s.floorScale),
+      salt: salt(0), F: [0, B.y0, 0] },
+    { ...flat, pat: s.ceiling, id: penId(s.ceilingPen), size: size(s.ceilingScale),
+      salt: salt(1), F: [0, B.y1, 0] },
   ];
   if (!B.open) {
-    const wall = { pat: s.walls, id: penId(s.wallPen), V: Y, v0: B.y0, v1: B.y1, vc: B.y0 };
-    out.push({ ...wall, F: [B.x0, 0, 0], U: Z, u0: B.z0, u1: B.z1, uc: zc });
-    out.push({ ...wall, F: [B.x1, 0, 0], U: Z, u0: B.z0, u1: B.z1, uc: zc });
-    out.push({ ...wall, F: [0, 0, B.z0], U: X, u0: B.x0, u1: B.x1, uc: xc });
-    out.push({ ...wall, F: [0, 0, B.z1], U: X, u0: B.x0, u1: B.x1, uc: xc });
+    const wall = { pat: s.walls, id: penId(s.wallPen), size: size(s.wallScale),
+                   V: Y, v0: B.y0, v1: B.y1, vc: B.y0 };
+    out.push({ ...wall, salt: salt(2), F: [B.x0, 0, 0], U: Z, u0: B.z0, u1: B.z1, uc: zc });
+    out.push({ ...wall, salt: salt(3), F: [B.x1, 0, 0], U: Z, u0: B.z0, u1: B.z1, uc: zc });
+    out.push({ ...wall, salt: salt(4), F: [0, 0, B.z0], U: X, u0: B.x0, u1: B.x1, uc: xc });
+    out.push({ ...wall, salt: salt(5), F: [0, 0, B.z1], U: X, u0: B.x0, u1: B.x1, uc: xc });
   }
   return out;
 }
 
-// A rough count of what the room will ask to be traced, so a tile of a thousandth of
-// the room is refused before it freezes the tab rather than after.
+// A rough count of the lines the room will ask to be traced, so a tile of a thousandth
+// of the room is refused before it freezes the tab rather than after. The patterns that
+// fade are left out: they are held to MAX_ELEMS pieces a face whatever they are asked.
 function countCurves() {
   const B = roomBox();
-  const tile = Math.max(0.01, settings.tile);
   let n = 0;
   for (const f of faces(B)) {
-    const du = (f.u1 - f.u0) / tile, dv = (f.v1 - f.v0) / tile;
+    const a = f.size;
+    const du = (f.u1 - f.u0) / a, dv = (f.v1 - f.v0) / a;
+    const across = Math.hypot(f.u1 - f.u0, f.v1 - f.v0) / a;
     switch (f.pat) {
-      case 'grid':    n += du + dv; break;
-      case 'stripes': n += du; break;
-      case 'rings':   n += Math.hypot(f.u1 - f.u0, f.v1 - f.v0) / tile; break;
-      case 'rays':    n += Math.max(1, settings.rays); break;
+      case 'grid':      n += du + dv; break;
+      case 'stripes':   n += du; break;
+      case 'diamonds':  n += 2 * across; break;
+      case 'triangles': n += 3.5 * across; break;
+      case 'bricks':    n += dv; break;
+      case 'arches':    n += dv / 3.5; break;
+      case 'rings':
+      case 'polygons':
+      case 'spiral':    n += across; break;
+      case 'rays':
+      case 'whirl':     n += Math.max(1, settings.rays); break;
+      case 'net':       n += NET_AXES.length; break;
     }
   }
   return n;
 }
 
-function faceCurves(f, B, sink) {
-  const tile = Math.max(0.01, settings.tile);
-  switch (f.pat) {
-    case 'grid':
-      faceLines(f, B, tile, true, sink);
-      faceLines(f, B, tile, false, sink);
-      break;
-    case 'stripes': faceLines(f, B, tile, true, sink); break;
-    case 'rings':   ringCurves(f, B, tile, sink); break;
-    case 'rays':    rayCurves(f, B, sink); break;
+////////////////////////////////////////////////////////////////////////////////////////
+// Where a pattern may go
+//
+// A region is the part of a face a pattern is laid on, in the face's own u and v: the
+// face's rectangle in a room, its disc on the open floor, and — for the patterns that
+// only fade — never further out from F than they can still be seen.
+
+function faceRegion(f, B, far) {
+  return { rect: !B.open, u0: f.u0, u1: f.u1, v0: f.v0, v1: f.v1,
+           R: Math.min(B.open ? B.R : Infinity, far) };
+}
+
+function insideRegion(u, v, reg) {
+  if (reg.rect && (u < reg.u0 || u > reg.u1 || v < reg.v0 || v > reg.v1)) return false;
+  return u * u + v * v <= reg.R * reg.R;
+}
+
+function regionBox(reg) {
+  let u0 = -reg.R, u1 = reg.R, v0 = -reg.R, v1 = reg.R;
+  if (reg.rect) {
+    u0 = Math.max(u0, reg.u0); u1 = Math.min(u1, reg.u1);
+    v0 = Math.max(v0, reg.v0); v1 = Math.min(v1, reg.v1);
+  }
+  return [u0, u1, v0, v1];
+}
+
+function regionMaxRadius(reg) {
+  if (!reg.rect) return reg.R;
+  return Math.min(reg.R, Math.max(
+    Math.hypot(reg.u0, reg.v0), Math.hypot(reg.u0, reg.v1),
+    Math.hypot(reg.u1, reg.v0), Math.hypot(reg.u1, reg.v1)));
+}
+
+// The stretch [t0, t1] of the line A + t·D, D of unit length, that lies in a region.
+function clipLineRegion(au, av, du, dv, reg) {
+  let t0 = -Infinity, t1 = Infinity;
+  if (reg.rect) {
+    const P = [-du, du, -dv, dv];
+    const Q = [au - reg.u0, reg.u1 - au, av - reg.v0, reg.v1 - av];
+    for (let e = 0; e < 4; e++) {
+      if (P[e] === 0) { if (Q[e] < 0) return null; continue; }
+      const r = Q[e] / P[e];
+      if (P[e] < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+    }
+  }
+  if (reg.R < Infinity) {
+    const b = au * du + av * dv, c = au * au + av * av - reg.R * reg.R;
+    const disc = b * b - c;
+    if (disc <= 0) return null;
+    const sq = Math.sqrt(disc);
+    t0 = Math.max(t0, -b - sq);
+    t1 = Math.min(t1, -b + sq);
+  }
+  return t1 > t0 ? [t0, t1] : null;
+}
+
+// The stretches of a polyline that lie in a region, in the order they were laid, pushed
+// onto `out`. True when nothing had to be cut; a closed polyline cut open where it
+// started is joined back up there.
+function clipPolyRegion(us, vs, closed, reg, out) {
+  const n = us.length, first = out.length;
+  let ru = null, rv = null, whole = true, joined = false, head = false;
+  const flush = () => { if (ru && ru.length >= 2) out.push([ru, rv]); ru = rv = null; };
+
+  for (let i = 0; i + 1 < n; i++) {
+    const au = us[i], av = vs[i], du = us[i + 1] - au, dv = vs[i + 1] - av;
+    let t0 = 0, t1 = 1;
+    if (reg.rect) {
+      const P = [-du, du, -dv, dv];
+      const Q = [au - reg.u0, reg.u1 - au, av - reg.v0, reg.v1 - av];
+      for (let e = 0; e < 4 && t0 < t1; e++) {
+        if (P[e] === 0) { if (Q[e] < 0) t1 = -1; continue; }
+        const r = Q[e] / P[e];
+        if (P[e] < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+      }
+    }
+    if (t0 < t1 && reg.R < Infinity) {
+      const A = du * du + dv * dv, b = au * du + av * dv;
+      const c = au * au + av * av - reg.R * reg.R;
+      const disc = b * b - A * c;
+      if (A <= 0) { if (c > 0) t1 = -1; }
+      else if (disc <= 0) t1 = -1;
+      else {
+        const sq = Math.sqrt(disc);
+        t0 = Math.max(t0, (-b - sq) / A);
+        t1 = Math.min(t1, (-b + sq) / A);
+      }
+    }
+    if (!(t1 > t0)) { whole = false; joined = false; flush(); continue; }
+    if (t0 > 0 || t1 < 1) whole = false;
+    if (i === 0 && t0 === 0) head = true;
+    const qu = au + t1 * du, qv = av + t1 * dv;
+    if (ru && t0 === 0 && joined) { ru.push(qu); rv.push(qv); }
+    else { flush(); ru = [au + t0 * du, qu]; rv = [av + t0 * dv, qv]; }
+    joined = t1 === 1;
+  }
+  flush();
+
+  if (closed && !whole && head && joined && out.length - first > 1) {
+    const [hu, hv] = out[first], [tu, tv] = out.pop();
+    tu.pop(); tv.pop();
+    out[first] = [tu.concat(hu), tv.concat(hv)];
+  }
+  return whole;
+}
+
+// The stretches of s where a curve walked from s0 to s1 lies inside, found on a fine
+// grid and then pinned down by bisection.
+function paramIntervals(inside, s0, s1, steps) {
+  const out = [];
+  let prev = inside(s0), start = prev ? s0 : null, sp = s0;
+  for (let k = 1; k <= steps; k++) {
+    const s = s0 + (s1 - s0) * k / steps;
+    const cur = inside(s);
+    if (cur !== prev) {
+      let a = sp, b = s;
+      for (let it = 0; it < 40; it++) {
+        const m = 0.5 * (a + b);
+        if (inside(m) === prev) a = m; else b = m;
+      }
+      const edge = 0.5 * (a + b);
+      if (cur) start = edge;
+      else { out.push([start, edge]); start = null; }
+      prev = cur;
+    }
+    sp = s;
+  }
+  if (start !== null && s1 > start) out.push([start, s1]);
+  return out;
+}
+
+// A number in [0, 1) that depends on nothing but a tile's index and the salt, so that a
+// scattered pattern stays put wherever the drawing of it happens to start and stop.
+function hash01(i, j, salt) {
+  let h = Math.imul(i | 0, 0x27d4eb2d) ^ Math.imul(j | 0, 0x165667b1) ^
+          Math.imul(salt | 0, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+// How large a piece a across U and b across V comes out on paper at a point of the
+// face, the thinnest way across it: that is the way the face is foreshortened there.
+function surfaceGap(x, y, z, a, b, U, V) {
+  HD[0] = x; HD[1] = y; HD[2] = z;
+  if (!toPaper()) return 0;
+  const px = PX, py = PY, ea = GAP_E * a, eb = GAP_E * b;
+  HD[0] = x + ea * U[0]; HD[1] = y + ea * U[1]; HD[2] = z + ea * U[2];
+  if (!toPaper()) return 0;
+  const ux = PX - px, uy = PY - py;
+  HD[0] = x + eb * V[0]; HD[1] = y + eb * V[1]; HD[2] = z + eb * V[2];
+  if (!toPaper()) return 0;
+  return sigmaMin(ux, uy, PX - px, PY - py) / GAP_E;
+}
+
+// Whether a piece of a fading pattern at (u, v) on a face, a across U and b across V,
+// still comes out large enough on paper to be drawn.
+function pieceShows(f, u, v, a, b) {
+  if (!LOD_ON) return true;
+  const F = f.F, U = f.U, V = f.V;
+  return surfaceGap(F[0] + u * U[0] + v * V[0], F[1] + u * U[1] + v * V[1],
+                    F[2] + u * U[2] + v * V[2], a, b, U, V) >= MIN_GAP;
+}
+
+// How far out from the foot of a face pieces `size` across still come out large enough
+// on paper to be drawn, looking every way along the face and with room to spare. A
+// pattern that only fades is laid no further out than that — and, however fine it is
+// asked to be, on no more than about MAX_ELEMS tiles of its own size.
+function visibleReach(f, B, size) {
+  const outer = regionMaxRadius(faceRegion(f, B, Infinity));
+  const cap = Math.sqrt(MAX_ELEMS / Math.PI) * size;
+  if (!LOD_ON) return Math.min(outer, cap);
+  const F = f.F, U = f.U, V = f.V;
+  let far = 0;
+  for (let k = 0; k < 32; k++) {
+    const th = 2 * Math.PI * (k + 0.5) / 32, cu = Math.cos(th), cv = Math.sin(th);
+    const du = cu * U[0] + cv * V[0], dv = cu * U[1] + cv * V[1], dw = cu * U[2] + cv * V[2];
+    for (let t = 0.5 * size; t <= outer; t *= 1.15) {
+      const g = surfaceGap(F[0] + t * du, F[1] + t * dv, F[2] + t * dw, size, size, U, V);
+      if (2 * g >= MIN_GAP && t > far) far = t;
+    }
+  }
+  return Math.min(outer, cap, 1.3 * far + size);
+}
+
+// A polyline on a face, cut to a region and walked stretch by stretch.
+//
+// The edges of a tiling that fades (`nb.fade`) are kept or dropped whole, straight piece
+// by straight piece, and a piece is kept while either of the two cells it divides still
+// shows — their middles lie `nb.off` to either side of it, and a cell a × b across shows
+// while it comes out at least the gap across on paper. So every edge that is drawn
+// belongs to a cell that is drawn all the way round, and the tiling gives out cell by
+// cell without leaving an edge standing on its own.
+function polyInRegion(f, us, vs, closed, reg, nb, sink) {
+  const runs = [];
+  const whole = clipPolyRegion(us, vs, closed, reg, runs);
+  for (const [ru, rv] of runs) {
+    if (!nb.fade || !LOD_ON) { polyCurve(f, ru, rv, closed && whole, nb, sink); continue; }
+    let ku = null, kv = null, all = true;
+    const flush = () => { if (ku) polyCurve(f, ku, kv, false, nb, sink); ku = kv = null; };
+    for (let i = 0; i + 1 < ru.length; i++) {
+      const du = ru[i + 1] - ru[i], dv = rv[i + 1] - rv[i], l = Math.hypot(du, dv) || 1;
+      const mu = 0.5 * (ru[i] + ru[i + 1]), mv = 0.5 * (rv[i] + rv[i + 1]);
+      const ou = -dv / l * nb.off, ov = du / l * nb.off;
+      if (!pieceShows(f, mu + ou, mv + ov, nb.a, nb.b) &&
+          !pieceShows(f, mu - ou, mv - ov, nb.a, nb.b)) {
+        all = false;
+        flush();
+        continue;
+      }
+      if (!ku) { ku = [ru[i]]; kv = [rv[i]]; }
+      ku.push(ru[i + 1]); kv.push(rv[i + 1]);
+    }
+    if (all && ku) { polyCurve(f, ku, kv, closed && whole, nb, sink); ku = null; }
+    flush();
   }
 }
 
-// One family of parallel lines on a face: constant u running along V, or constant v
-// running along U, from edge to edge of the face — or of the disc, when the floor is
-// open. A line that falls on the edge of the face is left to the edges.
-function faceLines(f, B, tile, alongV, sink) {
-  const a0 = alongV ? f.u0 : f.v0, a1 = alongV ? f.u1 : f.v1, ac = alongV ? f.uc : f.vc;
-  const b0 = alongV ? f.v0 : f.u0, b1 = alongV ? f.v1 : f.u1;
-  const E = alongV ? f.U : f.V, D = alongV ? f.V : f.U;
-  const F = f.F;
-  const kLo = Math.ceil((a0 - ac) / tile - 1e-9), kHi = Math.floor((a1 - ac) / tile + 1e-9);
+////////////////////////////////////////////////////////////////////////////////////////
+// Patterns
+//
+// What a face can be laid with. The families — straight lines, rings, polygons, spirals,
+// rays — are thinned line by line as the header says. The rest are made of pieces that
+// do not nest, and fade out instead: each of those is laid only as far out as
+// `visibleReach` says a piece of it can still be seen, and there every edge, joint or
+// crater is kept or dropped whole by how large it comes out on paper where it lies.
+
+function faceCurves(f, B, sink) {
+  const reg = faceRegion(f, B, Infinity);
+  const a = f.size;
+  switch (f.pat) {
+    case 'grid':
+      lineFamily(f, reg, Math.PI / 2, a, sink);
+      lineFamily(f, reg, 0, a, sink);
+      break;
+    case 'stripes':
+      lineFamily(f, reg, Math.PI / 2, a, sink);
+      break;
+    case 'diamonds':
+      lineFamily(f, reg, Math.PI / 4, a, sink);
+      lineFamily(f, reg, 3 * Math.PI / 4, a, sink);
+      break;
+    case 'triangles':
+      for (let k = 0; k < 3; k++) lineFamily(f, reg, k * Math.PI / 3, a * Math.sqrt(3) / 2, sink);
+      break;
+    case 'hexagons': hexCurves(f, B, sink); break;
+    case 'bricks':
+      lineFamily(f, reg, 0, a, sink);
+      brickJoints(f, B, sink);
+      break;
+    case 'scales':   scaleCurves(f, B, sink); break;
+    case 'arches':
+      lineFamily(f, reg, 0, ARCH_TIER * a, sink);
+      archCurves(f, B, sink);
+      break;
+    case 'cells':    cellCurves(f, B, sink); break;
+    case 'craters':  craterCurves(f, B, sink); break;
+    case 'rings':    ringCurves(f, B, sink); break;
+    case 'polygons': polygonCurves(f, reg, sink); break;
+    case 'spiral':   spiralCurves(f, reg, sink); break;
+    case 'rays':     rayCurves(f, B, sink); break;
+    case 'whirl':    whirlCurves(f, reg, sink); break;
+    case 'posts':    postCurves(f, B, sink); break;
+    case 'net':      netCurves(f, reg, sink); break;
+  }
+}
+
+// A family of parallel straight lines on a face, `gap` apart and turned `phi` from U,
+// counted from the line through the face's anchor. Each is walked from edge to edge of
+// the region; a line that falls on the edge of the face is left to the edges.
+function lineFamily(f, reg, phi, gap, sink) {
+  const cu = Math.cos(phi), cv = Math.sin(phi);         // along a line
+  const eu = -cv, ev = cu;                              // across the family
+  const F = f.F, U = f.U, V = f.V;
+  const D = [cu * U[0] + cv * V[0], cu * U[1] + cv * V[1], cu * U[2] + cv * V[2]];
+  const E = [eu * U[0] + ev * V[0], eu * U[1] + ev * V[1], eu * U[2] + ev * V[2]];
+
+  let cmin = -reg.R, cmax = reg.R;
+  if (reg.rect) {
+    cmin = Infinity; cmax = -Infinity;
+    for (const u of [reg.u0, reg.u1]) {
+      for (const v of [reg.v0, reg.v1]) {
+        const c = u * eu + v * ev;
+        if (c < cmin) cmin = c;
+        if (c > cmax) cmax = c;
+      }
+    }
+  }
+  const c0 = f.uc * eu + f.vc * ev;
+  const kLo = Math.ceil((cmin - c0) / gap - 1e-9), kHi = Math.floor((cmax - c0) / gap + 1e-9);
 
   for (let k = kLo; k <= kHi; k++) {
-    const a = ac + k * tile;
-    if (a <= a0 + EDGE_EPS || a >= a1 - EDGE_EPS) continue;
-    let t0 = b0, t1 = b1;
-    if (B.open) {
-      const h = B.R * B.R - a * a;
-      if (h <= 0) continue;
-      t1 = Math.sqrt(h);
-      t0 = -t1;
-    }
-    lineCurve(F[0] + a * E[0], F[1] + a * E[1], F[2] + a * E[2],
-              D[0], D[1], D[2], t0, t1,
-              tile * E[0], tile * E[1], tile * E[2], levelOf(k), f.id, sink);
+    const c = c0 + k * gap;
+    if (c <= cmin + EDGE_EPS || c >= cmax - EDGE_EPS) continue;
+    const pu = c * eu, pv = c * ev;                     // its point nearest F
+    const t = clipLineRegion(pu, pv, cu, cv, reg);
+    if (!t) continue;
+    lineCurve(F[0] + pu * U[0] + pv * V[0], F[1] + pu * U[1] + pv * V[1],
+              F[2] + pu * U[2] + pv * V[2], D[0], D[1], D[2], t[0], t[1],
+              gap * E[0], gap * E[1], gap * E[2], levelOf(k), f.id, sink);
   }
 }
 
 // Concentric circles about the foot point, one tile apart, cut to the face.
-function ringCurves(f, B, tile, sink) {
+function ringCurves(f, B, sink) {
+  const d = f.size;
   const rMax = B.open ? B.R : Math.max(
     Math.hypot(f.u0, f.v0), Math.hypot(f.u0, f.v1),
     Math.hypot(f.u1, f.v0), Math.hypot(f.u1, f.v1));
-  const kHi = Math.floor(rMax / tile - 1e-9);
-  const F = f.F, U = f.U, V = f.V;
+  const kHi = Math.floor(rMax / d - 1e-9);
 
   for (let k = 1; k <= kHi; k++) {
-    const r = k * tile;
+    const r = k * d;
     const arcs = B.open ? [[0, 2 * Math.PI]] : circleInRect(r, f.u0, f.u1, f.v0, f.v1);
     for (const [a, b] of arcs) {
-      C.t = 2;
-      C.ax = F[0]; C.ay = F[1]; C.az = F[2];
-      C.ux = U[0]; C.uy = U[1]; C.uz = U[2];
-      C.vx = V[0]; C.vy = V[1]; C.vz = V[2];
-      C.r = r; C.dr = tile;
+      begin(2, f.id, levelOf(k));
+      onFace(f);
+      C.r = r; C.dr = d;
       C.s0 = a; C.s1 = b;
       C.n0 = Math.max(8, Math.ceil((b - a) / (Math.PI / 32)));
       C.closed = b - a > 2 * Math.PI - 1e-9;
-      C.level = levelOf(k);
-      C.id = f.id;
       traceCurve(C, sink);
     }
   }
@@ -1034,11 +1463,48 @@ function circleInRect(r, u0, u1, v0, v1) {
   return arcs;
 }
 
+// Concentric regular polygons about the foot point, one tile apart side to side — the
+// rings of a coffered dome, or a floor laid out from its middle.
+function polygonCurves(f, reg, sink) {
+  const d = f.size, N = Math.max(3, Math.round(settings.sides));
+  const rMax = regionMaxRadius(reg), kr = 1 / Math.cos(Math.PI / N);
+  for (let m = 1; m * d <= rMax; m++) {
+    const R = m * d * kr, us = [], vs = [];
+    for (let k = 0; k <= N; k++) {
+      const a = Math.PI / N + 2 * Math.PI * (k % N) / N;
+      us.push(R * Math.cos(a));
+      vs.push(R * Math.sin(a));
+    }
+    polyInRegion(f, us, vs, true, reg, { id: f.id, level: levelOf(m), mode: NB_GROW, k: 1 / m }, sink);
+  }
+}
+
+// An Archimedean spiral about the foot point, one tile further out every turn. It is
+// walked a turn at a time, so that each turn can give out on its own the way a ring does.
+function spiralCurves(f, reg, sink) {
+  const d = f.size, g = d / (2 * Math.PI), rMax = regionMaxRadius(reg);
+  for (let m = 0; m * d < rMax; m++) {
+    const r0 = m * d;
+    const inside = s => {
+      const r = r0 + g * s;
+      return insideRegion(r * Math.cos(s), r * Math.sin(s), reg);
+    };
+    for (const [a, b] of paramIntervals(inside, 0, 2 * Math.PI, 128)) {
+      begin(2, f.id, levelOf(m + 1));
+      onFace(f);
+      C.r = r0; C.g = g; C.dr = d;
+      C.s0 = a; C.s1 = b;
+      C.n0 = Math.max(8, Math.ceil((b - a) / (Math.PI / 32)));
+      traceCurve(C, sink);
+    }
+  }
+}
+
 // Straight lines fanning out of the foot point to the edge of the face. They all meet
 // there, which is exactly what the thinning is for.
 function rayCurves(f, B, sink) {
   const n = Math.max(1, Math.round(settings.rays));
-  const F = f.F, U = f.U, V = f.V;
+  const F = f.F;
   const p = Math.hypot(F[0], F[1], F[2]);
   if (p < 1e-9) return;
   const dth = 2 * Math.PI / n;
@@ -1054,17 +1520,464 @@ function rayCurves(f, B, sink) {
       if (st < -1e-12) t = Math.min(t, f.v0 / st);
     }
     if (!(t > 0)) continue;
-    C.t = 1;
-    C.ax = F[0]; C.ay = F[1]; C.az = F[2];
-    C.ux = U[0]; C.uy = U[1]; C.uz = U[2];
-    C.vx = V[0]; C.vy = V[1]; C.vz = V[2];
+    begin(1, f.id, levelOf(k));
+    onFace(f);
     C.p = p; C.th = th; C.dth = dth;
     C.s0 = 0; C.s1 = Math.atan2(t, p);
     C.n0 = Math.max(4, Math.ceil(C.s1 / (Math.PI / 48)));
-    C.closed = false;
-    C.level = levelOf(k);
-    C.id = f.id;
     traceCurve(C, sink);
+  }
+}
+
+// Rays bent into spirals: each one turns by `twist` radians for every e-fold it runs
+// further out from the foot, so the whole fan sweeps round like water going down a drain.
+function whirlCurves(f, reg, sink) {
+  const n = Math.max(1, Math.round(settings.rays)), tw = settings.twist;
+  const F = f.F;
+  const p = Math.hypot(F[0], F[1], F[2]);
+  if (p < 1e-9) return;
+  const dth = 2 * Math.PI / n, rMax = regionMaxRadius(reg);
+
+  for (let k = 0; k < n; k++) {
+    const th = k * dth;
+    const inside = t => {
+      const a = th + tw * Math.log1p(t / p);
+      return insideRegion(t * Math.cos(a), t * Math.sin(a), reg);
+    };
+    for (const [ta, tb] of paramIntervals(inside, 0, rMax, 256)) {
+      begin(1, f.id, levelOf(k));
+      onFace(f);
+      C.p = p; C.th = th; C.dth = dth; C.tw = tw;
+      C.s0 = Math.atan2(ta, p); C.s1 = Math.atan2(tb, p);
+      C.n0 = Math.max(8, Math.ceil((C.s1 - C.s0) / (Math.PI / 96)));
+      traceCurve(C, sink);
+    }
+  }
+}
+
+// A honeycomb of side a: a zigzag along the top of every row, which is the bottom of the
+// row above it, and the short upright edges between neighbours within a row.
+function hexCurves(f, B, sink) {
+  const a = f.size, w = Math.sqrt(3) * a, rowH = 1.5 * a;
+  const reg = faceRegion(f, B, visibleReach(f, B, a));
+  const [bu0, bu1, bv0, bv1] = regionBox(reg);
+  if (!(bu1 > bu0 && bv1 > bv0)) return;
+  const nb = { id: f.id, level: -1, N: [0, 0, 0], fade: true, off: w / 2, a: w, b: w };
+  const i0 = Math.floor((bu0 - f.uc) / w) - 1, i1 = Math.ceil((bu1 - f.uc) / w) + 1;
+  const j0 = Math.floor((bv0 - f.vc) / rowH) - 1, j1 = Math.ceil((bv1 - f.vc) / rowH) + 1;
+
+  for (let j = j0; j <= j1; j++) {
+    const cy = f.vc + j * rowH, sh = (j & 1) * w / 2;
+    const us = [], vs = [];
+    for (let m = 2 * i0; m <= 2 * i1 + 2; m++) {
+      us.push(f.uc + sh + (m - 1) * w / 2);
+      vs.push(cy + ((m & 1) ? a : a / 2));
+    }
+    polyInRegion(f, us, vs, false, reg, nb, sink);
+    for (let i = i0; i <= i1; i++) {
+      const x = f.uc + sh + i * w + w / 2;
+      polyInRegion(f, [x, x], [cy - a / 2, cy + a / 2], false, reg, nb, sink);
+    }
+  }
+}
+
+// The upright joints of a brick wall, the courses being a family of their own: a brick
+// is two courses long, and every other course is shifted along by half a brick.
+function brickJoints(f, B, sink) {
+  const h = f.size, L = 2 * h;
+  const reg = faceRegion(f, B, visibleReach(f, B, h));
+  const [bu0, bu1, bv0, bv1] = regionBox(reg);
+  if (!(bu1 > bu0 && bv1 > bv0)) return;
+  const nb = { id: f.id, level: -1, N: [0, 0, 0], fade: true, off: h, a: L, b: h };
+  const j0 = Math.floor((bv0 - f.vc) / h) - 1, j1 = Math.ceil((bv1 - f.vc) / h);
+  const i0 = Math.floor((bu0 - f.uc) / L) - 1, i1 = Math.ceil((bu1 - f.uc) / L) + 1;
+
+  for (let j = j0; j <= j1; j++) {
+    const v = f.vc + j * h, sh = (j & 1) * h;
+    for (let i = i0; i <= i1; i++) {
+      const u = f.uc + i * L + sh;
+      polyInRegion(f, [u, u], [v, v + h], false, reg, nb, sink);
+    }
+  }
+}
+
+// Fish scales: rows of half circles standing on a line, each row a radius above the last
+// and shifted along by one, so that every scale's crown touches the tips of the row above.
+// A row is one stroke for as long as its scales show; a scale that does not is left out
+// whole.
+function scaleCurves(f, B, sink) {
+  const r = f.size, SEG = 16;
+  const reg = faceRegion(f, B, visibleReach(f, B, r));
+  const [bu0, bu1, bv0, bv1] = regionBox(reg);
+  if (!(bu1 > bu0 && bv1 > bv0)) return;
+  const nb = { id: f.id, level: -1, N: [0, 0, 0] };
+  const j0 = Math.floor((bv0 - f.vc) / r) - 2, j1 = Math.ceil((bv1 - f.vc) / r) + 1;
+  const i0 = Math.floor((bu0 - f.uc) / (2 * r)) - 1, i1 = Math.ceil((bu1 - f.uc) / (2 * r)) + 1;
+
+  for (let j = j0; j <= j1; j++) {
+    const v = f.vc + j * r, sh = (j & 1) * r;
+    let us = [], vs = [];
+    const flush = () => { if (us.length > 1) polyInRegion(f, us, vs, false, reg, nb, sink); us = []; vs = []; };
+    for (let i = i0; i <= i1; i++) {
+      const cu = f.uc + 2 * i * r + sh;
+      if (!pieceShows(f, cu, v + 0.5 * r, 2 * r, r)) { flush(); continue; }
+      for (let k = us.length ? 1 : 0; k <= SEG; k++) {
+        const t = Math.PI * (1 - k / SEG);
+        us.push(cu + r * Math.cos(t));
+        vs.push(v + r * Math.sin(t));
+      }
+    }
+    flush();
+  }
+}
+
+// Arcades: tier on tier of round arches on square piers, each arch one stroke — up one
+// jamb, over the top and down the other. The line each tier stands on is a family of its
+// own, laid by the caller.
+const ARCH_TIER = 3.5;             // tier height, in arch radii
+
+function archCurves(f, B, sink) {
+  const a = f.size, pier = 0.5 * a, bay = 2 * a + pier, tier = ARCH_TIER * a, SEG = 24;
+  const reg = faceRegion(f, B, visibleReach(f, B, a));
+  const [bu0, bu1, bv0, bv1] = regionBox(reg);
+  if (!(bu1 > bu0 && bv1 > bv0)) return;
+  const nb = { id: f.id, level: -1, N: [0, 0, 0] };
+  const j0 = Math.floor((bv0 - f.vc) / tier) - 1, j1 = Math.ceil((bv1 - f.vc) / tier);
+  const i0 = Math.floor((bu0 - f.uc) / bay) - 1, i1 = Math.ceil((bu1 - f.uc) / bay) + 1;
+
+  for (let j = j0; j <= j1; j++) {
+    const v = f.vc + j * tier;
+    for (let i = i0; i <= i1; i++) {
+      const u = f.uc + i * bay + pier / 2;
+      if (!pieceShows(f, u + a, v + 0.5 * tier, bay, tier)) continue;
+      const us = [u], vs = [v];
+      for (let k = 0; k <= SEG; k++) {
+        const t = Math.PI * (1 - k / SEG);
+        us.push(u + a + a * Math.cos(t));
+        vs.push(v + 2 * a + a * Math.sin(t));
+      }
+      us.push(u + 2 * a);
+      vs.push(v);
+      polyInRegion(f, us, vs, false, reg, nb, sink);
+    }
+  }
+}
+
+// Flagstones: the Voronoi cells of a jittered lattice of seeds, one to a tile. Each seed
+// is hashed from its tile's index, so a stone keeps its shape however much of the floor
+// happens to be worth drawing while the camera moves. Every cell is cut out of a square
+// by the bisectors with its neighbours, each new edge remembering which neighbour made
+// it, and an edge is drawn from the cell that comes first of the two it divides — if
+// either of the two still shows, so a stone is drawn all the way round or not at all.
+function cellCurves(f, B, sink) {
+  const a = f.size;
+  const reg = faceRegion(f, B, visibleReach(f, B, a));
+  const [bu0, bu1, bv0, bv1] = regionBox(reg);
+  if (!(bu1 > bu0 && bv1 > bv0)) return;
+  const i0 = Math.floor((bu0 - f.uc) / a) - 2, i1 = Math.ceil((bu1 - f.uc) / a) + 1;
+  const j0 = Math.floor((bv0 - f.vc) / a) - 2, j1 = Math.ceil((bv1 - f.vc) / a) + 1;
+  const su = (i, j) => f.uc + a * (i + 0.5 + 0.8 * (hash01(i, j, f.salt) - 0.5));
+  const sv = (i, j) => f.vc + a * (j + 0.5 + 0.8 * (hash01(i, j, f.salt + 1) - 0.5));
+  const seen = new Map();
+  const shows = (i, j) => {
+    const k = i + ',' + j;
+    let v = seen.get(k);
+    if (v === undefined) { v = pieceShows(f, su(i, j), sv(i, j), a, a); seen.set(k, v); }
+    return v;
+  };
+  const segs = [];
+
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      const x = su(i, j), y = sv(i, j);
+      let cell = [[x - 2 * a, x + 2 * a, x + 2 * a, x - 2 * a],
+                  [y - 2 * a, y - 2 * a, y + 2 * a, y + 2 * a], [-1, -1, -1, -1]];
+      for (let di = -2; di <= 2 && cell[0].length; di++) {
+        for (let dj = -2; dj <= 2 && cell[0].length; dj++) {
+          if (!di && !dj) continue;
+          const nx = su(i + di, j + dj), ny = sv(i + di, j + dj);
+          cell = clipCell(cell, nx - x, ny - y, (x + nx) / 2, (y + ny) / 2, (di + 2) * 5 + dj + 2);
+        }
+      }
+      const [pu, pv, pl] = cell;
+      for (let k = 0; k < pu.length; k++) {
+        if (pl[k] < 0) continue;
+        const di = Math.floor(pl[k] / 5) - 2, dj = pl[k] % 5 - 2;
+        if (di < 0 || (di === 0 && dj < 0)) continue;     // the other cell draws it
+        if (!shows(i, j) && !shows(i + di, j + dj)) continue;
+        const k2 = (k + 1) % pu.length;
+        segs.push(pu[k], pv[k], pu[k2], pv[k2]);
+      }
+    }
+  }
+
+  const nb = { id: f.id, level: -1, N: [0, 0, 0] };
+  for (const [us, vs] of chainSegments(segs, a * 1e-7)) polyInRegion(f, us, vs, false, reg, nb, sink);
+}
+
+// One cut of Sutherland–Hodgman: keep the side of the bisector nearer the seed, where
+// (p − m)·e ≤ 0. Every vertex carries the label of the edge that leaves it, and the edge
+// the cut opens takes the label of the neighbour that made it.
+function clipCell(cell, ex, ey, mx, my, lab) {
+  const [pu, pv, pl] = cell, n = pu.length;
+  const ou = [], ov = [], ol = [];
+  for (let k = 0; k < n; k++) {
+    const k2 = (k + 1) % n;
+    const da = (pu[k] - mx) * ex + (pv[k] - my) * ey;
+    const db = (pu[k2] - mx) * ex + (pv[k2] - my) * ey;
+    if (da <= 0) {
+      ou.push(pu[k]); ov.push(pv[k]); ol.push(pl[k]);
+      if (db > 0) {
+        const t = da / (da - db);
+        ou.push(pu[k] + (pu[k2] - pu[k]) * t); ov.push(pv[k] + (pv[k2] - pv[k]) * t); ol.push(lab);
+      }
+    } else if (db <= 0) {
+      const t = da / (da - db);
+      ou.push(pu[k] + (pu[k2] - pu[k]) * t); ov.push(pv[k] + (pv[k2] - pv[k]) * t); ol.push(pl[k]);
+    }
+  }
+  return [ou, ov, ol];
+}
+
+// Edges that meet end to end, joined into as few strokes as a greedy walk finds.
+function chainSegments(segs, eps) {
+  const n = segs.length / 4;
+  const key = (u, v) => Math.round(u / eps) + ',' + Math.round(v / eps);
+  const at = new Map();
+  for (let s = 0; s < n; s++) {
+    for (let e = 0; e < 2; e++) {
+      const k = key(segs[4 * s + 2 * e], segs[4 * s + 2 * e + 1]);
+      const l = at.get(k);
+      if (l) l.push(s); else at.set(k, [s]);
+    }
+  }
+  const used = new Uint8Array(n), out = [];
+  const step = (u, v) => {
+    const k = key(u, v), l = at.get(k);
+    if (l) {
+      for (const s of l) {
+        if (used[s]) continue;
+        used[s] = 1;
+        const far = key(segs[4 * s], segs[4 * s + 1]) === k ? 1 : 0;
+        return [segs[4 * s + 2 * far], segs[4 * s + 2 * far + 1]];
+      }
+    }
+    return null;
+  };
+  for (let s = 0; s < n; s++) {
+    if (used[s]) continue;
+    used[s] = 1;
+    const us = [segs[4 * s], segs[4 * s + 2]], vs = [segs[4 * s + 1], segs[4 * s + 3]];
+    for (let p; (p = step(us[us.length - 1], vs[vs.length - 1])); ) { us.push(p[0]); vs.push(p[1]); }
+    for (let p; (p = step(us[0], vs[0])); ) { us.unshift(p[0]); vs.unshift(p[1]); }
+    out.push([us, vs]);
+  }
+  return out;
+}
+
+// Craters: a scatter of circles over a lattice two tiles across. Most tiles get one, of
+// a size drawn from a steep curve so that small ones are common and big ones rare; the
+// big ones get a terrace inside the rim, and the biggest a peak in the middle.
+function craterCurves(f, B, sink) {
+  const cell = 2 * f.size;
+  const reg = faceRegion(f, B, visibleReach(f, B, 0.5 * f.size));
+  const [bu0, bu1, bv0, bv1] = regionBox(reg);
+  if (!(bu1 > bu0 && bv1 > bv0)) return;
+  const i0 = Math.floor((bu0 - f.uc) / cell) - 1, i1 = Math.ceil((bu1 - f.uc) / cell);
+  const j0 = Math.floor((bv0 - f.vc) / cell) - 1, j1 = Math.ceil((bv1 - f.vc) / cell);
+
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      if (hash01(i, j, f.salt) > 0.62) continue;
+      const r = cell * (0.08 + 0.52 * Math.pow(hash01(i, j, f.salt + 1), 2.4));
+      const cu = f.uc + cell * (i + hash01(i, j, f.salt + 2));
+      const cv = f.vc + cell * (j + hash01(i, j, f.salt + 3));
+      if (!insideRegion(cu, cv, reg)) continue;
+      if (B.open && Math.hypot(cu, cv) + r > B.R) continue;
+      circleOnFace(f, cu, cv, r, reg, sink);
+      if (r > 0.22 * cell) circleOnFace(f, cu, cv, 0.78 * r, reg, sink);
+      if (r > 0.4 * cell) circleOnFace(f, cu, cv, 0.14 * r, reg, sink);
+    }
+  }
+}
+
+// A circle of radius r about (cu, cv) on a face, cut to the face's rectangle — and left
+// out whole where it is too small on paper to read as a circle.
+function circleOnFace(f, cu, cv, r, reg, sink) {
+  if (!pieceShows(f, cu, cv, r, r)) return;
+  const arcs = reg.rect
+    ? circleInRect(r, reg.u0 - cu, reg.u1 - cu, reg.v0 - cv, reg.v1 - cv)
+    : [[0, 2 * Math.PI]];
+  for (const [a, b] of arcs) {
+    begin(2, f.id, -1);
+    onFace(f);
+    C.ax += cu * f.U[0] + cv * f.V[0];
+    C.ay += cu * f.U[1] + cv * f.V[1];
+    C.az += cu * f.U[2] + cv * f.V[2];
+    C.r = r; C.dr = r;
+    C.s0 = a; C.s1 = b;
+    C.n0 = Math.max(8, Math.ceil((b - a) / (Math.PI / 32)));
+    C.closed = b - a > 2 * Math.PI - 1e-9;
+    traceCurve(C, sink);
+  }
+}
+
+// A forest of posts standing straight off the face, one to a tile but shaken off the
+// lattice so that no two rows line up: on the floor they stand, from the ceiling they
+// hang, out of the walls they stick.
+//
+// A post has no thickness, so nothing would ever hide one behind another, and towards
+// the horizon they would pile up without end. So they hide one another the way trunks
+// do. Seen from the ball, all of a post lies at one bearing about the face's normal, and
+// it covers a range of angles off the plane through the ball parallel to the face —
+// which is exactly the angle its line is walked by. Posts are taken nearest first; each
+// is cut wherever it would come within the gap, on paper, of a post already standing at
+// nearly the same bearing, and then goes into a table of bearings to hide the ones
+// behind it in its turn.
+function postCurves(f, B, sink) {
+  const a = f.size, h = Math.max(0.01, settings.postH);
+  const F = f.F, U = f.U, V = f.V;
+  const pF = Math.hypot(F[0], F[1], F[2]);
+  if (pF < 1e-9) return;
+  const nx = -F[0] / pF, ny = -F[1] / pF, nz = -F[2] / pF;   // into the room
+  const reg = faceRegion(f, B, postReach(f, B, a, h, nx, ny, nz));
+  const [bu0, bu1, bv0, bv1] = regionBox(reg);
+  if (!(bu1 > bu0 && bv1 > bv0)) return;
+
+  const posts = [];
+  const i0 = Math.floor((bu0 - f.uc) / a) - 1, i1 = Math.ceil((bu1 - f.uc) / a) + 1;
+  const j0 = Math.floor((bv0 - f.vc) / a) - 1, j1 = Math.ceil((bv1 - f.vc) / a) + 1;
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      const u = f.uc + a * (i + 0.8 * (hash01(i, j, f.salt) - 0.5));
+      const v = f.vc + a * (j + 0.8 * (hash01(i, j, f.salt + 1) - 0.5));
+      if (!insideRegion(u, v, reg)) continue;
+      const d = Math.hypot(u, v);
+      if (d > 1e-6) posts.push([d, u, v]);
+    }
+  }
+  posts.sort((p, q) => p[0] - q[0]);
+
+  const NB = 8192, bins = new Map(), dl = 1e-4;
+  const binOf = th => ((Math.floor((th + Math.PI) / (2 * Math.PI) * NB) % NB) + NB) % NB;
+
+  for (const [d, u, v] of posts) {
+    // The post's line meets the plane through the ball parallel to the face at
+    // u·U + v·V, its point nearest the ball; the face is pF behind that.
+    const ax = u * U[0] + v * V[0], ay = u * U[1] + v * V[1], az = u * U[2] + v * V[2];
+    const s0 = Math.atan2(-pF, d), s1 = Math.atan2(h - pF, d), th = Math.atan2(v, u);
+    let vis = [[s0, s1]];
+
+    if (LOD_ON) {
+      // How far apart on paper, at the post's middle, one radian of bearing and one
+      // radian along the post come out: the gap as a bearing, and as a margin along it.
+      const sm = 0.5 * (s0 + s1);
+      const at = (x, y, z, s) => {
+        HD[0] = x * Math.cos(s) + d * nx * Math.sin(s);
+        HD[1] = y * Math.cos(s) + d * ny * Math.sin(s);
+        HD[2] = z * Math.cos(s) + d * nz * Math.sin(s);
+        return toPaper() ? [PX, PY] : null;
+      };
+      const ur = d * Math.cos(th + dl), vr = d * Math.sin(th + dl);
+      const p0 = at(ax, ay, az, sm);
+      const p1 = at(ur * U[0] + vr * V[0], ur * U[1] + vr * V[1], ur * U[2] + vr * V[2], sm);
+      const p2 = at(ax, ay, az, sm + dl);
+      if (p0 && p1 && p2) {
+        const wb = MIN_GAP * dl / Math.max(1e-12, Math.hypot(p1[0] - p0[0], p1[1] - p0[1]));
+        const me = MIN_GAP * dl / Math.max(1e-12, Math.hypot(p2[0] - p0[0], p2[1] - p0[1]));
+        const span = Math.min(NB >> 3, Math.ceil(wb / (2 * Math.PI) * NB));
+        const b = binOf(th);
+        for (let k = -span; k <= span && vis.length; k++) {
+          const list = bins.get((b + k + NB) % NB);
+          if (list) for (const [o0, o1] of list) vis = cutOut(vis, o0 - me, o1 + me);
+        }
+      }
+      const b = binOf(th), list = bins.get(b);
+      if (list) list.push([s0, s1]); else bins.set(b, [[s0, s1]]);
+    }
+
+    for (const [x0, x1] of vis) {
+      if (x1 - x0 > 1e-9) lineCurve(ax, ay, az, nx, ny, nz, d * Math.tan(x0), d * Math.tan(x1),
+                                    0, 0, 0, 0, f.id, sink, f, a, a);
+    }
+  }
+}
+
+// What is left of a set of intervals once [o0, o1] is taken out of them.
+function cutOut(vis, o0, o1) {
+  const out = [];
+  for (const [a, b] of vis) {
+    if (o1 <= a || o0 >= b) { out.push([a, b]); continue; }
+    if (o0 > a) out.push([a, o0]);
+    if (o1 < b) out.push([o1, b]);
+  }
+  return out;
+}
+
+// How far out from the foot of a face a post still comes out at least twice the gap long
+// on paper, with room to spare — and on no more than about MAX_ELEMS tiles.
+function postReach(f, B, a, h, nx, ny, nz) {
+  const outer = regionMaxRadius(faceRegion(f, B, Infinity));
+  const cap = Math.sqrt(MAX_ELEMS / Math.PI) * a;
+  if (!LOD_ON) return Math.min(outer, cap);
+  const F = f.F, U = f.U, V = f.V;
+  let far = 0;
+  for (let k = 0; k < 32; k++) {
+    const th = 2 * Math.PI * (k + 0.5) / 32, cu = Math.cos(th), cv = Math.sin(th);
+    for (let t = 0.5 * a; t <= outer; t *= 1.15) {
+      const x = F[0] + t * (cu * U[0] + cv * V[0]);
+      const y = F[1] + t * (cu * U[1] + cv * V[1]);
+      const z = F[2] + t * (cu * U[2] + cv * V[2]);
+      HD[0] = x; HD[1] = y; HD[2] = z;
+      if (!toPaper()) continue;
+      const px = PX, py = PY;
+      HD[0] = x + h * nx; HD[1] = y + h * ny; HD[2] = z + h * nz;
+      if (!toPaper()) continue;
+      if (Math.hypot(PX - px, PY - py) >= 2 * MIN_GAP && t > far) far = t;
+    }
+  }
+  return Math.min(outer, cap, 1.3 * far + a);
+}
+
+// The great circles of the icosahedron's fifteen mirror planes. A plane through the
+// ball's centre meets a flat face in a straight line, so on every face the net is laid
+// as straight lines, and it is only the mirror that joins them up into circles.
+const NET_AXES = (() => {
+  const t = (1 + Math.sqrt(5)) / 2, P = [];
+  for (const a of [-1, 1]) for (const b of [-t, t]) P.push([0, a, b], [a, b, 0], [b, 0, a]);
+  const axes = [];
+  for (let i = 0; i < P.length; i++) {
+    for (let j = i + 1; j < P.length; j++) {
+      const d = Math.hypot(P[i][0] - P[j][0], P[i][1] - P[j][1], P[i][2] - P[j][2]);
+      if (Math.abs(d - 2) > 1e-9) continue;               // not an edge
+      const m = [P[i][0] + P[j][0], P[i][1] + P[j][1], P[i][2] + P[j][2]];
+      const l = Math.hypot(m[0], m[1], m[2]);
+      m[0] /= l; m[1] /= l; m[2] /= l;
+      if (!axes.some(q => Math.abs(Math.abs(q[0] * m[0] + q[1] * m[1] + q[2] * m[2]) - 1) < 1e-9)) {
+        axes.push(m);
+      }
+    }
+  }
+  return axes;
+})();
+
+function netCurves(f, reg, sink) {
+  const F = f.F, U = f.U, V = f.V;
+  for (const n of NET_AXES) {
+    const a = n[0] * U[0] + n[1] * U[1] + n[2] * U[2];
+    const b = n[0] * V[0] + n[1] * V[1] + n[2] * V[2];
+    const d = n[0] * F[0] + n[1] * F[1] + n[2] * F[2];
+    const m2 = a * a + b * b;
+    if (m2 < 1e-12) continue;              // the plane runs parallel to the face
+    // the trace a·u + b·v = −d: its point nearest F, and the way it runs
+    const pu = -d * a / m2, pv = -d * b / m2;
+    const m = Math.sqrt(m2), du = -b / m, dv = a / m;
+    const t = clipLineRegion(pu, pv, du, dv, reg);
+    if (!t) continue;
+    lineCurve(F[0] + pu * U[0] + pv * V[0], F[1] + pu * U[1] + pv * V[1],
+              F[2] + pu * U[2] + pv * V[2],
+              du * U[0] + dv * V[0], du * U[1] + dv * V[1], du * U[2] + dv * V[2],
+              t[0], t[1], 0, 0, 0, -1, f.id, sink);
   }
 }
 
@@ -1086,14 +1999,12 @@ function edgeCurves(B, sink) {
 // The horizon of the open floor: the great circle of level directions, which is where
 // the floor and the sky both run out.
 function horizonCurve(sink) {
-  C.t = 3;
+  begin(3, penId(settings.edgePen), -1);
   C.ux = 1; C.uy = 0; C.uz = 0;
   C.vx = 0; C.vy = 0; C.vz = 1;
   C.s0 = 0; C.s1 = 2 * Math.PI;
   C.n0 = 64;
   C.closed = true;
-  C.level = -1;
-  C.id = penId(settings.edgePen);
   traceCurve(C, sink);
 }
 
@@ -1506,6 +2417,16 @@ function attachKeys() {
       if (setters.pitch) setters.pitch(settings.pitch);
       update();
       e.preventDefault();
+    } else if (e.key === 'r' || e.key === 'R') {
+      settings.seed = Math.floor(Math.random() * 100000);
+      if (setters.seed) setters.seed(settings.seed);
+      update();
+      e.preventDefault();
+    } else if (e.key === '[' || e.key === ']') {
+      settings.seed = Math.max(0, Math.round(settings.seed) + (e.key === ']' ? 1 : -1));
+      if (setters.seed) setters.seed(settings.seed);
+      update();
+      e.preventDefault();
     } else if (e.key === 'g' || e.key === 'G') {
       settings.showGuides = !settings.showGuides;
       if (setters.showGuides) setters.showGuides(settings.showGuides);
@@ -1527,16 +2448,20 @@ function setVisible(key, on) {
   if (fieldDivs[key]) fieldDivs[key].style('display', on ? '' : 'none');
 }
 
-function usesRays() {
+// Whether any surface that is actually there is laid with one of these patterns.
+function uses(...pats) {
   const s = settings;
-  return s.floor === 'rays' || s.ceiling === 'rays' || (s.scene === 'room' && s.walls === 'rays');
+  return pats.includes(s.floor) || pats.includes(s.ceiling) ||
+         (s.scene === 'room' && pats.includes(s.walls));
 }
 
 function syncVisibility() {
-  const open = settings.scene === 'open';
-  const pens = Math.round(clamp(settings.pens, 1, MAX_PENS));
+  const s = settings;
+  const open = s.scene === 'open';
+  const pens = Math.round(clamp(s.pens, 1, MAX_PENS));
+  const sized = p => !UNSIZED.includes(p);
 
-  setVisible('cropMarkGap', settings.cropMarks);
+  setVisible('cropMarkGap', s.cropMarks);
   setVisible('roomW', !open);
   setVisible('roomD', !open);
   setVisible('ballX', !open);
@@ -1545,7 +2470,14 @@ function syncVisibility() {
   setVisible('walls', !open);
   setVisible('edges', !open);
   setVisible('horizon', open);
-  setVisible('rays', usesRays());
+  setVisible('floorScale', sized(s.floor));
+  setVisible('ceilingScale', sized(s.ceiling));
+  setVisible('wallScale', !open && sized(s.walls));
+  setVisible('rays', uses('rays', 'whirl'));
+  setVisible('twist', uses('whirl'));
+  setVisible('sides', uses('polygons'));
+  setVisible('postH', uses('posts'));
+  setVisible('seed', uses('cells', 'craters'));
   setVisible('ink1', pens > 1);
   setVisible('ink2', pens > 2);
   setVisible('floorPen', pens > 1);
@@ -1665,6 +2597,32 @@ function addColor(parent, labelText, key) {
   return cp;
 }
 
+function addSeedField(parent) {
+  const field = createDiv('').parent(parent).class('field');
+  fieldDivs.seed = field;
+  createSpan('Seed').parent(field).class('label');
+  const row = createDiv('').parent(field).class('row');
+  const num = createInput(String(settings.seed)).parent(row);
+  num.attribute('type', 'text');
+  num.attribute('inputmode', 'numeric');
+  const btn = createButton('Roll').parent(row).class('inline-btn');
+  createDiv('Which flagstones and which craters. <b>R</b> rolls a new one, <b>[</b> and ' +
+    '<b>]</b> step through them.').parent(field).class('note');
+
+  setters.seed = v => num.value(String(v));
+  num.input(() => {
+    const v = parseNum(num.value());
+    if (v === null) return;
+    settings.seed = clamp(Math.round(v), 0, 1e9);
+    update();
+  });
+  btn.mousePressed(() => {
+    settings.seed = Math.floor(Math.random() * 100000);
+    num.value(String(settings.seed));
+    update();
+  });
+}
+
 function buildControls() {
   const root = select('#controls');
   const refit = () => { syncVisibility(); update(); };
@@ -1741,22 +2699,42 @@ function buildControls() {
 
   // --- Surfaces ---
   addSection(root, 'Surfaces');
-  const patternHint =
-    '<b>grid</b> — square tiles.<br><b>stripes</b> — one family of them: along the ' +
-    'room on the floor and the ceiling, upright on the walls.<br><b>rings</b> — circles ' +
-    'about the point nearest the ball.<br><b>rays</b> — lines fanning out of that point.';
   addSelect(root, 'Floor', 'floor', PATTERNS, refit);
+  addSlider(root, 'Floor scale (× tile)', 'floorScale', 0.1, 20, 0.05);
   addSlider(root, 'Floor pen', 'floorPen', 1, MAX_PENS, 1);
   addSelect(root, 'Ceiling', 'ceiling', PATTERNS, refit);
+  addSlider(root, 'Ceiling scale (× tile)', 'ceilingScale', 0.1, 20, 0.05);
   addSlider(root, 'Ceiling pen', 'ceilingPen', 1, MAX_PENS, 1);
-  addSelect(root, 'Walls', 'walls', PATTERNS, refit, patternHint);
+  addSelect(root, 'Walls', 'walls', PATTERNS, refit);
+  addSlider(root, 'Wall scale (× tile)', 'wallScale', 0.1, 20, 0.05);
   addSlider(root, 'Wall pen', 'wallPen', 1, MAX_PENS, 1);
+  createDiv(
+    '<b>grid</b> — square tiles; <b>stripes</b> — one family of them, along the room on ' +
+    'the floor and the ceiling, upright on the walls; <b>diamonds</b> — the grid turned ' +
+    'a quarter; <b>triangles</b> and <b>hexagons</b> — the other two ways to tile a ' +
+    'floor.<br>' +
+    '<b>bricks</b> — courses and staggered joints; <b>scales</b> — rows of half circles; ' +
+    '<b>arches</b> — arcades, tier on tier; <b>cells</b> — flagstones; <b>craters</b> — ' +
+    'a moon\'s worth of circles.<br>' +
+    '<b>rings</b>, <b>polygons</b>, <b>spiral</b> — about the point nearest the ball; ' +
+    '<b>rays</b>, <b>whirl</b> — out of it, straight or bent round.<br>' +
+    '<b>posts</b> — a forest of sticks standing off the surface; <b>net</b> — the fifteen ' +
+    'great circles of an icosahedron, drawn wherever they cross the room.')
+    .parent(root).class('note');
   addSlider(root, 'Tile', 'tile', 0.05, 10, 0.05,
-    'One tile of a grid, the gap between two stripes or two rings — in the same units ' +
-    'as the room.');
+    'One piece of every pattern — a tile, the gap between two stripes or two rings, a ' +
+    'brick\'s height, an arch\'s radius — in the same units as the room, and multiplied ' +
+    'for each surface by its scale.');
   addSlider(root, 'Rays', 'rays', 4, 512, 1,
-    'How many lines a <b>rays</b> surface fans out into. A power of two thins out the ' +
-    'most evenly.');
+    'How many lines a <b>rays</b> or <b>whirl</b> surface fans out into. A power of two ' +
+    'thins out the most evenly.');
+  addSlider(root, 'Twist', 'twist', -6, 6, 0.05,
+    'How hard a <b>whirl</b> bends its rays round: radians of turn for every time a ray ' +
+    'gets e times further out. Negative turns the other way.');
+  addSlider(root, 'Polygon sides', 'sides', 3, 16, 1);
+  addSlider(root, 'Post height', 'postH', 0.05, 20, 0.05,
+    'How far a <b>posts</b> post stands off its surface, in the units of the room.');
+  addSeedField(root);
   addCheckbox(root, 'Draw the corners of the room', 'edges');
   addCheckbox(root, 'Draw the horizon', 'horizon');
   addSlider(root, 'Corner and horizon pen', 'edgePen', 1, MAX_PENS, 1);
@@ -1766,8 +2744,9 @@ function buildControls() {
   addSlider(root, 'Closest two lines may come (mm)', 'minGap', 0, 5, 0.05,
     'Where perspective or the rim squeezes a family together, its lines give out one ' +
     'by one — the odd ones first, then every other one of those left — so they never ' +
-    'close up tighter than this on paper. At <b>0</b> nothing is thinned and every ' +
-    'family runs on into its vanishing point.');
+    'close up tighter than this on paper. A pattern made of pieces drops every piece ' +
+    'that comes out smaller than this instead, and posts hide the ones behind them. At ' +
+    '<b>0</b> nothing is thinned and every family runs on into its vanishing point.');
   addSlider(root, 'Curve tolerance (mm)', 'sag', 0.005, 0.2, 0.005,
     'How far a straight piece of stroke may cut the corner of the curve it stands for. ' +
     'Most pieces are held short by a cap on their length anyway, so going finer costs ' +
@@ -1795,7 +2774,8 @@ function buildControls() {
   keys.html(
     '<div><kbd>drag</kbd> turn the room · <kbd>shift</kbd>+<kbd>drag</kbd> walk the ball</div>' +
     '<div><kbd>wheel</kbd> ball height · <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> ' +
-    'turn by 1°, with <kbd>shift</kbd> by 10° · <kbd>G</kbd> guides</div>');
+    'turn by 1°, with <kbd>shift</kbd> by 10°</div>' +
+    '<div><kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it · <kbd>G</kbd> guides</div>');
   linkDiv = createDiv('').parent(root).class('link');
 
   syncVisibility();
@@ -1912,10 +2892,18 @@ function metaComment() {
   const where = open
     ? `open reach=${s.reach} sky=${s.roomH}`
     : `room ${s.roomW}x${s.roomD}x${s.roomH} ball@${s.ballX},${s.ballZ}%`;
+  const laid = (p, k) => p + (UNSIZED.includes(p) ? '' : '×' + k);
+  const extra =
+    `${uses('rays', 'whirl') ? ' rays=' + s.rays : ''}` +
+    `${uses('whirl') ? ' twist=' + s.twist : ''}` +
+    `${uses('polygons') ? ' sides=' + s.sides : ''}` +
+    `${uses('posts') ? ' posts=' + s.postH : ''}` +
+    `${uses('cells', 'craters') ? ' seed=' + s.seed : ''}`;
   return `mirror spheres — ${where} ball-height=${s.ballH} ` +
     `yaw=${s.yaw}° pitch=${s.pitch}° ` +
-    `floor=${s.floor} ceiling=${s.ceiling}${open ? '' : ' walls=' + s.walls} ` +
-    `tile=${s.tile}${usesRays() ? ' rays=' + s.rays : ''} ` +
+    `floor=${laid(s.floor, s.floorScale)} ceiling=${laid(s.ceiling, s.ceilingScale)}` +
+    `${open ? '' : ' walls=' + laid(s.walls, s.wallScale)} ` +
+    `tile=${s.tile}${extra} ` +
     `${open ? (s.horizon ? 'horizon ' : '') : (s.edges ? 'edges ' : '')}` +
     `gap=${s.minGap}mm sag=${s.sag}mm ` +
     `ball=${s.ballR > 0 ? s.ballR + 'mm' : 'fit'}${s.rim ? '/rim' : ''}` +
