@@ -156,6 +156,7 @@ const settings = {
   rightPen: 1,
   loosePen: 0,          // 0 — the loose boxes are drawn like the rest
   looseAt: 25,          // % through the front a box has to be to count as loose
+  looseHatch: true,     // hatch the loose boxes too, or leave them outlined
   ink0: '#000000',
   ink1: '#b23a00',
   ink2: '#1a6dd1',
@@ -221,6 +222,7 @@ const SCENES = [
   { label: 'Cabinet view', s: { projection: 'oblique', obliqueAngle: 40, obliqueDepth: 0.5,
       towardAz: 270, towardEl: 20 } },
   { label: 'Loose boxes in a second pen', s: { pens: 2, loosePen: 2, looseAt: 30 } },
+  { label: 'Spray in outline', s: { looseHatch: false, looseAt: 20 } },
 ];
 
 const setters   = {};        // settings key -> function that moves its control
@@ -1204,7 +1206,7 @@ let NB = 0;
 let BX = new Float64Array(0);        // x0 y0 z0 x1 y1 z1, in cells
 let BS = new Float64Array(0);        // x0 y0 x1 y1 of the outline on paper, in mm
 let BD = new Float64Array(0);        // how far along c it reaches, least and most
-let BL = new Uint8Array(0);          // far enough through the front for the loose pen
+let BL = new Uint8Array(0);          // far enough through the front to count as loose
 
 function placeBoxes(st) {
   const n = st.n, src = st.boxes;
@@ -1438,7 +1440,7 @@ const QP = new Float64Array(12);     // its corners, in cells
 const PA = new Float64Array(3), PB = new Float64Array(3);
 
 let PEN_EDGE = 0, PEN_LOOSE = -1, EDGE_MODE = 0, PHASE_LATTICE = false, MIN_STROKE = 0;
-let JOIN_HATCH = false;
+let JOIN_HATCH = false, HATCH_LOOSE = true;
 const PEN_ROLE = new Int8Array(3);
 let C_FACES = 0, C_HIDDEN = 0, C_HATCH = 0;
 
@@ -1464,6 +1466,7 @@ function drawBox(i, sink) {
   const o = i * 6;
   const nc = gatherCandidates(i);
   const loose = BL[i] === 1 && PEN_LOOSE >= 0;
+  const hatch = BL[i] === 0 || HATCH_LOOSE;
   let shown = 0;
 
   for (let k = 0; k < 3; k++) {
@@ -1494,7 +1497,9 @@ function drawBox(i, sink) {
     shown++;
     C_FACES++;
     const role = ROLE[k];
-    if (FAM[role].length) hatchFace(i, k, w, list, n, loose ? PEN_LOOSE : PEN_ROLE[role], sink);
+    if (hatch && FAM[role].length) {
+      hatchFace(i, k, w, list, n, loose ? PEN_LOOSE : PEN_ROLE[role], sink);
+    }
   }
 
   if (!shown || EDGE_MODE === 2) return;
@@ -2001,6 +2006,7 @@ function buildShapes() {
   EDGE_MODE = Math.max(0, EDGE_MODES.indexOf(s.edges));
   PHASE_LATTICE = s.hatchPhase === 'lattice';
   JOIN_HATCH = !!s.hatchJoin;
+  HATCH_LOOSE = !!s.looseHatch;
   MIN_STROKE = Math.max(0, s.minStroke);
   C_FACES = C_HIDDEN = C_HATCH = 0;
   EPN = 0;
@@ -2575,8 +2581,9 @@ function syncVisibility() {
   setVisible('leftPen', pens > 1 && s.leftHatch !== 'none');
   setVisible('rightPen', pens > 1 && s.rightHatch !== 'none');
   setVisible('edgePen', pens > 1 && s.edges !== 'none');
+  setVisible('looseHatch', drifting);
   setVisible('loosePen', pens > 1 && drifting);
-  setVisible('looseAt', pens > 1 && drifting && s.loosePen >= 1);
+  setVisible('looseAt', drifting && (!s.looseHatch || (pens > 1 && s.loosePen >= 1)));
   refreshPenList();
 }
 
@@ -2876,12 +2883,14 @@ function buildControls() {
   addSlider(root, 'Thinning', 'thinning', 0.1, 5, 0.05,
     'How fast the loose boxes thin out across the front: below 1 the spray is dense ' +
     'right to its far side, above 1 only a few make it far.');
+  addCheckbox(root, 'Hatch the loose boxes', 'looseHatch');
   addSlider(root, 'Loose boxes pen', 'loosePen', 0, MAX_PENS, 1,
     'At <b>0</b> the loose boxes are drawn like the rest; otherwise every line of them ' +
     'goes to this pen.');
   addSlider(root, 'Loose from (% through the front)', 'looseAt', 0, 100, 1,
     'How far through the front a box has to be to count as loose — at 0 everything the ' +
-    'front has reached, higher only the spray.');
+    'front has reached, higher only the spray. Loose boxes left unhatched are drawn as ' +
+    'outlines alone, which keeps the spray light and saves a pen lift per line.');
 
   // --- Hatching ---
   addSection(root, 'Hatching');
@@ -3076,6 +3085,7 @@ function metaComment() {
     `${s.projection} ${cam} zoom=${s.zoom}% ` +
     `top=${s.topHatch}/${s.topSpacing} left=${s.leftHatch}/${s.leftSpacing} ` +
     `right=${s.rightHatch}/${s.rightSpacing} ${s.hatchPhase}${s.hatchJoin ? ' zigzag' : ''} ` +
+    `${s.dissolve !== 'none' && !s.looseHatch ? 'loose-unhatched>' + s.looseAt + '% ' : ''}` +
     `edges=${s.edges} ` +
     `min=${s.minStroke}mm pens=${s.pens} ` +
     `${s.cropMarks ? 'cropmarks<=' + s.cropMarkGap + 'mm ' : ''}` +

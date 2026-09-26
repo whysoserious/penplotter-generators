@@ -107,7 +107,10 @@ The further through the front a box is:
 - and the smaller it has shrunk, by up to **Shrink**.
 
 A box let go early has flown far, a box let go late has barely moved, so what the front
-takes away is stretched out behind it and thinned as it goes. **Holes** leaves a share of
+takes away is stretched out behind it and thinned as it goes. Untick **Hatch the loose
+boxes** and everything more than **Loose from** through the front is drawn as an outline
+alone: the spray stays light, as the small pieces in a drawing like this usually are, and
+every hatch line it would have had is a pen lift saved. **Holes** leaves a share of
 the standing boxes out, and **Uneven tops** lets each box stop short of the top of its
 cell, which is what breaks the flat roof of a block into a skyline.
 
@@ -243,7 +246,8 @@ The things that move it most:
 - **the number of boxes** — more cells, a smaller widest box, more variety or a deeper
   front all mean more of them, and each small box is two strokes for very little ink.
 - **the spray** — hundreds of tiny loose boxes are hundreds of lifts; thinning above 2
-  keeps it sparse.
+  keeps it sparse, and leaving the loose boxes unhatched takes their hatching off the
+  bill.
 
 The stats warn when the hatching is closer than twice the nib — it will run together into
 solid ink — and when the gap is narrower than the nib, where neighbouring outlines will
