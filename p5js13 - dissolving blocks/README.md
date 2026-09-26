@@ -184,8 +184,8 @@ camera has turned. Each has a pattern and a spacing of its own, in millimetres o
   (along it, like storeys), **grid** (both, like windows);
 - tops — **along left** and **along right** (parallel to where the top meets the left or
   the right face) and **grid**;
-- any face — **diagonal** and **crosshatch** at 45° on paper, and **solid**: lines a nib
-  apart, which inks the face in.
+- any face — **diagonal** and **crosshatch** at 45° on paper, and **solid**, which inks
+  the face in (below).
 
 **Lines sit** decides where the lines fall. *per face* centres them on every face, never
 closer than half a spacing to its edges; *lattice* puts them at whole spacings across the
@@ -200,7 +200,40 @@ smallest boxes keep their outlines.
 **Join the hatch lines into zigzags** runs neighbouring lines that both show from end to
 end into one stroke along the edge of their face, when nothing hides the join. The
 hatching then costs about half the pen lifts; the joins go over the face's edges a second
-time, and with the edges off they draw pieces of them.
+time, and with the edges off they draw pieces of them. Solid faces are always joined, and
+more freely — see below.
+
+### Solid faces
+
+A solid face is filled the way a person fills it with a pen: pass after pass, side by
+side, each overlapping the last, with no paper left between them.
+
+- The passes run parallel to one pair of the face's edges — up a side, along the left
+  edge of a top. The two outermost run **half a nib** in from those edges, so their ink
+  meets the edges exactly; the rest are spread evenly between them, never further apart
+  than **Solid passes**, a share of the nib. At 100 % two passes just touch, below that
+  they overlap; 85 % is the default and suits a fineliner, a pen that spreads on the paper
+  can go higher, a dry one lower. A face narrower than the nib gets one pass down its
+  middle. The lattice setting does not apply — a solid face is always laid edge to edge.
+- Each pass runs right up to the face's other two edges, and the round nib carries the ink
+  half a nib past its ends.
+- The face keeps its own edges whatever **Edges** is set to. Where the passes meet an edge
+  at a slant, or run into a corner, the round nib cannot reach all the way, and the pass
+  along the edge is what covers it; on a solid face it disappears into the ink.
+- The passes are joined into one back-and-forth stroke: each carries on from wherever the
+  last one stopped, entered from its nearer end, as long as nothing in front hides the
+  short way across. The way across runs inside the face, which is to be ink anyway, so the
+  pen goes pass by pass without lifting. Where a box in front cuts the face into pieces,
+  each piece is a stroke of its own.
+- Every piece of a pass is drawn however short — the shortest-stroke rule does not apply,
+  since here each one is ink the face needs.
+
+Checked by sampling points on a fine grid over the visible solid faces, finding by ray
+casting which face each point belongs to and asking whether a stroke of the round nib
+covers it: no bare paper at 85 % or at 100 %, with the edges drawn, outlined or off, in
+all three projections and at grazing camera angles; at 110 % the gaps show up as they
+should. A solid face costs ink rather than pen lifts — the length is its area over the
+spacing — so solid tops on a default A4 add about 12 m of line.
 
 **Gap** is the space between two neighbouring boxes on paper: each box is shrunk by half
 of it all round, so every box keeps an outline of its own. At 0 the boxes touch and the
@@ -241,8 +274,9 @@ A default A4 is about 8 500 strokes, 37 m of line and just under an hour at the 
 and most of that time is pen lifts: every hatch line is one, and every box outline two.
 The things that move it most:
 
-- **the hatching** — a spacing half as wide is twice the lines; *crosshatch*, *grid* and
-  *solid* double or treble them. Zigzags halve the lifts.
+- **the hatching** — a spacing half as wide is twice the lines; *crosshatch* and *grid*
+  double them. Zigzags halve the lifts. *solid* is joined into zigzags on its own, so it
+  costs ink more than lifts.
 - **the number of boxes** — more cells, a smaller widest box, more variety or a deeper
   front all mean more of them, and each small box is two strokes for very little ink.
 - **the spray** — hundreds of tiny loose boxes are hundreds of lifts; thinning above 2

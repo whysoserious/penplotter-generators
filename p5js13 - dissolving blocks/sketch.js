@@ -57,7 +57,7 @@ const BUSY_STROKES   = 80_000;    // above this, warn about the plot time
 const FACE_EPS       = 1e-4;      // a face turned further away than this is seen edge-on
 const HIDE_EPS       = 1e-7;      // cells — how far a box is shrunk before it hides anything
 const MERGE_MM       = 1e-3;      // mm — two edges this close on paper are the same line
-const SOLID_SHARE    = 0.85;      // of the nib, between two passes over a `solid` face
+const FILL_MIN       = 0.01;      // mm — the shortest piece of a solid face still drawn
 const MIN_BOX_MM     = 0.2;       // mm — a box thinner than this on paper is not drawn
 const EPS            = 0.01;      // mm — the stub that stands in for a single dot
 const PREVIEW_MAX_PX = 1500;      // preview canvas resolution (paper is in mm)
@@ -145,6 +145,7 @@ const settings = {
   rightSpacing: 0.8,
   hatchPhase: 'per face',
   hatchJoin: false,     // run the lines of a face into zigzags along its edges
+  solidGap: 85,         // % of the nib between two passes over a `solid` face
   edges: 'every edge',
   minStroke: 0.3,       // mm — a piece of line shorter than this is left out
 
@@ -215,6 +216,7 @@ const SCENES = [
   { label: 'Storeys', s: {
       leftHatch: 'horizontal', rightHatch: 'horizontal', leftSpacing: 1.2,
       rightSpacing: 1.2 } },
+  { label: 'Inked tops', s: { topHatch: 'solid' } },
   { label: 'Lit from the right', s: {
       leftHatch: 'crosshatch', leftSpacing: 1.1, rightHatch: 'vertical',
       rightSpacing: 1.6 } },
@@ -1153,7 +1155,8 @@ const FACE_HI = new Uint8Array(3);   // and whether it is the face at the high e
 const ROLE = new Uint8Array(3);      // axis → 0 top, 1 left, 2 right
 const UDIR = [null, null, null];     // axis → the unit direction it runs on paper
 let KL = 2, KR = 0;                  // the axes across the left and the right faces
-let FAM = [[], [], []];              // role → [{ ux, uy, d }]
+let FAM = [[], [], []];              // role → [{ ux, uy, d, solid }]
+const SOLID_ROLE = new Uint8Array(3); // role → whether it is inked in solid
 
 function prepareFaces() {
   const s = settings;
@@ -1172,6 +1175,7 @@ function prepareFaces() {
     families(s.leftHatch, s.leftSpacing, UDIR[1], UDIR[KR]),
     families(s.rightHatch, s.rightSpacing, UDIR[1], UDIR[KL]),
   ];
+  for (let r = 0; r < 3; r++) SOLID_ROLE[r] = FAM[r].some(f => f.solid) ? 1 : 0;
 }
 
 // The families one face role is hatched with. `first` and `second` are the two ways the
@@ -1180,7 +1184,7 @@ function prepareFaces() {
 function families(pattern, spacing, first, second) {
   const d = Math.max(0.05, spacing);
   const out = [];
-  const add = (u, dd) => { if (u) out.push({ ux: u[0], uy: u[1], d: dd }); };
+  const add = (u, dd, solid) => { if (u) out.push({ ux: u[0], uy: u[1], d: dd, solid: !!solid }); };
   const up = [Math.SQRT1_2, -Math.SQRT1_2], down = [Math.SQRT1_2, Math.SQRT1_2];
   switch (pattern) {
     case 'vertical': case 'along left':   add(first, d); break;
@@ -1188,7 +1192,9 @@ function families(pattern, spacing, first, second) {
     case 'grid':       add(first, d); add(second, d); break;
     case 'diagonal':   add(up, d); break;
     case 'crosshatch': add(up, d); add(down, d); break;
-    case 'solid':      add(first, Math.max(0.02, settings.penWidth * SOLID_SHARE)); break;
+    case 'solid':
+      add(first, Math.max(0.01, settings.penWidth * clamp(settings.solidGap, 10, 150) / 100), true);
+      break;
   }
   return out;
 }
@@ -1440,7 +1446,7 @@ const QP = new Float64Array(12);     // its corners, in cells
 const PA = new Float64Array(3), PB = new Float64Array(3);
 
 let PEN_EDGE = 0, PEN_LOOSE = -1, EDGE_MODE = 0, PHASE_LATTICE = false, MIN_STROKE = 0;
-let JOIN_HATCH = false, HATCH_LOOSE = true;
+let JOIN_HATCH = false, HATCH_LOOSE = true, NIB = 0.3;
 const PEN_ROLE = new Int8Array(3);
 let C_FACES = 0, C_HIDDEN = 0, C_HATCH = 0;
 
@@ -1502,8 +1508,10 @@ function drawBox(i, sink) {
     }
   }
 
-  if (!shown || EDGE_MODE === 2) return;
-  const pen = loose ? PEN_LOOSE : PEN_EDGE;
+  // A solid face keeps its own edges whatever the edge mode asks: a round nib cannot
+  // reach into a corner or along an edge its passes run into at a slant, and the edge is
+  // the pass that does. On a face inked in solid it disappears into the ink anyway.
+  if (!shown) return;
   for (let m = 0; m < 3; m++) {
     const p = (m + 1) % 3, q = (m + 2) % 3;
     for (let sp = 0; sp < 2; sp++) {
@@ -1511,8 +1519,12 @@ function drawBox(i, sink) {
       for (let sq = 0; sq < 2; sq++) {
         const fq = FACE_ON[q] && sq === FACE_HI[q] ? 1 : 0;
         const nv = fp + fq;
-        if (!nv || (EDGE_MODE === 1 && nv !== 1)) continue;
+        if (!nv) continue;
         if ((fp && FHID[p]) || (fq && FHID[q])) continue;
+        const wanted = EDGE_MODE === 0 || (EDGE_MODE === 1 && nv === 1);
+        const sP = hatch && fp && SOLID_ROLE[ROLE[p]], sQ = hatch && fq && SOLID_ROLE[ROLE[q]];
+        if (!wanted && !sP && !sQ) continue;
+        const pen = loose ? PEN_LOOSE : wanted ? PEN_EDGE : PEN_ROLE[ROLE[sP ? p : q]];
         const k = fp && fq ? (FN[p] <= FN[q] ? p : q) : fp ? p : q;
         PA[m] = BX[o + m]; PB[m] = BX[o + 3 + m];
         PA[p] = PB[p] = sp ? BX[o + 3 + p] : BX[o + p];
@@ -1545,8 +1557,16 @@ function hatchFace(i, k, w, list, n, pen, sink) {
     const ga = nx * sax + ny * say, gb = nx * sbx + ny * sby;
     const lo = o0 + Math.min(0, ga) + Math.min(0, gb);
     const hi = o0 + Math.max(0, ga) + Math.max(0, gb);
-    let first, count;
-    if (PHASE_LATTICE) {
+    let first, count, step = d;
+    if (f.solid) {
+      // Edge to edge: the outermost passes run half a nib in from the two edges they are
+      // parallel to, so their ink reaches those edges exactly, and the rest are spread
+      // evenly between, never further apart than the spacing asked for. A face narrower
+      // than the nib gets one pass down its middle.
+      const inner = hi - lo - NIB;
+      if (inner <= 0) { first = (lo + hi) / 2; count = 1; }
+      else { count = Math.ceil(inner / d - 1e-9) + 1; step = inner / (count - 1); first = lo + NIB / 2; }
+    } else if (PHASE_LATTICE) {
       const keep = 0.25 * d;
       first = Math.ceil((lo + keep) / d) * d;
       count = Math.floor((hi - keep - first) / d + 1e-9) + 1;
@@ -1555,15 +1575,23 @@ function hatchFace(i, k, w, list, n, pen, sink) {
       first = lo + ((hi - lo) - (count - 1) * d) / 2;
     }
     let zig = null;                   // the zigzag being laid across this face
+    let fills = [];                   // or, for a solid face, the strokes still open
     for (let t = 0; t < count; t++) {
-      if (!squareChord(ga, gb, first + t * d - o0)) { zig = layZig(zig, sink, pen); continue; }
+      if (!squareChord(ga, gb, first + t * step - o0)) {
+        if (!f.solid) zig = layZig(zig, sink, pen);
+        continue;
+      }
       PA[k] = w; PA[a] = la + CH[0] * Ea; PA[b] = lb + CH[1] * Eb;
       PB[k] = w; PB[a] = la + CH[2] * Ea; PB[b] = lb + CH[3] * Eb;
+      if (f.solid) {
+        fills = fillLine(fills, list, n, sink, pen);
+        continue;
+      }
       if (!JOIN_HATCH) {
         drawVisible(PA[0], PA[1], PA[2], PB[0], PB[1], PB[2], list, n, -1, pen, sink);
         continue;
       }
-      const m = visibleSpans(PA[0], PA[1], PA[2], PB[0], PB[1], PB[2], list, n, false);
+      const m = visibleSpans(PA[0], PA[1], PA[2], PB[0], PB[1], PB[2], list, n, false, MIN_STROKE);
       if (m === 1 && SPANS[0] === 0 && SPANS[1] === 1) {
         zig = zigLine(zig, list, n, sink, pen);
       } else {
@@ -1579,7 +1607,55 @@ function hatchFace(i, k, w, list, n, pen, sink) {
       }
     }
     layZig(zig, sink, pen);
+    for (const z of fills) layZig(z, sink, pen);
   }
+}
+
+// A pass over a solid face carries on from wherever the one before it stopped. Each
+// visible piece of it is taken up by the open stroke whose end lies nearest, entered from
+// its nearer end, provided nothing hides the short way across; a piece no stroke can
+// reach starts one of its own, and a stroke no piece took up is laid down. The way across
+// runs inside the face, which is to be ink anyway, so a solid face goes down as one
+// back-and-forth stroke wherever nothing in front of it breaks it up — the pen runs pass
+// by pass without lifting — and as a few where something does. Pieces far shorter than the
+// shortest stroke are kept: here each one is ink the face needs.
+function fillLine(open, list, n, sink, pen) {
+  const m = visibleSpans(PA[0], PA[1], PA[2], PB[0], PB[1], PB[2], list, n, true, FILL_MIN);
+  if (!m) return open;
+  const pax = SEG_P[0], pay = SEG_P[1], dx = SEG_P[2] - pax, dy = SEG_P[3] - pay;
+  const ax = PA[0], ay = PA[1], az = PA[2], ex = PB[0] - ax, ey = PB[1] - ay, ez = PB[2] - az;
+  const taken = new Uint8Array(open.length);
+  const next = [];
+
+  for (let r = 0; r < m; r++) {
+    let best = -1, bestD = Infinity, rev = false;
+    for (let z = 0; z < open.length; z++) {
+      if (taken[z]) continue;
+      const zz = open[z], lx = zz.xs[zz.xs.length - 1], ly = zz.ys[zz.ys.length - 1];
+      for (let e = 0; e < 2; e++) {
+        const t = SPANS[r * 2 + e];
+        const ddx = pax + dx * t - lx, ddy = pay + dy * t - ly, dd = ddx * ddx + ddy * ddy;
+        if (dd < bestD) { bestD = dd; best = z; rev = e === 1; }
+      }
+    }
+    const t0 = SPANS[r * 2 + (rev ? 1 : 0)], t1 = SPANS[r * 2 + (rev ? 0 : 1)];
+    const x0 = pax + dx * t0, y0 = pay + dy * t0, x1 = pax + dx * t1, y1 = pay + dy * t1;
+    const out = [ax + ex * t1, ay + ey * t1, az + ez * t1];
+    if (best >= 0) {
+      const zz = open[best];
+      if (segmentClear(zz.at[0], zz.at[1], zz.at[2], ax + ex * t0, ay + ey * t0, az + ez * t0, list, n)) {
+        zz.xs.push(x0, x1); zz.ys.push(y0, y1);
+        zz.at = out;
+        zz.lines++;
+        taken[best] = 1;
+        next.push(zz);
+        continue;
+      }
+    }
+    next.push({ xs: [x0, x1], ys: [y0, y1], at: out, edge: -1, lines: 1 });
+  }
+  for (let z = 0; z < open.length; z++) if (!taken[z]) layZig(open[z], sink, pen);
+  return next;
 }
 
 // Joining the hatch into zigzags. Two neighbouring lines that both show from end to end,
@@ -1651,12 +1727,12 @@ function squareChord(ga, gb, h) {
 
 // One segment in the world, cut by the boxes on its list: the stretch each one hides is
 // taken out, and what is left is written to SPANS as pairs of t, with the segment's two
-// ends on paper in SEG_P. A piece cut shorter than the shortest stroke is left out; an
-// edge nothing cut is kept however short, so the smallest boxes keep their outlines.
+// ends on paper in SEG_P. A piece cut shorter than `least` is left out; an edge nothing
+// cut is kept however short, so the smallest boxes keep their outlines.
 let IV = new Float64Array(256), SPANS = new Float64Array(256);
 const SEG_P = new Float64Array(5);   // ax ay bx by on paper, and the length between
 
-function visibleSpans(ax, ay, az, bx, by, bz, list, n, keepWhole) {
+function visibleSpans(ax, ay, az, bx, by, bz, list, n, keepWhole, least) {
   const pax = S * (ax * PR0 + ay * PR1 + az * PR2) + OX;
   const pay = -S * (ax * PU0 + ay * PU1 + az * PU2) + OY;
   const pbx = S * (bx * PR0 + by * PR1 + bz * PR2) + OX;
@@ -1679,7 +1755,7 @@ function visibleSpans(ax, ay, az, bx, by, bz, list, n, keepWhole) {
     ni++;
   }
   if (ni === 0) {
-    if (!keepWhole && len < MIN_STROKE) return 0;
+    if (!keepWhole && len < least) return 0;
     SPANS[0] = 0; SPANS[1] = 1;
     return 1;
   }
@@ -1700,7 +1776,7 @@ function visibleSpans(ax, ay, az, bx, by, bz, list, n, keepWhole) {
     const s0 = r < ni ? IV[r * 2] : 1;
     if (s0 > t) {
       const t1 = s0 < 1 ? s0 : 1;
-      if ((t1 - t) * len >= MIN_STROKE) { SPANS[m * 2] = t; SPANS[m * 2 + 1] = t1; m++; }
+      if ((t1 - t) * len >= least) { SPANS[m * 2] = t; SPANS[m * 2 + 1] = t1; m++; }
     }
     if (r < ni && IV[r * 2 + 1] > t) t = IV[r * 2 + 1];
   }
@@ -1720,7 +1796,7 @@ function segmentClear(ax, ay, az, bx, by, bz, list, n) {
 // piece of edge into the pool, where edges from all the boxes are merged and strung
 // together before they are drawn.
 function drawVisible(ax, ay, az, bx, by, bz, list, n, axis, pen, sink) {
-  const k = visibleSpans(ax, ay, az, bx, by, bz, list, n, axis >= 0);
+  const k = visibleSpans(ax, ay, az, bx, by, bz, list, n, axis >= 0, MIN_STROKE);
   const pax = SEG_P[0], pay = SEG_P[1], dx = SEG_P[2] - pax, dy = SEG_P[3] - pay;
   for (let r = 0; r < k; r++) {
     const t0 = SPANS[r * 2], t1 = SPANS[r * 2 + 1];
@@ -2007,6 +2083,7 @@ function buildShapes() {
   PHASE_LATTICE = s.hatchPhase === 'lattice';
   JOIN_HATCH = !!s.hatchJoin;
   HATCH_LOOSE = !!s.looseHatch;
+  NIB = Math.max(0.01, s.penWidth);
   MIN_STROKE = Math.max(0, s.minStroke);
   C_FACES = C_HIDDEN = C_HATCH = 0;
   EPN = 0;
@@ -2574,6 +2651,7 @@ function syncVisibility() {
   setVisible('topSpacing', spaced(s.topHatch));
   setVisible('leftSpacing', spaced(s.leftHatch));
   setVisible('rightSpacing', spaced(s.rightHatch));
+  setVisible('solidGap', [s.topHatch, s.leftHatch, s.rightHatch].includes('solid'));
 
   setVisible('ink1', pens > 1);
   setVisible('ink2', pens > 2);
@@ -2905,9 +2983,16 @@ function buildControls() {
   addSelect(root, 'Right faces', 'rightHatch', SIDE_HATCHES, refit,
     '<b>vertical</b> — up the face; <b>horizontal</b> — along it, like storeys; ' +
     '<b>grid</b> — both, like windows; <b>diagonal</b>, <b>crosshatch</b> — at 45° on ' +
-    'paper; <b>solid</b> — lines a nib apart, which inks the face in.');
+    'paper; <b>solid</b> — overlapping passes edge to edge, which inks the face in.');
   addSlider(root, 'Right spacing (mm)', 'rightSpacing', 0.2, 10, 0.05);
   addSlider(root, 'Right pen', 'rightPen', 1, MAX_PENS, 1);
+  addSlider(root, 'Solid passes (% of the nib)', 'solidGap', 50, 120, 1,
+    'How far apart the passes over a <b>solid</b> face lie, as a share of the nib: at ' +
+    '100 % two passes just touch, below that they overlap, which is what leaves no paper ' +
+    'between them. The outermost pass runs half a nib in from the face\'s edge, so the ' +
+    'ink meets the edge exactly, and the passes are joined into one back-and-forth stroke ' +
+    'wherever nothing in front breaks them up. 80–90 % suits a fineliner; a pen that ' +
+    'spreads on the paper can go higher, a dry one lower.');
   addSelect(root, 'Lines sit', 'hatchPhase', HATCH_PHASES, refit,
     '<b>per face</b> — centred on every face, never closer than half a spacing to its ' +
     'edges.<br><b>lattice</b> — at whole spacings across the sheet, so they line up from ' +
@@ -2919,7 +3004,8 @@ function buildControls() {
     'off, they draw pieces of them.').parent(root).class('note');
   addSelect(root, 'Edges', 'edges', EDGE_MODES, refit,
     '<b>every edge</b> — each box drawn whole; <b>outline</b> — only where a box meets ' +
-    'what is behind it; <b>none</b> — hatching alone.');
+    'what is behind it; <b>none</b> — hatching alone. A solid face keeps its own edges ' +
+    'either way: they are the pass that reaches the ink into its corners.');
   addSlider(root, 'Edge pen', 'edgePen', 1, MAX_PENS, 1);
   addSlider(root, 'Shortest stroke (mm)', 'minStroke', 0, 3, 0.05,
     'A piece of line cut shorter than this by the boxes in front is left out — the ' +
@@ -3032,6 +3118,10 @@ function updateStats() {
       `than twice the nib — ${(2 * s.penWidth).toFixed(2)} mm — and will run together into ` +
       `solid ink.</div>`;
   }
+  if ([s.topHatch, s.leftHatch, s.rightHatch].includes('solid') && s.solidGap > 100) {
+    html += `<div class="warn">Solid passes ${s.solidGap} % of the nib apart leave a hair of ` +
+      `paper between every two of them — below 100 % they overlap.</div>`;
+  }
   if (s.gap > 0 && s.gap < s.penWidth) {
     html += `<div class="warn">The gap between boxes is narrower than the nib, so ` +
       `neighbouring outlines will run into one another.</div>`;
@@ -3085,6 +3175,7 @@ function metaComment() {
     `${s.projection} ${cam} zoom=${s.zoom}% ` +
     `top=${s.topHatch}/${s.topSpacing} left=${s.leftHatch}/${s.leftSpacing} ` +
     `right=${s.rightHatch}/${s.rightSpacing} ${s.hatchPhase}${s.hatchJoin ? ' zigzag' : ''} ` +
+    `${[s.topHatch, s.leftHatch, s.rightHatch].includes('solid') ? 'solid=' + s.solidGap + '% ' : ''}` +
     `${s.dissolve !== 'none' && !s.looseHatch ? 'loose-unhatched>' + s.looseAt + '% ' : ''}` +
     `edges=${s.edges} ` +
     `min=${s.minStroke}mm pens=${s.pens} ` +
