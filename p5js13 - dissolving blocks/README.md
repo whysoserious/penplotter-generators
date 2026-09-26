@@ -227,9 +227,9 @@ rebuilds the sheet. A plot is always reproducible from the file it came from.
 
 ## Watching the cost
 
-A default A4 is about 5 000 strokes, 34 m of line and forty minutes at the plotter, and
-most of that time is pen lifts: every hatch line is one, and every box outline two. The
-things that move it most:
+A default A4 is about 8 500 strokes, 37 m of line and just under an hour at the plotter,
+and most of that time is pen lifts: every hatch line is one, and every box outline two.
+The things that move it most:
 
 - **the hatching** — a spacing half as wide is twice the lines; *crosshatch*, *grid* and
   *solid* double or treble them. Zigzags halve the lifts.

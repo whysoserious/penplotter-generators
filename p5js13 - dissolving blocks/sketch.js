@@ -88,10 +88,10 @@ const settings = {
   shape: 'tower on plinth',
   massW: 48,            // across (x)
   massD: 48,            // deep (z)
-  massH: 110,           // up (y)
-  plinthH: 28,          // % of the height the plinth takes
-  towerW: 58,           // % of the plinth the tower stands on, across
-  towerD: 58,           // and deep
+  massH: 130,           // up (y)
+  plinthH: 22,          // % of the height the plinth takes
+  towerW: 80,           // % of the plinth the tower stands on, across
+  towerD: 70,           // and deep
   towerX: 100,          // % — where on the plinth it stands, across
   towerZ: 0,            // and deep
   tiers: 5,             // of `steps`
@@ -113,17 +113,17 @@ const settings = {
 
   // coming apart
   dissolve: 'toward',
-  towardAz: 300,        // deg — which way the front runs, on the camera's compass
-  towardEl: 25,         // deg — and how far up
+  towardAz: 310,        // deg — which way the front runs, on the camera's compass
+  towardEl: 18,         // deg — and how far up
   frontAt: 35,          // % of the way through the mass where the front begins
   frontDepth: 60,       // % of the mass it takes to go from standing to gone
   ragged: 0.4,          // how far noise pushes the front back and forth
   noiseSize: 12,        // cells — the lumps in it
   crumble: 0.85,        // how much finer the boxes are cut as they come loose
-  drift: 60,            // % of the mass — how far the loosest boxes fly
-  scatter: 25,          // % of the mass — how far they stray off that line
+  drift: 50,            // % of the mass — how far the loosest boxes fly
+  scatter: 22,          // % of the mass — how far they stray off that line
   shrink: 0.6,          // how much a loose box shrinks
-  thinning: 2.5,        // how fast the loose boxes thin out
+  thinning: 1.6,        // how fast the loose boxes thin out
 
   // the camera — a parallel projection, so a line is the same weight near and far
   projection: 'axonometric',
@@ -212,7 +212,7 @@ const SCENES = [
       rightSpacing: 1.6 } },
   { label: 'Military view', s: { projection: 'military', azimuth: 30, heightScale: 0.85 } },
   { label: 'Cabinet view', s: { projection: 'oblique', obliqueAngle: 40, obliqueDepth: 0.5,
-      towardAz: 200, towardEl: 40 } },
+      towardAz: 270, towardEl: 20 } },
   { label: 'Loose boxes in a second pen', s: { pens: 2, loosePen: 2, looseAt: 30 } },
 ];
 
