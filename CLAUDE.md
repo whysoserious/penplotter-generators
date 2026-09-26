@@ -48,3 +48,18 @@ audio workletu z blob URL (null origin w Safari).
 Szkice odpala się otwierając `index.html` z dysku. Żeby sprawdzić, że nic się nie
 wysypało, załaduj stronę i potwierdź, że jest `window.p5`, canvas ma niezerowy
 rozmiar i konsola jest czysta — headless Chrome przez CDP wystarczy.
+
+## Sąsiedni projekt — czym się to rysuje
+
+`output.svg` z `vpype-process.sh` jedzie do `../plotly/` — TUI w Rust sterujące
+ploterem iDraw 2.0 (firmware DrawCore). Jak je zbudować i uruchomić:
+[`../plotly/README.md`](../plotly/README.md); dlaczego działa jak działa:
+`../plotly/DESIGN.org`.
+
+Plotly rysuje ścieżki **w kolejności z pliku** i świadomie nie robi ani reorderu,
+ani hatch-filla — to zadanie vpype *tutaj*, przed wczytaniem SVG. Skaluje rysunek
+tylko w dół (gdy nie mieści się w polu maszyny), nigdy w górę, a lewy górny róg
+rysunku ląduje pod aktualną pozycją głowicy.
+
+W tamtym repo obowiązuje jego `CLAUDE.md` i **commituje się tam tylko na wyraźną
+prośbę** — odwrotnie niż tutaj. Mapa obu projektów: `../CLAUDE.md`.
