@@ -2,11 +2,11 @@
 // Dissolving blocks — a solid cut into boxes and coming apart, drawn as lines
 //
 // Take a solid — a block, a tower on a plinth, a ziggurat, a city of lots, an arch, a
-// ball — and cut it into boxes the way a k-d tree cuts space: split it across one axis
-// at a whole number of cells, then split each half, and so on until every piece is small
-// enough. The pieces come out of every size, tall and thin wherever the height allows
-// it, and each of their faces lines up with a whole field of others, which is what makes
-// the mass read as a city and not as rubble.
+// round tower, a ring, a ball — and cut it into boxes the way a k-d tree cuts space:
+// split it across one axis at a whole number of cells, then split each half, and so on
+// until every piece is small enough. The pieces come out of every size, tall and thin
+// wherever the height allows it, and each of their faces lines up with a whole field of
+// others, which is what makes the mass read as a city and not as rubble.
 //
 // Then let it come apart. A front runs through the mass in one direction, ragged with
 // noise. Behind it everything stands, past it everything is gone, and in between the
@@ -38,7 +38,7 @@ const PAPER_SIZES = {
 };
 
 const SHAPES       = ['tower on plinth', 'block', 'steps', 'city', 'courtyard', 'arch',
-                      'ball', 'blob'];
+                      'cylinder', 'ring', 'ball', 'blob'];
 const DISSOLVES    = ['none', 'toward', 'outward', 'noise'];
 const PROJECTIONS  = ['axonometric', 'military', 'oblique'];
 const SIDE_HATCHES = ['none', 'vertical', 'horizontal', 'grid', 'diagonal', 'crosshatch',
@@ -97,7 +97,7 @@ const settings = {
   tiers: 5,             // of `steps`
   lots: 4,              // of a `city`, along each side
   street: 3,            // cells between two lots
-  wall: 26,             // % — the piers of an `arch`, the walls of a `courtyard`
+  wall: 26,             // % — the piers of an `arch`, the walls of a `courtyard`, a `ring`
   blobSize: 20,         // cells — the lumps of a `blob`
   blobFill: 50,         // % — how full of itself a `blob` is
 
@@ -199,6 +199,13 @@ const SCENES = [
       orientation: 'landscape', shape: 'courtyard', massW: 56, massD: 56, massH: 22,
       wall: 20, maxBox: 5, maxTall: 10, towardAz: 225, towardEl: 25, frontAt: 45,
       frontDepth: 60, drift: 45 } },
+  { label: 'Round tower', s: {
+      shape: 'cylinder', massW: 44, massD: 44, massH: 120, maxBox: 6, maxTall: 20,
+      frontAt: 50, frontDepth: 50 } },
+  { label: 'Ring', s: {
+      orientation: 'landscape', shape: 'ring', massW: 72, massD: 72, massH: 16, wall: 16,
+      maxBox: 5, maxTall: 8, elevation: 40, dissolve: 'noise', frontAt: 55, frontDepth: 30,
+      noiseSize: 10, drift: 35, towardAz: 300, towardEl: 30 } },
   { label: 'Cloud', s: {
       shape: 'blob', massW: 56, massD: 56, massH: 44, blobSize: 18, maxBox: 4,
       maxTall: 6, dissolve: 'outward', frontAt: 30, frontDepth: 50, drift: 45,
@@ -610,6 +617,29 @@ function massParts() {
       };
       break;
     }
+    case 'cylinder': {
+      // A round tower, standing the whole height.
+      add(0, 0, 0, W, H, D);
+      const rx = W / 2, rz = D / 2;
+      inside = (x, y, z) => {
+        const a = (x - rx) / rx, c = (z - rz) / rz;
+        return a * a + c * c <= 1;
+      };
+      break;
+    }
+    case 'ring': {
+      // A ring lying flat: a tube round the vertical through the middle, as thick across
+      // as the walls say and as tall as the solid.
+      add(0, 0, 0, W, H, D);
+      const rx = W / 2, ry = H / 2, rz = D / 2;
+      const h = clamp(s.wall, 1, 49) / 100, mid = 1 - h;
+      inside = (x, y, z) => {
+        const a = (x - rx) / rx, c = (z - rz) / rz, b = (y - ry) / ry;
+        const r = (Math.sqrt(a * a + c * c) - mid) / h;
+        return r * r + b * b <= 1;
+      };
+      break;
+    }
     case 'ball': {
       add(0, 0, 0, W, H, D);
       const rx = W / 2, ry = H / 2, rz = D / 2;
@@ -707,6 +737,40 @@ function countInside(tab, x0, y0, z0, x1, y1, z1) {
        + T[(a1 + y0) * D1 + z0] - T[(a0 + y0) * D1 + z0];
 }
 
+// The axis to split a partly covered box across: the one along which the box is least
+// alike — cut a quarter, a half and three quarters of the way along, the one whose two
+// sides differ most in how full they are. An axis the shape does not change along, like
+// the height of a round tower, never differs; a shape that is symmetric about the middle
+// of the box still differs at the quarters. When no axis differs anywhere the longest is
+// cut, and without the table there is nothing to measure with, so the longest it is too.
+function sortingAxis(tab, x0, y0, z0, x1, y1, z1, canX, canY, canZ) {
+  const all = countInside(tab, x0, y0, z0, x1, y1, z1);
+  const vol = (x1 - x0) * (y1 - y0) * (z1 - z0);
+  let best = -1, bestGap = 1e-9;
+  for (let k = 0; k < 3; k++) {
+    if (!(k === 0 ? canX : k === 1 ? canY : canZ)) continue;
+    const lo = k === 0 ? x0 : k === 1 ? y0 : z0, len = (k === 0 ? x1 : k === 1 ? y1 : z1) - lo;
+    for (let q = 1; q <= 3; q++) {
+      const at = lo + Math.max(1, Math.min(len - 1, Math.round(len * q / 4)));
+      const na = k === 0 ? countInside(tab, x0, y0, z0, at, y1, z1)
+               : k === 1 ? countInside(tab, x0, y0, z0, x1, at, z1)
+               : countInside(tab, x0, y0, z0, x1, y1, at);
+      const va = vol / len * (at - lo);
+      const gap = Math.abs(na / va - (all - na) / (vol - va));
+      if (gap > bestGap) { bestGap = gap; best = k; }
+    }
+  }
+  if (best < 0 && (canX || canY || canZ)) {
+    best = longestAxis(x1 - x0, y1 - y0, z1 - z0, canX, canY, canZ);
+  }
+  return best;
+}
+
+function longestAxis(sx, sy, sz, canX, canY, canZ) {
+  const bx = canX ? sx : 0, by = canY ? sy : 0, bz = canZ ? sz : 0;
+  return bx >= by && bx >= bz ? 0 : by >= bz ? 1 : 2;
+}
+
 // Without the table: a box is asked at 27 points — the corners, the middles of the edges
 // and faces, the centre — just inside it, so a boundary running exactly along a cell
 // wall is not read as crossing it. 1 all of it inside, 0 none of it, −1 part of it.
@@ -802,8 +866,10 @@ function frontOf(x, y, z) {
 // splinters. Across the front the boxes get narrower long before they get shorter, and
 // come off as the thin upright slivers a city breaks into.
 //
-// A box a tested shape only half covers is split regardless, down to the smallest box,
-// and then kept if at least half of it is inside.
+// A box a tested shape only partly covers is split regardless, across whichever axis
+// best sorts what is inside from what is not — a round tower is split round its
+// circumference, never up its height — down to the smallest box, and kept if at least
+// half of it is inside.
 
 function cutMass(M) {
   const s = settings;
@@ -833,16 +899,17 @@ function cutMass(M) {
     }
     if (cls === 0) continue;
     if (cls < 0) {
-      if (canX || canY || canZ) {
-        const bx = canX ? sx : 0, by = canY ? sy : 0, bz = canZ ? sz : 0;
-        axis = bx >= by && bx >= bz ? 0 : by >= bz ? 1 : 2;
-      } else {
+      axis = M.table ? sortingAxis(M.table, x0, y0, z0, x1, y1, z1, canX, canY, canZ)
+        : canX || canY || canZ ? longestAxis(sx, sy, sz, canX, canY, canZ) : -1;
+      if (axis < 0) {
+        // Too small to cut again: the box is kept or dropped whole.
         const keep = M.table ? 2 * held >= sx * sy * sz
           : M.inside((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
         if (keep) out.push(x0, y0, z0, x1, y1, z1);
         continue;
       }
-    } else {
+    }
+    if (cls > 0) {
       const e = frontOf((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
       const k = Math.pow(1 - crumble, clamp(e, 0, 1));
       const limH = Math.max(minB, maxB * k), limV = Math.max(minB, maxT * k);
@@ -2488,7 +2555,7 @@ function syncVisibility() {
   setVisible('tiers', s.shape === 'steps');
   setVisible('lots', s.shape === 'city');
   setVisible('street', s.shape === 'city');
-  setVisible('wall', s.shape === 'arch' || s.shape === 'courtyard');
+  setVisible('wall', ['arch', 'courtyard', 'ring'].includes(s.shape));
   setVisible('blobSize', s.shape === 'blob');
   setVisible('blobFill', s.shape === 'blob');
 
@@ -2729,6 +2796,7 @@ function buildControls() {
     '<b>city</b> — lots on a grid with streets between, tallest in the middle.<br>' +
     '<b>courtyard</b> — four walls round an open square.<br>' +
     '<b>arch</b> — two piers and a round arch, through the whole depth.<br>' +
+    '<b>cylinder</b> — a round tower; <b>ring</b> — a ring lying flat.<br>' +
     '<b>ball</b>, <b>blob</b> — round, and round with a lumpy skin.');
   addSlider(root, 'Width (cells)', 'massW', 1, 200, 1);
   addSlider(root, 'Depth (cells)', 'massD', 1, 200, 1);
@@ -2745,8 +2813,8 @@ function buildControls() {
   addSlider(root, 'Lots along a side', 'lots', 1, 12, 1);
   addSlider(root, 'Street (cells)', 'street', 0, 12, 1);
   addSlider(root, 'Walls (%)', 'wall', 1, 49, 1,
-    'How thick the piers of the arch are, or the walls of the courtyard, as a share of ' +
-    'the width.');
+    'How thick the piers of the arch are, the walls of the courtyard or the ring, as a ' +
+    'share of the width.');
   addSlider(root, 'Lump size (cells)', 'blobSize', 2, 100, 1);
   addSlider(root, 'Fullness (%)', 'blobFill', 0, 100, 1);
 
@@ -2989,6 +3057,7 @@ function metaComment() {
     'city': `lots=${s.lots} street=${s.street}`,
     'courtyard': `walls=${s.wall}%`,
     'arch': `piers=${s.wall}%`,
+    'ring': `ring=${s.wall}%`,
     'blob': `lumps=${s.blobSize} fill=${s.blobFill}%`,
   }[s.shape] || '';
   const cam = s.projection === 'axonometric' ? `az=${s.azimuth}° el=${s.elevation}°`

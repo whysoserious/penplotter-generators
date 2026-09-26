@@ -1,7 +1,8 @@
 # Dissolving blocks
 
 A pen-plotter generator: a solid — a tower on a plinth, a block, a ziggurat, a city of
-lots, a courtyard, an arch, a ball, a blob — cut into boxes the way a city is cut into
+lots, a courtyard, an arch, a round tower, a ring, a ball, a blob — cut into boxes the way
+a city is cut into
 buildings, and coming apart in one direction into a spray of smaller and smaller pieces.
 It is drawn in parallel projection with every hidden line taken out exactly, the sides
 hatched and the tops left bare, like an ink drawing of a city — or, on black paper with a
@@ -65,11 +66,14 @@ it flies — is looked up from a hash of its own cells and the seed, so nothing 
 the order the boxes are visited in, and moving one slider leaves the boxes it does not
 reach exactly where they were.
 
-The round shapes (arch, ball, blob) are asked cell by cell whether they are inside, and
-the answers are summed into a table of running totals, so how much of any box lies
-inside is eight lookups. A box the shape only partly covers is cut down to the smallest
-box and kept if at least half of it is inside; the surface comes out as fine as whole
-cells allow and the inside stays in big blocks.
+The round shapes (arch, cylinder, ring, ball, blob) are asked cell by cell whether they
+are inside, and the answers are summed into a table of running totals, so how much of any
+box lies inside is eight lookups. A box the shape only partly covers is cut across
+whichever axis best sorts inside from outside — measured by how differently full the two
+sides are when it is cut a quarter, a half and three quarters of the way along — so a
+round tower is cut round its circumference and never up its height. It goes down to the
+smallest box and is kept if at least half of it is inside: the surface comes out as fine
+as whole cells allow and the inside stays in big blocks.
 
 ### Coming apart
 
@@ -142,6 +146,9 @@ drawn whole is two strokes and not three.
 - **courtyard** — four walls round an open square; **Walls** is how thick they are.
 - **arch** — two piers and a round arch through the whole depth; **Walls** is how wide
   the piers are.
+- **cylinder** — a round tower, the whole height.
+- **ring** — a ring lying flat, a tube round the vertical through the middle; **Walls** is
+  how thick it is across.
 - **ball**, **blob** — an ellipsoid filling the box, and one whose skin is pushed in and
   out by noise of **Lump size**, **Fullness** deciding how much of it is left.
 
