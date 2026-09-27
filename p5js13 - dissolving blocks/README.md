@@ -1,8 +1,9 @@
 # Dissolving blocks
 
 A pen-plotter generator: a solid — a tower on a plinth, a block, a ziggurat, a city of
-lots, a courtyard, an arch, a round tower, a ring, a ball, a blob — cut into boxes the way
-a city is cut into
+lots, a courtyard, an arch, a round tower, a ring, a ball, a blob, a Menger sponge, a
+maze flat or in the air, a Lorenz attractor, a well, a tesseract, a gyroid — cut into
+boxes the way a city is cut into
 buildings, and coming apart in one direction into a spray of smaller and smaller pieces.
 It is drawn in parallel projection with every hidden line taken out exactly, the sides
 hatched and the tops left bare, like an ink drawing of a city — or, on black paper with a
@@ -154,6 +155,34 @@ drawn whole is two strokes and not three.
   how thick it is across.
 - **ball**, **blob** — an ellipsoid filling the box, and one whose skin is pushed in and
   out by noise of **Lump size**, **Fullness** deciding how much of it is left.
+- **fractal** — a Menger sponge: the block cut in three each way with the middle of every
+  face and the middle of the block taken out, **Fractal levels** times over. A side that
+  divides by three as many times comes out on whole cells and so comes out square — 27
+  cells for three levels, 81 for four. Each level is twenty times the pieces, so four
+  levels wants a larger **Smallest box** or it runs into the box limit.
+- **maze** — the walls of a flat maze, standing the whole height: rooms on the odd places
+  of a grid, walls on the even ones, joined by a randomised depth-first carve that reaches
+  every room once. **Maze step** is how wide one wall is, and one corridor with it. The
+  seed is the maze. Seen from above it is a maze; from the side, a city of alleys.
+- **maze 3d** — the same carve in three dimensions, and here the solid is the corridor
+  rather than the wall: a tangle of square tubes running through the whole block, which is
+  what a maze looks like when you can see it from outside instead of walking it.
+- **chaos** — a Lorenz attractor, flown for twenty thousand steps and left in the air as a
+  ribbon of cells as thick as **Walls**. The butterfly is the same every time; the path
+  round it belongs to the seed. It holds itself up by nothing, so it takes a front that
+  pulls it apart rather than one that blows it off a base — and it wants a camera looking
+  along the flight, near an azimuth of 0°, for the two wings to show.
+- **well** — a round shaft with a floor, open to the sky, **Walls** thick. Drawn from far
+  enough above, the far side of the shaft is in view, which is the reason to draw one.
+- **tesseract** — a four-dimensional cube held at a distance and cast into three: a cube
+  inside a cube with a strut from every corner to the one it answers to, laid in bars
+  **Walls** thick. **Far cube** is how small the second cube comes out, which is how far
+  off the fourth dimension is held. The struts run diagonally, so they come down as
+  staircases — which is what every slanting thing is in a solid cut on whole cells.
+- **gyroid** — the surface that winds through space dividing it into two halves that never
+  meet, `sin x cos y + sin y cos z + sin z cos x` near enough to zero, thickened into a
+  sheet by **Walls** and turning once every **Lump size** cells. It is all surface and no
+  inside, so it is the most boxes of any shape here for its size.
 
 **Width**, **Depth** and **Height** are in cells. Only the ratios matter to the drawing —
 the fit sizes the whole to the sheet — but more cells mean smaller boxes, and more of

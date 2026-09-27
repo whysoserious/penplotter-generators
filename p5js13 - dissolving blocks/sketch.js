@@ -2,7 +2,8 @@
 // Dissolving blocks — a solid cut into boxes and coming apart, drawn as lines
 //
 // Take a solid — a block, a tower on a plinth, a ziggurat, a city of lots, an arch, a
-// round tower, a ring, a ball — and cut it into boxes the way a k-d tree cuts space:
+// round tower, a ring, a ball, a Menger sponge, a maze, a Lorenz attractor, a well, a
+// tesseract, a gyroid — and cut it into boxes the way a k-d tree cuts space:
 // split it across one axis at a whole number of cells, then split each half, and so on
 // until every piece is small enough. The pieces come out of every size, tall and thin
 // wherever the height allows it, and each of their faces lines up with a whole field of
@@ -38,7 +39,8 @@ const PAPER_SIZES = {
 };
 
 const SHAPES       = ['tower on plinth', 'block', 'steps', 'city', 'courtyard', 'arch',
-                      'cylinder', 'ring', 'ball', 'blob'];
+                      'cylinder', 'ring', 'ball', 'blob', 'fractal', 'maze', 'maze 3d',
+                      'chaos', 'well', 'tesseract', 'gyroid'];
 const DISSOLVES    = ['none', 'toward', 'outward', 'noise'];
 const PROJECTIONS  = ['axonometric', 'military', 'oblique'];
 const SIDE_HATCHES = ['none', 'vertical', 'horizontal', 'grid', 'diagonal', 'crosshatch',
@@ -98,8 +100,11 @@ const settings = {
   lots: 4,              // of a `city`, along each side
   street: 3,            // cells between two lots
   wall: 26,             // % — the piers of an `arch`, the walls of a `courtyard`, a `ring`
-  blobSize: 20,         // cells — the lumps of a `blob`
+  blobSize: 20,         // cells — the lumps of a `blob`, the period of a `gyroid`
   blobFill: 50,         // % — how full of itself a `blob` is
+  fracDepth: 3,         // how many times over a `fractal` is cut into thirds
+  mazeCell: 4,          // cells — one wall of a `maze`, and one corridor with it
+  tessInner: 45,        // % — how small the far cube of a `tesseract` comes out
 
   // the boxes it is cut into
   seed: 1,
@@ -212,6 +217,33 @@ const SCENES = [
       shape: 'blob', massW: 56, massD: 56, massH: 44, blobSize: 18, maxBox: 4,
       maxTall: 6, dissolve: 'outward', frontAt: 30, frontDepth: 50, drift: 45,
       scatter: 20 } },
+  { label: 'Menger sponge', s: {
+      shape: 'fractal', massW: 27, massD: 27, massH: 27, fracDepth: 3, maxBox: 9,
+      maxTall: 9, variety: 0.2, dissolve: 'none', porosity: 0, unevenTops: 0,
+      leftHatch: 'none', rightHatch: 'none' } },
+  { label: 'Maze from above', s: {
+      orientation: 'landscape', shape: 'maze', massW: 64, massD: 64, massH: 8,
+      mazeCell: 4, elevation: 60, maxTall: 8, dissolve: 'none', porosity: 0,
+      unevenTops: 0, leftHatch: 'none', rightHatch: 'none' } },
+  { label: 'Maze in the air', s: {
+      shape: 'maze 3d', massW: 45, massD: 45, massH: 45, mazeCell: 3, maxBox: 6,
+      maxTall: 6, dissolve: 'none', porosity: 0, unevenTops: 0, leftHatch: 'none',
+      rightHatch: 'none' } },
+  { label: 'Lorenz', s: {
+      shape: 'chaos', massW: 70, massD: 70, massH: 70, wall: 8, azimuth: 0, elevation: 8,
+      maxBox: 7, maxTall: 7, dissolve: 'none', porosity: 0, unevenTops: 0,
+      leftHatch: 'none', rightHatch: 'none' } },
+  { label: 'Well', s: {
+      shape: 'well', massW: 48, massD: 48, massH: 56, wall: 20, elevation: 55, maxBox: 6,
+      maxTall: 10, dissolve: 'none', porosity: 0, unevenTops: 0 } },
+  { label: 'Tesseract', s: {
+      shape: 'tesseract', massW: 60, massD: 60, massH: 60, wall: 8, tessInner: 45,
+      maxBox: 6, maxTall: 6, dissolve: 'none', porosity: 0, unevenTops: 0,
+      rightSpacing: 1.2, leftSpacing: 1.2 } },
+  { label: 'Gyroid', s: {
+      shape: 'gyroid', massW: 48, massD: 48, massH: 48, blobSize: 20, wall: 10,
+      maxBox: 6, maxTall: 6, dissolve: 'none', porosity: 0, unevenTops: 0,
+      leftHatch: 'none', rightHatch: 'none' } },
   { label: 'Solid, only cut', s: { dissolve: 'none', porosity: 0, unevenTops: 0 } },
   { label: 'Storeys', s: {
       leftHatch: 'horizontal', rightHatch: 'horizontal', leftSpacing: 1.2,
@@ -552,6 +584,130 @@ function ensureNoise(seed) {
 // that says which cells are really inside; a box the test only half agrees with is cut
 // again until the curve is followed as closely as whole cells can.
 
+// A maze carved the usual way: rooms sit on the odd places of a grid and walls on the
+// even ones, every room is walked into once, depth first, and the wall between a room and
+// the one it was reached from comes out. The walk is seeded, so a maze belongs to its seed
+// like everything else here. An axis with no room to it — the height of a flat maze — is
+// one place wide and is simply never walked along, which is what makes the same carve do
+// for two dimensions and for three.
+//
+// `at` answers 1 for wall, 0 for corridor and −1 off the grid, so a shape can take either
+// side of it and still leave the paper outside the maze empty.
+
+function carveMaze(rx, ry, rz, seed) {
+  const X = 2 * rx + 1, Y = 2 * ry + 1, Z = 2 * rz + 1;
+  const g = new Uint8Array(X * Y * Z).fill(1);
+  const idx = (x, y, z) => (x * Y + y) * Z + z;
+  const rnd = mulberry32((seed >>> 0) + 0x3c6ef372);
+  const D6 = [2, 0, 0, -2, 0, 0, 0, 2, 0, 0, -2, 0, 0, 0, 2, 0, 0, -2];
+  const pick = new Int32Array(18);
+  const sx = X > 1 ? 1 : 0, sy = Y > 1 ? 1 : 0, sz = Z > 1 ? 1 : 0;
+  const stack = [sx, sy, sz];
+  g[idx(sx, sy, sz)] = 0;
+
+  while (stack.length) {
+    const z = stack[stack.length - 1], y = stack[stack.length - 2], x = stack[stack.length - 3];
+    let n = 0;
+    for (let d = 0; d < 6; d++) {
+      const ax = x + D6[d * 3], ay = y + D6[d * 3 + 1], az = z + D6[d * 3 + 2];
+      if (ax < 1 || ax > X - 2 || ay < 1 || ay > Y - 2 || az < 1 || az > Z - 2) continue;
+      if (g[idx(ax, ay, az)] === 0) continue;
+      pick[n * 3] = ax; pick[n * 3 + 1] = ay; pick[n * 3 + 2] = az;
+      n++;
+    }
+    if (!n) { stack.length -= 3; continue; }
+    const k = Math.min(n - 1, Math.floor(rnd() * n));
+    const ax = pick[k * 3], ay = pick[k * 3 + 1], az = pick[k * 3 + 2];
+    g[idx((x + ax) / 2, (y + ay) / 2, (z + az) / 2)] = 0;
+    g[idx(ax, ay, az)] = 0;
+    stack.push(ax, ay, az);
+  }
+
+  const at = (x, y, z) =>
+    x < 0 || y < 0 || z < 0 || x >= X || y >= Y || z >= Z ? -1 : g[idx(x, y, z)];
+  return { X, Y, Z, at };
+}
+
+// How many rooms of a maze fit along a side, at `u` cells to a wall or a corridor.
+function mazeRooms(n, u) {
+  return Math.max(1, Math.floor((Math.floor(n / u) - 1) / 2));
+}
+
+// A mask over the solid's box, for the shapes that are drawn into it rather than tested:
+// a trail flown through the air, a frame of bars. It is stamped once, when the structure
+// is built, and read as often as the cutter likes. A box too large to hold cell for cell
+// is stamped at a stride, so the shape only ever comes out coarser, never wrong.
+function voxelMask(W, H, D) {
+  let s = 1;
+  while (Math.ceil(W / s) * Math.ceil(H / s) * Math.ceil(D / s) > TABLE_CELLS) s++;
+  const nx = Math.ceil(W / s), ny = Math.ceil(H / s), nz = Math.ceil(D / s);
+  const m = new Uint8Array(nx * ny * nz);
+  return {
+    cube(x, y, z, r) {
+      const i0 = Math.max(0, Math.floor((x - r) / s)), i1 = Math.min(nx - 1, Math.floor((x + r) / s));
+      const j0 = Math.max(0, Math.floor((y - r) / s)), j1 = Math.min(ny - 1, Math.floor((y + r) / s));
+      const l0 = Math.max(0, Math.floor((z - r) / s)), l1 = Math.min(nz - 1, Math.floor((z + r) / s));
+      for (let i = i0; i <= i1; i++) {
+        for (let j = j0; j <= j1; j++) {
+          const o = (i * ny + j) * nz;
+          for (let l = l0; l <= l1; l++) m[o + l] = 1;
+        }
+      }
+    },
+    test(x, y, z) {
+      const i = Math.floor(x / s), j = Math.floor(y / s), l = Math.floor(z / s);
+      if (i < 0 || j < 0 || l < 0 || i >= nx || j >= ny || l >= nz) return false;
+      return m[(i * ny + j) * nz + l] === 1;
+    },
+  };
+}
+
+// One bar, laid into the mask cell by cell: a diagonal comes down as a staircase, which
+// is what every slanting thing is here.
+function stampBar(vm, ax, ay, az, bx, by, bz, r) {
+  const n = Math.max(1, Math.ceil(2 * Math.hypot(bx - ax, by - ay, bz - az)));
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    vm.cube(ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t, r);
+  }
+}
+
+// The Lorenz attractor, flown until it has drawn both its wings and brought into the box
+// the solid stands in — x across, the flight's own z standing up, y into the paper. The
+// first turns are the way in rather than the shape, so they are flown and thrown away.
+// The seed moves only where the flight begins: the butterfly is the same one every time,
+// the path round it never is.
+function lorenzPath(seed, W, H, D, margin) {
+  const N = 20000, dt = 0.005, SIG = 10, RHO = 28, BET = 8 / 3;
+  const rnd = mulberry32((seed >>> 0) + 0x9e3779b9);
+  let x = 0.5 + 3 * rnd(), y = 0.5 + 3 * rnd(), z = 16 + 12 * rnd();
+  const p = new Float64Array(N * 3);
+  let lox = Infinity, loy = Infinity, loz = Infinity;
+  let hix = -Infinity, hiy = -Infinity, hiz = -Infinity;
+
+  for (let i = -1500; i < N; i++) {
+    const ax = SIG * (y - x), ay = x * (RHO - z) - y, az = x * y - BET * z;
+    const mx = x + ax * dt / 2, my = y + ay * dt / 2, mz = z + az * dt / 2;
+    x += SIG * (my - mx) * dt;
+    y += (mx * (RHO - mz) - my) * dt;
+    z += (mx * my - BET * mz) * dt;
+    if (i < 0) continue;
+    p[i * 3] = x; p[i * 3 + 1] = z; p[i * 3 + 2] = y;
+    if (x < lox) lox = x; if (x > hix) hix = x;
+    if (z < loy) loy = z; if (z > hiy) hiy = z;
+    if (y < loz) loz = y; if (y > hiz) hiz = y;
+  }
+
+  const fit = (v, lo, hi, n) =>
+    margin + (v - lo) / Math.max(1e-9, hi - lo) * Math.max(0, n - 2 * margin);
+  for (let i = 0; i < N; i++) {
+    p[i * 3] = fit(p[i * 3], lox, hix, W);
+    p[i * 3 + 1] = fit(p[i * 3 + 1], loy, hiy, H);
+    p[i * 3 + 2] = fit(p[i * 3 + 2], loz, hiz, D);
+  }
+  return p;
+}
+
 function massParts() {
   const s = settings;
   const W = clamp(Math.round(s.massW), 1, 400);
@@ -690,6 +846,124 @@ function massParts() {
       inside = (x, y, z) => {
         const a = (x - rx) / rx, b = (y - ry) / ry, c = (z - rz) / rz;
         return 1 - Math.sqrt(a * a + b * b + c * c) + 0.8 * lumps(x, y, z) > 1 - fill;
+      };
+      break;
+    }
+    case 'fractal': {
+      // A Menger sponge: cut the block in three each way, take out the middle of every
+      // face and the middle of the block, and do it again to each of the twenty pieces
+      // left. A cell is in when no round of thirds ever puts it in the middle of two
+      // directions at once. Sides that divide by three as many times as there are levels
+      // — 27 cells for three, 81 for four — come out on whole cells and so come out
+      // square.
+      add(0, 0, 0, W, H, D);
+      const L = clamp(Math.round(s.fracDepth), 1, 5);
+      inside = (x, y, z) => {
+        let a = x / W, b = y / H, c = z / D;
+        for (let k = 0; k < L; k++) {
+          a *= 3; b *= 3; c *= 3;
+          const i = Math.floor(a), j = Math.floor(b), l = Math.floor(c);
+          if ((i === 1 ? 1 : 0) + (j === 1 ? 1 : 0) + (l === 1 ? 1 : 0) >= 2) return false;
+          a -= i; b -= j; c -= l;
+        }
+        return true;
+      };
+      break;
+    }
+    case 'maze': {
+      // The walls of a flat maze, standing the whole height. What is drawn is the wall,
+      // so the plan reads as a maze from above and as a city of alleys from the side.
+      add(0, 0, 0, W, H, D);
+      const u = clamp(Math.round(s.mazeCell), 1, 32);
+      const mz = carveMaze(mazeRooms(W, u), 0, mazeRooms(D, u), s.seed);
+      const ox = Math.floor((W - mz.X * u) / 2), oz = Math.floor((D - mz.Z * u) / 2);
+      inside = (x, y, z) =>
+        mz.at(Math.floor((x - ox) / u), 0, Math.floor((z - oz) / u)) === 1;
+      break;
+    }
+    case 'maze 3d': {
+      // The same carve in three dimensions, and this time the solid is the corridor and
+      // not the wall: a tangle of square tubes running through the whole block, every
+      // room reached once, which is what a maze looks like when it is seen from outside
+      // instead of walked.
+      add(0, 0, 0, W, H, D);
+      const u = clamp(Math.round(s.mazeCell), 1, 32);
+      const mz = carveMaze(mazeRooms(W, u), mazeRooms(H, u), mazeRooms(D, u), s.seed);
+      const ox = Math.floor((W - mz.X * u) / 2), oy = Math.floor((H - mz.Y * u) / 2);
+      const oz = Math.floor((D - mz.Z * u) / 2);
+      inside = (x, y, z) => mz.at(Math.floor((x - ox) / u), Math.floor((y - oy) / u),
+                                 Math.floor((z - oz) / u)) === 0;
+      break;
+    }
+    case 'chaos': {
+      // A Lorenz attractor left in the air as a ribbon of cells, as thick as the walls
+      // say. Nothing holds it up, so it wants a front that takes it apart rather than one
+      // that blows it off a base.
+      add(0, 0, 0, W, H, D);
+      const t = Math.max(0.5, Math.min(W, D) * clamp(s.wall, 1, 49) / 200);
+      const vm = voxelMask(W, H, D);
+      const path = lorenzPath(s.seed, W, H, D, t);
+      for (let i = 3; i < path.length; i += 3) {
+        stampBar(vm, path[i - 3], path[i - 2], path[i - 1], path[i], path[i + 1], path[i + 2], t);
+      }
+      inside = vm.test;
+      break;
+    }
+    case 'well': {
+      // A round well: a wall as thick as the walls say, standing on a floor of the same,
+      // with the shaft open to the sky. From above the far side of the shaft is in view,
+      // which is the whole point of drawing one.
+      add(0, 0, 0, W, H, D);
+      const t = clamp(s.wall, 1, 49) / 100;
+      const rx = W / 2, rz = D / 2, floor = Math.max(1, H * t), bore = (1 - t) * (1 - t);
+      inside = (x, y, z) => {
+        const a = (x - rx) / rx, c = (z - rz) / rz;
+        const r = a * a + c * c;
+        if (r > 1) return false;
+        return y <= floor || r >= bore;
+      };
+      break;
+    }
+    case 'tesseract': {
+      // A four-dimensional cube held at a distance and cast into three, the way a lamp
+      // casts a wire cube on a wall: a cube inside a cube, and a strut from every corner
+      // to the one it answers to. The bars are laid cell by cell, so the struts come down
+      // as staircases — which is what any diagonal is in a solid cut on whole cells.
+      add(0, 0, 0, W, H, D);
+      const q = clamp(s.tessInner, 10, 90) / 100;
+      const t = Math.max(0.5, Math.min(W, H, D) * clamp(s.wall, 1, 49) / 200);
+      const P = new Float64Array(48);
+      for (let v = 0; v < 16; v++) {
+        const k = (v & 8) ? q : 1;
+        const sx = (v & 1) ? 1 : -1, sy = (v & 2) ? 1 : -1, sz = (v & 4) ? 1 : -1;
+        P[v * 3]     = t + (0.5 + 0.5 * sx * k) * Math.max(0, W - 2 * t);
+        P[v * 3 + 1] = t + (0.5 + 0.5 * sy * k) * Math.max(0, H - 2 * t);
+        P[v * 3 + 2] = t + (0.5 + 0.5 * sz * k) * Math.max(0, D - 2 * t);
+      }
+      const vm = voxelMask(W, H, D);
+      for (let v = 0; v < 16; v++) {
+        for (let b = 0; b < 4; b++) {
+          const u = v ^ (1 << b);
+          if (u < v) continue;                     // every edge once
+          stampBar(vm, P[v * 3], P[v * 3 + 1], P[v * 3 + 2],
+                       P[u * 3], P[u * 3 + 1], P[u * 3 + 2], t);
+        }
+      }
+      inside = vm.test;
+      break;
+    }
+    case 'gyroid': {
+      // The gyroid, a surface that winds through space dividing it into two halves that
+      // never meet, thickened into a sheet a pen can draw: sin x cos y + sin y cos z +
+      // sin z cos x, near enough to zero. One period every `Lump size` cells, and the
+      // walls say how thick the sheet is.
+      add(0, 0, 0, W, H, D);
+      const k = 2 * Math.PI / Math.max(4, Math.round(s.blobSize));
+      const t = 3 * clamp(s.wall, 1, 49) / 100;
+      inside = (x, y, z) => {
+        const a = x * k, b = y * k, c = z * k;
+        return Math.abs(Math.sin(a) * Math.cos(b) + Math.sin(b) * Math.cos(c) +
+                        Math.sin(c) * Math.cos(a)) < t;
       };
       break;
     }
@@ -1027,7 +1301,7 @@ function structureKey() {
   const s = settings;
   return JSON.stringify([s.shape, s.massW, s.massD, s.massH, s.plinthH, s.towerW,
     s.towerD, s.towerX, s.towerZ, s.tiers, s.lots, s.street, s.wall, s.blobSize,
-    s.blobFill, s.seed, s.minBox, s.maxBox, s.maxTall, s.variety, s.porosity,
+    s.blobFill, s.fracDepth, s.mazeCell, s.tessInner, s.seed, s.minBox, s.maxBox, s.maxTall, s.variety, s.porosity,
     s.unevenTops, s.dissolve, s.towardAz, s.towardEl, s.frontAt, s.frontDepth, s.ragged,
     s.noiseSize, s.crumble, s.drift, s.scatter, s.shrink, s.thinning]);
 }
@@ -2712,9 +2986,13 @@ function syncVisibility() {
   setVisible('tiers', s.shape === 'steps');
   setVisible('lots', s.shape === 'city');
   setVisible('street', s.shape === 'city');
-  setVisible('wall', ['arch', 'courtyard', 'ring'].includes(s.shape));
-  setVisible('blobSize', s.shape === 'blob');
+  setVisible('wall', ['arch', 'courtyard', 'ring', 'well', 'chaos', 'tesseract',
+                      'gyroid'].includes(s.shape));
+  setVisible('blobSize', s.shape === 'blob' || s.shape === 'gyroid');
   setVisible('blobFill', s.shape === 'blob');
+  setVisible('fracDepth', s.shape === 'fractal');
+  setVisible('mazeCell', s.shape === 'maze' || s.shape === 'maze 3d');
+  setVisible('tessInner', s.shape === 'tesseract');
 
   for (const k of ['frontAt', 'frontDepth', 'ragged', 'noiseSize', 'crumble', 'drift',
                    'scatter', 'shrink', 'thinning']) setVisible(k, drifting);
@@ -2956,7 +3234,14 @@ function buildControls() {
     '<b>courtyard</b> — four walls round an open square.<br>' +
     '<b>arch</b> — two piers and a round arch, through the whole depth.<br>' +
     '<b>cylinder</b> — a round tower; <b>ring</b> — a ring lying flat.<br>' +
-    '<b>ball</b>, <b>blob</b> — round, and round with a lumpy skin.');
+    '<b>ball</b>, <b>blob</b> — round, and round with a lumpy skin.<br>' +
+    '<b>fractal</b> — a Menger sponge, hollowed out level by level.<br>' +
+    '<b>maze</b> — the walls of a flat maze, standing the whole height.<br>' +
+    '<b>maze 3d</b> — the corridors of a maze in three dimensions, as tubes in the air.' +
+    '<br><b>chaos</b> — a Lorenz attractor flown into a ribbon.<br>' +
+    '<b>well</b> — a round shaft with a floor, open to the sky.<br>' +
+    '<b>tesseract</b> — a four-dimensional cube cast into three, in bars.<br>' +
+    '<b>gyroid</b> — the surface that winds through space without ever meeting itself.');
   addSlider(root, 'Width (cells)', 'massW', 1, 200, 1);
   addSlider(root, 'Depth (cells)', 'massD', 1, 200, 1);
   addSlider(root, 'Height (cells)', 'massH', 1, 200, 1,
@@ -2972,10 +3257,22 @@ function buildControls() {
   addSlider(root, 'Lots along a side', 'lots', 1, 12, 1);
   addSlider(root, 'Street (cells)', 'street', 0, 12, 1);
   addSlider(root, 'Walls (%)', 'wall', 1, 49, 1,
-    'How thick the piers of the arch are, the walls of the courtyard or the ring, as a ' +
-    'share of the width.');
-  addSlider(root, 'Lump size (cells)', 'blobSize', 2, 100, 1);
+    'How thick the material is, as a share of the width: the piers of the arch, the walls ' +
+    'of the courtyard, the ring or the well, the ribbon of the attractor, the bars of the ' +
+    'tesseract, the sheet of the gyroid.');
+  addSlider(root, 'Lump size (cells)', 'blobSize', 2, 100, 1,
+    'The lumps of a blob, and the period of a gyroid — one full turn of it every this ' +
+    'many cells.');
   addSlider(root, 'Fullness (%)', 'blobFill', 0, 100, 1);
+  addSlider(root, 'Fractal levels', 'fracDepth', 1, 5, 1,
+    'How many times over the block is cut into thirds and hollowed. A side that divides ' +
+    'by three as many times comes out square: 27 cells for three levels, 81 for four.');
+  addSlider(root, 'Maze step (cells)', 'mazeCell', 1, 20, 1,
+    'How wide one wall of the maze is, and one corridor with it. Fewer cells to a step ' +
+    'means a finer maze and a great many more boxes.');
+  addSlider(root, 'Far cube (%)', 'tessInner', 10, 90, 1,
+    'How small the second cube of the tesseract comes out, which is how far off the ' +
+    'fourth dimension is held. Near 100 % the two cubes close on one another.');
 
   // --- Boxes ---
   addSection(root, 'Boxes');
@@ -3232,6 +3529,13 @@ function metaComment() {
   const s = settings;
   const shapeTag = {
     'tower on plinth': `plinth=${s.plinthH}% tower=${s.towerW}x${s.towerD}%@${s.towerX},${s.towerZ}`,
+    'fractal': `levels=${s.fracDepth}`,
+    'maze': `step=${s.mazeCell}`,
+    'maze 3d': `step=${s.mazeCell}`,
+    'chaos': `ribbon=${s.wall}%`,
+    'well': `walls=${s.wall}%`,
+    'tesseract': `far=${s.tessInner}% bars=${s.wall}%`,
+    'gyroid': `period=${s.blobSize} sheet=${s.wall}%`,
     'steps': `tiers=${s.tiers}`,
     'city': `lots=${s.lots} street=${s.street}`,
     'courtyard': `walls=${s.wall}%`,
