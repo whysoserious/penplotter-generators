@@ -43,6 +43,14 @@ nie zmieniaj znaczenia istniejących kluczy w `settings`.
 ta biblioteka sypie błędami: brakującym source mapem i odmową załadowania
 audio workletu z blob URL (null origin w Safari).
 
+## Notatki w pamięci
+
+Do każdego szkicu jest notatka w pamięci Claude'a
+(`~/.claude/projects/-home-bonov-projects/memory/`, indeks w `MEMORY.md`): plik na
+generator, plus wspólna anatomia szkiców i kontrakt wypełnień piórem. Przed pracą nad
+szkicem przeczytaj jego plik, a po zmianie, która przesuwa którąś z nośnych decyzji,
+odśwież go. Notatka ma być mapą i uzasadnieniami, nie kopią README ani spisem funkcji.
+
 ## Weryfikacja zmian
 
 Szkice odpala się otwierając `index.html` z dysku. Żeby sprawdzić, że nic się nie
