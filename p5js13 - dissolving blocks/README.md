@@ -200,40 +200,66 @@ smallest boxes keep their outlines.
 **Join the hatch lines into zigzags** runs neighbouring lines that both show from end to
 end into one stroke along the edge of their face, when nothing hides the join. The
 hatching then costs about half the pen lifts; the joins go over the face's edges a second
-time, and with the edges off they draw pieces of them. Solid faces are always joined, and
-more freely — see below.
+time, and with the edges off they draw pieces of them. A solid face is laid as one stroke
+anyway, and more freely — see below.
 
 ### Solid faces
 
-A solid face is filled the way a person fills it with a pen: pass after pass, side by
-side, each overlapping the last, with no paper left between them.
+A solid face is filled the way a person fills a shape with a pen — the boundary once, then
+pass after pass inside it, each overlapping the last. What has to land exactly on a filled
+shape is the edge of the black, not the centre of any one stroke, so nothing is drawn on
+the face itself: everything is drawn on the face pulled **half a nib** inwards, where a
+round nib of that width lays ink from the centreline out to the face's own edge and no
+further.
 
-- The passes run parallel to one pair of the face's edges — up a side, along the left
-  edge of a top. The two outermost run **half a nib** in from those edges, so their ink
-  meets the edges exactly; the rest are spread evenly between them, never further apart
-  than **Solid passes**, a share of the nib. At 100 % two passes just touch, below that
-  they overlap; 85 % is the default and suits a fineliner, a pen that spreads on the paper
-  can go higher, a dry one lower. A face narrower than the nib gets one pass down its
-  middle. The lattice setting does not apply — a solid face is always laid edge to edge.
-- Each pass runs right up to the face's other two edges, and the round nib carries the ink
-  half a nib past its ends.
-- The face keeps its own edges whatever **Edges** is set to. Where the passes meet an edge
-  at a slant, or run into a corner, the round nib cannot reach all the way, and the pass
-  along the edge is what covers it; on a solid face it disappears into the ink.
-- The passes are joined into one back-and-forth stroke: each carries on from wherever the
-  last one stopped, entered from its nearer end, as long as nothing in front hides the
-  short way across. The way across runs inside the face, which is to be ink anyway, so the
-  pen goes pass by pass without lifting. Where a box in front cuts the face into pieces,
-  each piece is a stroke of its own.
+- The boundary of that inset face goes down once, and the inside of it is filled with
+  passes parallel to one pair of the face's edges — up a side, along the left edge of a
+  top. They are spread evenly, never further apart than **Solid passes**, a share of the
+  nib, and the two outermost of them are the two sides of the boundary they run parallel
+  to. At 100 % two passes just touch, at 85 % they overlap by 15 % of the nib; 85 % is the
+  default and suits a fineliner, a pen that spreads on the paper can go higher, a dry one
+  lower. The lattice setting does not apply — a solid face is always laid edge to edge.
+- Boundary and passes cover the inset face whole: a point further than a nib from the
+  boundary is reached by a pass, since the passes cross the inset face from side to side,
+  and a point nearer than that by the boundary itself, which is also what carries the ink
+  into the corners and along the edges the passes run into at a slant, where a round nib
+  cannot reach from inside. Half a nib of ink round every centreline turns that back into
+  the face exactly — bar its corners, where a round pen cannot reach into a point and
+  leaves the tip bare for `half a nib / sin(half the angle) − half a nib`: 0.13 mm at the
+  60° corner of an isometric face with a 0.3 mm nib, and more the sharper the sliver.
+- **Edges** has nothing to do with it. A face inked in solid needs no edge of its own, and
+  an edge drawn over it is an ordinary line of the drawing, standing half a nib outside the
+  black like every other line does. It does fill in the corner tips, which is why a sheet
+  full of slivers comes out that much blacker with the edges on.
+- A face narrower than the nib gets a single pass down its middle, and one narrower than
+  the nib either way a single dab. Ink there is a nib wide whatever the face is, so this is
+  the one place where the black stands outside the face — by at most half a nib, and in
+  practice by a fraction of it.
+- The whole of a face is one stroke: the boundary and every pass after it carry on from
+  wherever the last one stopped, entered from its nearer end, as long as nothing in front
+  hides the short way across. The way across runs inside the face, which is to be ink
+  anyway, so the pen goes round and then back and forth without lifting. Where a box in
+  front cuts the face, each piece is a stroke of its own; the ink runs up to that box's
+  silhouette and the nib carries it half a nib into it, under that box's own outline, which
+  is where the black has to close for no seam to show. With the edges off there is no
+  outline there, and that half nib stands on the box in front.
 - Every piece of a pass is drawn however short — the shortest-stroke rule does not apply,
   since here each one is ink the face needs.
 
-Checked by sampling points on a fine grid over the visible solid faces, finding by ray
-casting which face each point belongs to and asking whether a stroke of the round nib
-covers it: no bare paper at 85 % or at 100 %, with the edges drawn, outlined or off, in
-all three projections and at grazing camera angles; at 110 % the gaps show up as they
-should. A solid face costs ink rather than pen lifts — the length is its area over the
-spacing — so solid tops on a default A4 add about 12 m of line.
+Checked by rasterising the sheet at 0.02–0.04 mm and asking two questions of every point at
+once: which face the camera sees there — z-buffered exactly as the hidden-line pass sees it
+— and how far the nearest stroke centreline runs from it, which is what tells whether ink
+of half a nib reaches it. One box with all three faces inked, in all three projections, at
+nibs from 0.1 to 1 mm and at a grazing camera: **no ink at all outside the faces**, and the
+only bare paper 0.0005 % of the black, every bit of it in the points of the corners. A whole
+default sheet with every face solid and the edges off: 0.9 % bare, again the corners — the
+tips of the slivers the spray is made of — and 0.008 % with the edges drawn. The only ink
+that stands outside the black there is the single passes on the faces narrower than the
+nib: 0.08 mm of it at the worst with the 0.3 mm nib, none at all with a 0.1 mm nib, which
+no face on that sheet is thinner than, and 0.23 mm with a fat 0.6 mm one — always under the
+half nib the rule allows. At 110 % the gaps between the passes show up as they should,
+8.8 % of the black. A solid face costs ink rather than pen lifts — the length is its area
+over the spacing — so solid tops on a default A4 add about 12 m of line.
 
 **Gap** is the space between two neighbouring boxes on paper: each box is shrunk by half
 of it all round, so every box keeps an outline of its own. At 0 the boxes touch and the
@@ -275,8 +301,8 @@ and most of that time is pen lifts: every hatch line is one, and every box outli
 The things that move it most:
 
 - **the hatching** — a spacing half as wide is twice the lines; *crosshatch* and *grid*
-  double them. Zigzags halve the lifts. *solid* is joined into zigzags on its own, so it
-  costs ink more than lifts.
+  double them. Zigzags halve the lifts. A *solid* face goes down as one stroke, so it
+  costs ink rather than lifts.
 - **the number of boxes** — more cells, a smaller widest box, more variety or a deeper
   front all mean more of them, and each small box is two strokes for very little ink.
 - **the spray** — hundreds of tiny loose boxes are hundreds of lifts; thinning above 2

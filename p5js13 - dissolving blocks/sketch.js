@@ -1504,13 +1504,12 @@ function drawBox(i, sink) {
     C_FACES++;
     const role = ROLE[k];
     if (hatch && FAM[role].length) {
-      hatchFace(i, k, w, list, n, loose ? PEN_LOOSE : PEN_ROLE[role], sink);
+      const pen = loose ? PEN_LOOSE : PEN_ROLE[role];
+      if (SOLID_ROLE[role]) inkFace(i, k, w, list, n, pen, sink);
+      else                  hatchFace(i, k, w, list, n, pen, sink);
     }
   }
 
-  // A solid face keeps its own edges whatever the edge mode asks: a round nib cannot
-  // reach into a corner or along an edge its passes run into at a slant, and the edge is
-  // the pass that does. On a face inked in solid it disappears into the ink anyway.
   if (!shown) return;
   for (let m = 0; m < 3; m++) {
     const p = (m + 1) % 3, q = (m + 2) % 3;
@@ -1521,10 +1520,8 @@ function drawBox(i, sink) {
         const nv = fp + fq;
         if (!nv) continue;
         if ((fp && FHID[p]) || (fq && FHID[q])) continue;
-        const wanted = EDGE_MODE === 0 || (EDGE_MODE === 1 && nv === 1);
-        const sP = hatch && fp && SOLID_ROLE[ROLE[p]], sQ = hatch && fq && SOLID_ROLE[ROLE[q]];
-        if (!wanted && !sP && !sQ) continue;
-        const pen = loose ? PEN_LOOSE : wanted ? PEN_EDGE : PEN_ROLE[ROLE[sP ? p : q]];
+        if (EDGE_MODE === 2 || (EDGE_MODE === 1 && nv === 2)) continue;
+        const pen = loose ? PEN_LOOSE : PEN_EDGE;
         const k = fp && fq ? (FN[p] <= FN[q] ? p : q) : fp ? p : q;
         PA[m] = BX[o + m]; PB[m] = BX[o + 3 + m];
         PA[p] = PB[p] = sp ? BX[o + 3 + p] : BX[o + p];
@@ -1557,16 +1554,8 @@ function hatchFace(i, k, w, list, n, pen, sink) {
     const ga = nx * sax + ny * say, gb = nx * sbx + ny * sby;
     const lo = o0 + Math.min(0, ga) + Math.min(0, gb);
     const hi = o0 + Math.max(0, ga) + Math.max(0, gb);
-    let first, count, step = d;
-    if (f.solid) {
-      // Edge to edge: the outermost passes run half a nib in from the two edges they are
-      // parallel to, so their ink reaches those edges exactly, and the rest are spread
-      // evenly between, never further apart than the spacing asked for. A face narrower
-      // than the nib gets one pass down its middle.
-      const inner = hi - lo - NIB;
-      if (inner <= 0) { first = (lo + hi) / 2; count = 1; }
-      else { count = Math.ceil(inner / d - 1e-9) + 1; step = inner / (count - 1); first = lo + NIB / 2; }
-    } else if (PHASE_LATTICE) {
+    let first, count;
+    if (PHASE_LATTICE) {
       const keep = 0.25 * d;
       first = Math.ceil((lo + keep) / d) * d;
       count = Math.floor((hi - keep - first) / d + 1e-9) + 1;
@@ -1575,18 +1564,13 @@ function hatchFace(i, k, w, list, n, pen, sink) {
       first = lo + ((hi - lo) - (count - 1) * d) / 2;
     }
     let zig = null;                   // the zigzag being laid across this face
-    let fills = [];                   // or, for a solid face, the strokes still open
     for (let t = 0; t < count; t++) {
-      if (!squareChord(ga, gb, first + t * step - o0)) {
-        if (!f.solid) zig = layZig(zig, sink, pen);
+      if (!squareChord(ga, gb, first + t * d - o0)) {
+        zig = layZig(zig, sink, pen);
         continue;
       }
       PA[k] = w; PA[a] = la + CH[0] * Ea; PA[b] = lb + CH[1] * Eb;
       PB[k] = w; PB[a] = la + CH[2] * Ea; PB[b] = lb + CH[3] * Eb;
-      if (f.solid) {
-        fills = fillLine(fills, list, n, sink, pen);
-        continue;
-      }
       if (!JOIN_HATCH) {
         drawVisible(PA[0], PA[1], PA[2], PB[0], PB[1], PB[2], list, n, -1, pen, sink);
         continue;
@@ -1607,18 +1591,108 @@ function hatchFace(i, k, w, list, n, pen, sink) {
       }
     }
     layZig(zig, sink, pen);
-    for (const z of fills) layZig(z, sink, pen);
   }
 }
 
-// A pass over a solid face carries on from wherever the one before it stopped. Each
-// visible piece of it is taken up by the open stroke whose end lies nearest, entered from
-// its nearer end, provided nothing hides the short way across; a piece no stroke can
-// reach starts one of its own, and a stroke no piece took up is laid down. The way across
-// runs inside the face, which is to be ink anyway, so a solid face goes down as one
-// back-and-forth stroke wherever nothing in front of it breaks it up — the pen runs pass
-// by pass without lifting — and as a few where something does. Pieces far shorter than the
-// shortest stroke are kept: here each one is ink the face needs.
+////////////////////////////////////////////////////////////////////////////////////////
+// Inking a face in solid
+//
+// On a filled shape what has to land exactly is the edge of the black, not the centre of
+// any one stroke. So nothing is drawn on the face itself: everything is drawn on the face
+// pulled half a nib inwards, where a round nib of that width lays ink from the centreline
+// out to the face's own edge and no further.
+//
+// The boundary of that inset face goes down once, and the rest of it is filled with passes
+// parallel to one pair of its edges, evenly spread and never further apart than `Solid
+// passes`, a share of the nib — the two outermost of them being the two sides of the
+// boundary they are parallel to. Between them the two cover the inset face whole: a point
+// further than a nib from the boundary is reached by a pass, because the passes span the
+// inset face from side to side; a point nearer than that is reached by the boundary
+// itself, which is also what carries the ink into the corners and along the edges the
+// passes run into at a slant, where a round nib cannot reach from inside. Half a nib of
+// ink round every centreline then turns the inset face back into the face exactly — bar
+// its corners, which the nib rounds off by half its width, and no pen can do better.
+//
+// The two insets are half a nib measured on paper, perpendicular to the edges, and then
+// put back into the face's own units: a nib is a wider slice of a face seen at a slant
+// than of one seen square on, and that is what keeps the ink inside either way.
+//
+// Everything goes through fillLine, the boundary included, so each piece carries on from
+// wherever the last one stopped whenever the hop between them runs over the face — which
+// is to be ink anyway. A face comes out as one long stroke, and as a few where a box in
+// front cuts it up. Where one does, the ink runs to that box's silhouette and the nib
+// carries it half a nib into it, under that box's own outline, which is where the black
+// has to close for no seam to show. With the edges off there is no outline there, and
+// that half nib stands on the box in front.
+
+function inkFace(i, k, w, list, n, pen, sink) {
+  const o = i * 6, a = AX_A[k], b = AX_B[k];
+  const la = BX[o + a], lb = BX[o + b];
+  const Ea = BX[o + 3 + a] - la, Eb = BX[o + 3 + b] - lb;
+  const uax = S * Ea * PRV[a], uay = -S * Ea * PUV[a];   // its two edges, on paper
+  const ubx = S * Eb * PRV[b], uby = -S * Eb * PUV[b];
+  const cross = Math.abs(uax * uby - uay * ubx);         // the face's area on paper
+  const lenA = Math.hypot(uax, uay), lenB = Math.hypot(ubx, uby);
+  if (cross < 1e-12) return;                             // seen edge-on: no area to ink
+
+  // Half a nib in from each pair of edges: on paper the distance from the edge along B to
+  // a point at α is α·cross/lenB, so half a nib is that much of α, and the other way
+  // round for β. A face no wider than the nib collapses onto its middle.
+  const ia = Math.min(NIB / 2 * lenB / cross, 0.5);
+  const ib = Math.min(NIB / 2 * lenA / cross, 0.5);
+  const a0 = ia, a1 = 1 - ia, b0 = ib, b1 = 1 - ib;
+  const wideA = a1 - a0 > 1e-9, wideB = b1 - b0 > 1e-9;
+
+  let fills = [];
+  const lay = (pa, pb, qa, qb) => {
+    PA[k] = w; PA[a] = la + pa * Ea; PA[b] = lb + pb * Eb;
+    PB[k] = w; PB[a] = la + qa * Ea; PB[b] = lb + qb * Eb;
+    fills = fillLine(fills, list, n, sink, pen);
+  };
+
+  // A face no wider than the nib either way is one dab of the pen, and one narrower than
+  // the nib in one direction alone is a single pass down its middle. Neither has room for
+  // a boundary: the one stroke already inks it from edge to edge.
+  if (!wideA && !wideB) {
+    PA[k] = w; PA[a] = la + Ea / 2; PA[b] = lb + Eb / 2;
+    for (let q = 0; q < n; q++) if (pointHidden(PA[0], PA[1], PA[2], list[q])) return;
+    const px = S * (PA[0] * PR0 + PA[1] * PR1 + PA[2] * PR2) + OX;
+    const py = -S * (PA[0] * PU0 + PA[1] * PU1 + PA[2] * PU2) + OY;
+    if (insideArea(px, py)) { sink.dot(px, py, pen); C_HATCH++; }
+    return;
+  }
+  if (!wideA || !wideB) {
+    lay(a0, b0, a1, b1);
+  } else {
+    lay(a0, b0, a1, b0);              // the boundary, once round, back where it started
+    lay(a1, b0, a1, b1);
+    lay(a1, b1, a0, b1);
+    lay(a0, b1, a0, b0);
+
+    // The passes in between, across whichever pair of edges the hatch does not run along.
+    const f = FAM[ROLE[k]][0];
+    const alongA = Math.abs(f.ux * uay - f.uy * uax) / lenA <=
+                   Math.abs(f.ux * uby - f.uy * ubx) / lenB;
+    const span = alongA ? (b1 - b0) * cross / lenA : (a1 - a0) * cross / lenB;
+    const count = Math.max(2, Math.ceil(span / f.d - 1e-9) + 1);
+    for (let t = 1; t < count - 1; t++) {
+      const u = t / (count - 1);
+      if (alongA) lay(a0, b0 + u * (b1 - b0), a1, b0 + u * (b1 - b0));
+      else        lay(a0 + u * (a1 - a0), b0, a0 + u * (a1 - a0), b1);
+    }
+  }
+  for (const z of fills) layZig(z, sink, pen);
+}
+
+// One line laid over a face being inked in — a side of its boundary or a pass across it —
+// carries on from wherever the line before it stopped. Each visible piece of it is taken up
+// by the open stroke whose end lies nearest, entered from its nearer end, provided nothing
+// hides the short way across; a piece no stroke can reach starts one of its own, and a
+// stroke no piece took up is laid down. The way across runs inside the face, which is to be
+// ink anyway, so a solid face goes down as one stroke round its boundary and back and forth
+// over the inside wherever nothing in front of it breaks that up — the pen runs pass by
+// pass without lifting — and as a few strokes where something does. Pieces far shorter than
+// the shortest stroke are kept: here each one is ink the face needs.
 function fillLine(open, list, n, sink, pen) {
   const m = visibleSpans(PA[0], PA[1], PA[2], PB[0], PB[1], PB[2], list, n, true, FILL_MIN);
   if (!m) return open;
@@ -2988,11 +3062,12 @@ function buildControls() {
   addSlider(root, 'Right pen', 'rightPen', 1, MAX_PENS, 1);
   addSlider(root, 'Solid passes (% of the nib)', 'solidGap', 50, 120, 1,
     'How far apart the passes over a <b>solid</b> face lie, as a share of the nib: at ' +
-    '100 % two passes just touch, below that they overlap, which is what leaves no paper ' +
-    'between them. The outermost pass runs half a nib in from the face\'s edge, so the ' +
-    'ink meets the edge exactly, and the passes are joined into one back-and-forth stroke ' +
-    'wherever nothing in front breaks them up. 80–90 % suits a fineliner; a pen that ' +
-    'spreads on the paper can go higher, a dry one lower.');
+    '100 % two passes just touch, at 85 % they overlap by 15 % of the nib, which is what ' +
+    'leaves no paper between them. Everything is drawn on the face pulled half a nib ' +
+    'inwards — its boundary once round, then the passes — so the ink reaches the face\'s ' +
+    'own edges and stops there, and it is joined into one stroke wherever nothing in front ' +
+    'breaks it up. 80–90 % suits a fineliner; a pen that spreads on the paper can go ' +
+    'higher, a dry one lower.');
   addSelect(root, 'Lines sit', 'hatchPhase', HATCH_PHASES, refit,
     '<b>per face</b> — centred on every face, never closer than half a spacing to its ' +
     'edges.<br><b>lattice</b> — at whole spacings across the sheet, so they line up from ' +
@@ -3004,8 +3079,8 @@ function buildControls() {
     'off, they draw pieces of them.').parent(root).class('note');
   addSelect(root, 'Edges', 'edges', EDGE_MODES, refit,
     '<b>every edge</b> — each box drawn whole; <b>outline</b> — only where a box meets ' +
-    'what is behind it; <b>none</b> — hatching alone. A solid face keeps its own edges ' +
-    'either way: they are the pass that reaches the ink into its corners.');
+    'what is behind it; <b>none</b> — hatching alone. A face inked in <b>solid</b> needs ' +
+    'none of them: its own fill already reaches the ink to its edges.');
   addSlider(root, 'Edge pen', 'edgePen', 1, MAX_PENS, 1);
   addSlider(root, 'Shortest stroke (mm)', 'minStroke', 0, 3, 0.05,
     'A piece of line cut shorter than this by the boxes in front is left out — the ' +
@@ -3118,9 +3193,14 @@ function updateStats() {
       `than twice the nib — ${(2 * s.penWidth).toFixed(2)} mm — and will run together into ` +
       `solid ink.</div>`;
   }
-  if ([s.topHatch, s.leftHatch, s.rightHatch].includes('solid') && s.solidGap > 100) {
-    html += `<div class="warn">Solid passes ${s.solidGap} % of the nib apart leave a hair of ` +
-      `paper between every two of them — below 100 % they overlap.</div>`;
+  if ([s.topHatch, s.leftHatch, s.rightHatch].includes('solid')) {
+    const gapMm = Math.max(0.01, s.penWidth * s.solidGap / 100);
+    html += s.solidGap > 100
+      ? `<div class="warn">Solid passes ${gapMm.toFixed(2)} mm apart — ${s.solidGap} % of the ` +
+        `nib — leave a hair of paper between every two of them. At 100 % they just touch, ` +
+        `below that they overlap and the face comes out whole.</div>`
+      : `<div>Solid passes <b>${gapMm.toFixed(2)} mm</b> apart, overlapping by ` +
+        `${(100 - s.solidGap).toFixed(0)} % of the nib</div>`;
   }
   if (s.gap > 0 && s.gap < s.penWidth) {
     html += `<div class="warn">The gap between boxes is narrower than the nib, so ` +
