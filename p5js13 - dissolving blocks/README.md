@@ -36,7 +36,9 @@ and open <http://localhost:8000/p5js13%20-%20dissolving%20blocks/>.
    under the cursor. The arrow keys turn the camera by 1°, or by 10° with <kbd>shift</kbd>;
    <kbd>+</kbd> and <kbd>−</kbd> zoom, <kbd>0</kbd> resets zoom and pan, <kbd>P</kbd> steps
    through the projections. <kbd>R</kbd> rolls a new seed, <kbd>[</kbd> and <kbd>]</kbd>
-   step through seeds, <kbd>G</kbd> hides the guides.
+   step through seeds, <kbd>G</kbd> hides the guides. <kbd>C</kbd> steps through the
+   lines to compose the sheet by and <kbd>F</kbd> shows the frame round the drawing (see
+   *Composing the sheet*).
 3. **Export SVG** writes the file. **Copy link** puts the whole sheet in the clipboard as
    a URL — every setting that is not a default is in the hash, so pasting it anywhere
    rebuilds exactly this drawing.
@@ -201,6 +203,43 @@ All three are parallel, so a line is the same weight near and far and so is the
 hatching. At 100 % **Zoom** every box that is left, loose ones included, just fits inside
 the margin; a new seed can move the fit a little, since it follows wherever the loosest
 boxes happened to fly.
+
+## Composing the sheet
+
+Placing the drawing is the zoom and the pan; the **Composition** part of the panel is
+there to see where it has landed. None of it is ever plotted — it sits over the preview
+with the other guides, and <kbd>G</kbd> hides all of them at once.
+
+**Lines over the sheet** draws, edge to edge across the paper:
+
+- **cross** — two lines through the middle of the sheet, to centre the drawing by. The
+  margins are the same all round, so it is also the middle of the drawable area.
+- **golden section** — each way, the two lines that cut the sheet into 0.382 and 0.618
+  of it: where to put the edge of the tower, the break of the front or the thickest of
+  the spray.
+- **thirds** — the painter's grid.
+- **cross + golden section** — both.
+
+<kbd>C</kbd> steps through them. **Frame round the drawing** (<kbd>F</kbd>) adds, dashed,
+the box round everything the boxes cover — cut by the margin or not — with a small cross
+at its middle, a ring where the weight of the ink sits, and on each side how far the
+frame is from that edge of the sheet, in millimetres. The same number left and right,
+and top and bottom, is a drawing centred by its frame; a negative one is a frame that runs
+off the sheet. The stats say the same in a line: how large the drawing is and how far its
+middle is off the middle of the sheet.
+
+Two buttons do the centring:
+
+- **Centre the frame** pans the middle of the frame onto the middle of the sheet. At a
+  pan of 0 the fit has already done that, so this is the way back after panning by hand,
+  at any zoom.
+- **Centre the ink** pans the weight of the ink there instead — every stroke's middle,
+  weighted by its length. A dissolving block is lopsided: the solid is on one side and
+  weighs, the spray on the other is light, and the frame's middle falls somewhere in the
+  thin of the spray. Centring the ink puts the solid in the middle and balances the sheet
+  the way the eye reads it. If that pushes a drawing that was whole off the sheet, the
+  zoom comes down just far enough to bring it back; a drawing already cut by the margin
+  keeps its zoom, since the crop was meant.
 
 ## Hatching
 

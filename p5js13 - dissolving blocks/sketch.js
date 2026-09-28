@@ -50,6 +50,8 @@ const TOP_HATCHES  = ['none', 'along left', 'along right', 'grid', 'diagonal', '
 const HATCH_PHASES = ['per face', 'lattice'];
 const EDGE_MODES   = ['every edge', 'outline', 'none'];
 const SVG_OUTPUTS  = ['one file', 'one file per pen', 'both'];
+const COMPOSE_LINES = ['none', 'cross', 'golden section', 'thirds', 'cross + golden section'];
+const GOLDEN       = (3 - Math.sqrt(5)) / 2;   // 0.382 — the smaller part of a golden cut
 
 const MAX_PENS       = 3;
 const INK_MARK       = -1;        // cut guides: drawn with every pen
@@ -173,6 +175,10 @@ const settings = {
   liveUpdate: true,
   showGuides: true,
   svgOutput: 'one file',
+
+  // composition — lines over the preview to place the drawing by, never plotted
+  composeLines: 'none',
+  showFrame: false,     // the drawing's frame, its middle and how far it is from each edge
 };
 
 const DEFAULTS = { ...settings };
@@ -271,6 +277,8 @@ let perPen  = null;          // per pen: { strokes, ink }
 let counts  = null;          // what the hidden-line pass found, for the stats
 let lastMs  = 0;
 let drag    = null;          // while the mouse is down: where it went down, and from what
+let frameBox = null;         // { x0, y0, x1, y1 } — what the boxes cover on paper, in mm
+let inkMid  = null;          // { x, y } — where the weight of the ink sits, in mm
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Small change
@@ -468,18 +476,19 @@ function update() {
   const t0 = performance.now();
   area = drawArea();
   strokes = 0;
-  shapes = plan = perPen = counts = null;
+  shapes = plan = perPen = counts = frameBox = inkMid = null;
   const st = ensureStructure();
 
   if (area.w > 0 && area.h > 0 && st.n > 0) {
     makeView();
     fitView(st);
     placeBoxes(st);
+    frameBox = measureFrame();
     shapes = buildShapes();
     strokes = shapes.off.length - 1;
     // Past the limit nothing is ordered, drawn or exported — the stats say why.
     if (strokes > MAX_STROKES) { shapes = null; perPen = null; }
-    else plan = orderShapes(shapes);
+    else { plan = orderShapes(shapes); inkMid = measureInk(); }
   }
 
   lastMs = performance.now() - t0;
@@ -2697,8 +2706,40 @@ function drawStrokes(ctx, s) {
   ctx.restore();
 }
 
+// What the boxes cover on paper, in full — cut by the margin or not — and where the weight
+// of the ink sits: every stroke's middle, weighted by its length, the cut guides left out.
+// The one frames the drawing, the other is where the eye feels its middle to be.
+function measureFrame() {
+  if (!NB) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < NB; i++) {
+    const b = i * 4;
+    if (BS[b] < x0) x0 = BS[b];
+    if (BS[b + 1] < y0) y0 = BS[b + 1];
+    if (BS[b + 2] > x1) x1 = BS[b + 2];
+    if (BS[b + 3] > y1) y1 = BS[b + 3];
+  }
+  return { x0, y0, x1, y1 };
+}
+
+function measureInk() {
+  if (!shapes) return null;
+  const { pts, off, ink } = shapes;
+  let sx = 0, sy = 0, sw = 0;
+  for (let i = 0; i + 1 < off.length; i++) {
+    if (ink[i] === INK_MARK) continue;
+    for (let k = off[i]; k < off[i + 1] - 1; k++) {
+      const ax = pts[k * 2], ay = pts[k * 2 + 1], bx = pts[k * 2 + 2], by = pts[k * 2 + 3];
+      const l = Math.hypot(bx - ax, by - ay);
+      sx += l * (ax + bx) / 2; sy += l * (ay + by) / 2; sw += l;
+    }
+  }
+  return sw > 0 ? { x: sx / sw, y: sy / sw } : null;
+}
+
 // The margin, and an arrow from the middle of the solid the way the front runs and as
-// far as the drift carries the loosest boxes.
+// far as the drift carries the loosest boxes. Over them, if asked, the lines to compose
+// the sheet by and the frame round the drawing.
 function drawGuides(ctx, s) {
   const dark = darkPaper();
   ctx.save();
@@ -2708,6 +2749,7 @@ function drawGuides(ctx, s) {
   ctx.strokeStyle = dark ? 'rgba(130, 175, 255, 0.55)' : 'rgba(26, 109, 209, 0.5)';
   ctx.strokeRect(area.x0, area.y0, area.w, area.h);
   ctx.setLineDash([]);
+  drawComposition(ctx, dark);
 
   if (struct && struct.n && (ER_MODE === 1 || ER_MODE === 3)) {
     const b = struct.M.bbox;
@@ -2733,6 +2775,83 @@ function drawGuides(ctx, s) {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+// Lines across the whole sheet: a cross through its middle, the golden section — each
+// way, the smaller part 0.382 of the sheet and the larger 0.618 — or thirds. The margins
+// are the same all round, so the middle of the sheet is the middle of the drawable area.
+// And the frame round the drawing: its extent, dashed; its middle, a small cross; where
+// the weight of the ink sits, a ring; and on each side how far the frame is from that
+// edge of the sheet — the same number left and right, and top and bottom, is a drawing
+// centred by its frame.
+function drawComposition(ctx, dark) {
+  const [W, H] = paperDims();
+  const mode = settings.composeLines;
+  const across = (f, g) => {
+    ctx.beginPath();
+    for (const t of f) { ctx.moveTo(W * t, 0); ctx.lineTo(W * t, H); }
+    for (const t of g) { ctx.moveTo(0, H * t); ctx.lineTo(W, H * t); }
+    ctx.stroke();
+  };
+  ctx.lineWidth = 0.3;
+  if (mode === 'thirds') {
+    ctx.strokeStyle = dark ? 'rgba(175, 185, 225, 0.7)' : 'rgba(80, 90, 135, 0.6)';
+    ctx.setLineDash([0.8, 1.2]);
+    across([1 / 3, 2 / 3], [1 / 3, 2 / 3]);
+  }
+  if (mode === 'golden section' || mode === 'cross + golden section') {
+    ctx.strokeStyle = dark ? 'rgba(255, 205, 70, 0.8)' : 'rgba(190, 135, 0, 0.8)';
+    ctx.setLineDash([2.5, 1.5]);
+    across([GOLDEN, 1 - GOLDEN], [GOLDEN, 1 - GOLDEN]);
+  }
+  if (mode === 'cross' || mode === 'cross + golden section') {
+    ctx.strokeStyle = dark ? 'rgba(255, 120, 190, 0.8)' : 'rgba(205, 40, 125, 0.7)';
+    ctx.setLineDash([]);
+    across([0.5], [0.5]);
+  }
+  ctx.setLineDash([]);
+
+  const fb = frameBox;
+  if (!settings.showFrame || !fb) return;
+  const col = dark ? 'rgba(95, 220, 160, 0.9)' : 'rgba(20, 135, 85, 0.85)';
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 0.3;
+  ctx.setLineDash([1.5, 1]);
+  ctx.strokeRect(fb.x0, fb.y0, fb.x1 - fb.x0, fb.y1 - fb.y0);
+  ctx.setLineDash([]);
+  const mx = (fb.x0 + fb.x1) / 2, my = (fb.y0 + fb.y1) / 2;
+  ctx.beginPath();
+  ctx.moveTo(mx - 1.6, my - 1.6); ctx.lineTo(mx + 1.6, my + 1.6);
+  ctx.moveTo(mx - 1.6, my + 1.6); ctx.lineTo(mx + 1.6, my - 1.6);
+  if (inkMid) {
+    ctx.moveTo(inkMid.x + 1.8, inkMid.y);
+    ctx.arc(inkMid.x, inkMid.y, 1.8, 0, Math.PI * 2);
+  }
+  ctx.stroke();
+
+  // how far the frame is from each edge of the sheet, written just outside it where
+  // there is room and just inside where there is not
+  ctx.font = '3px -apple-system, BlinkMacSystemFont, sans-serif';
+  ctx.lineWidth = 0.8;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = settings.paperColor;
+  ctx.fillStyle = col;
+  const label = (text, x, y, ax, ay) => {
+    ctx.textAlign = ax;
+    ctx.textBaseline = ay;
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
+  };
+  const mm = v => v.toFixed(1);
+  const cy = clamp(my, 4, H - 4), cx = clamp(mx, 8, W - 8);
+  if (fb.x0 > 12) label(mm(fb.x0), fb.x0 - 1, cy, 'right', 'middle');
+  else label(mm(fb.x0), Math.max(fb.x0, 0) + 1, cy, 'left', 'middle');
+  if (W - fb.x1 > 12) label(mm(W - fb.x1), fb.x1 + 1, cy, 'left', 'middle');
+  else label(mm(W - fb.x1), Math.min(fb.x1, W) - 1, cy, 'right', 'middle');
+  if (fb.y0 > 5) label(mm(fb.y0), cx, fb.y0 - 1, 'center', 'bottom');
+  else label(mm(fb.y0), cx, Math.max(fb.y0, 0) + 1, 'center', 'top');
+  if (H - fb.y1 > 5) label(mm(H - fb.y1), cx, fb.y1 + 1, 'center', 'top');
+  else label(mm(H - fb.y1), cx, Math.min(fb.y1, H) - 1, 'center', 'bottom');
 }
 
 // While the camera moves and a whole update cannot keep up, only the boxes follow: each
@@ -2785,7 +2904,8 @@ function showModel() {
   makeView();
   fitView(st);
   placeBoxes(st);
-  shapes = plan = null;
+  frameBox = measureFrame();
+  shapes = plan = inkMid = null;
   drawModel();
 }
 
@@ -2891,6 +3011,44 @@ function zoomAbout(factor, m) {
   if (!liveUpdate()) { showModel(); settle(); }
 }
 
+// Pan the drawing so the middle of its frame, or the weight of its ink, lands on the
+// middle of the sheet. Centring the ink pulls a lopsided drawing off one side, so if the
+// whole of it was on the sheet before, the zoom then comes down just far enough for it to
+// be on the sheet again — zooming keeps whatever is in the middle in the middle. A
+// drawing already cut by the margin keeps its zoom: the crop was meant. The ink is
+// measured on what the margin leaves, which moves as the drawing does, so it is settled
+// in a few rounds.
+function centreOn(what) {
+  const [W, H] = paperDims(), cx = W / 2, cy = H / 2;
+  const fits = fb => fb && fb.x0 >= area.x0 - 0.05 && fb.x1 <= area.x1 + 0.05 &&
+                           fb.y0 >= area.y0 - 0.05 && fb.y1 <= area.y1 + 0.05;
+  const whole = fits(frameBox);
+  for (let round = 0; round < 8; round++) {
+    const p = what === 'ink' ? inkMid
+      : frameBox && { x: (frameBox.x0 + frameBox.x1) / 2, y: (frameBox.y0 + frameBox.y1) / 2 };
+    if (!p) break;
+    const dx = p.x - cx, dy = p.y - cy;
+    const off = Math.hypot(dx, dy) >= 0.02;
+    if (off) {
+      const z = settings.zoom / 100;
+      settings.panX = +(settings.panX + dx / z).toFixed(2);
+      settings.panY = +(settings.panY + dy / z).toFixed(2);
+      update();
+    }
+    const fb = frameBox;
+    if (whole && fb && !fits(fb)) {
+      const room = (edge, reach) => reach > 1e-9 ? edge / reach : Infinity;
+      const k = Math.min(room(cx - area.x0, cx - fb.x0), room(area.x1 - cx, fb.x1 - cx),
+                         room(cy - area.y0, cy - fb.y0), room(area.y1 - cy, fb.y1 - cy));
+      settings.zoom = clamp(Math.floor(settings.zoom * k * 10) / 10, MIN_ZOOM, MAX_ZOOM);
+      update();
+      continue;
+    }
+    if (!off) break;
+  }
+  if (setters.zoom) setters.zoom(settings.zoom);
+}
+
 function resetZoom() {
   settings.zoom = DEFAULTS.zoom;
   settings.panX = DEFAULTS.panX;
@@ -2948,6 +3106,21 @@ function attachKeys() {
         s.showGuides = !s.showGuides;
         if (setters.showGuides) setters.showGuides(s.showGuides);
         drawPreview();
+        syncUrl();
+        break;
+      case 'c': case 'C':
+        s.composeLines = COMPOSE_LINES[(COMPOSE_LINES.indexOf(s.composeLines) + 1) % COMPOSE_LINES.length];
+        if (!s.showGuides) { s.showGuides = true; if (setters.showGuides) setters.showGuides(true); }
+        if (setters.composeLines) setters.composeLines(s.composeLines);
+        drawPreview();
+        syncUrl();
+        break;
+      case 'f': case 'F':
+        s.showFrame = !s.showFrame;
+        if (s.showFrame && !s.showGuides) { s.showGuides = true; if (setters.showGuides) setters.showGuides(true); }
+        if (setters.showFrame) setters.showFrame(s.showFrame);
+        drawPreview();
+        updateStats();
         syncUrl();
         break;
       default: return;
@@ -3112,7 +3285,7 @@ function addCheckbox(parent, labelText, key, redrawOnly) {
   cb.changed(() => {
     settings[key] = cb.checked();
     syncVisibility();
-    if (redrawOnly) { drawPreview(); syncUrl(); } else update();
+    if (redrawOnly) { drawPreview(); updateStats(); syncUrl(); } else update();
   });
   return cb;
 }
@@ -3223,6 +3396,27 @@ function buildControls() {
     'Past that the drawing is cut at the margin. The wheel zooms about the point under ' +
     'the cursor.');
   createButton('Reset zoom and pan').parent(root).mousePressed(resetZoom);
+
+  // --- Composition ---
+  addSection(root, 'Composition');
+  addSelect(root, 'Lines over the sheet', 'composeLines', COMPOSE_LINES,
+    () => { drawPreview(); syncUrl(); },
+    'Over the preview only, never plotted. <b>cross</b> — through the middle of the ' +
+    'sheet, to centre the drawing by; <b>golden section</b> — each way at 0.382 and ' +
+    '0.618 of the sheet, to put a tower\'s edge or the break of the front on; ' +
+    '<b>thirds</b> — the painter\'s grid. <b>C</b> steps through them.');
+  addCheckbox(root, 'Frame round the drawing', 'showFrame', true);
+  createDiv('Dashed round what the boxes cover, with a small cross at its middle and a ring ' +
+    'where the weight of the ink sits; the numbers are how far it is from each edge of the ' +
+    'sheet, in mm. <b>F</b> shows and hides it.').parent(root).class('note');
+  const centreRow = createDiv('').parent(root).class('btn-row');
+  createButton('Centre the frame').parent(centreRow).mousePressed(() => centreOn('frame'));
+  createButton('Centre the ink').parent(centreRow).mousePressed(() => centreOn('ink'));
+  createDiv('Both pan the drawing. The frame is its bounding box — a spray flying off one ' +
+    'side pulls that the spray\'s way; the ink is where the drawing weighs, which is ' +
+    'mostly the solid, so centring it balances the sheet the way the eye does. If that ' +
+    'pushes a drawing that was whole off the sheet, the zoom comes down just enough to ' +
+    'bring it back.').parent(root).class('note');
 
   // --- The solid ---
   addSection(root, 'The solid');
@@ -3407,10 +3601,33 @@ function buildControls() {
     '<div><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> turn by 1°, with ' +
     '<kbd>shift</kbd> by 10°</div>' +
     '<div><kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it · <kbd>P</kbd> ' +
-    'projection · <kbd>G</kbd> guides</div>');
+    'projection · <kbd>G</kbd> guides</div>' +
+    '<div><kbd>C</kbd> lines over the sheet · <kbd>F</kbd> frame round the drawing</div>');
   linkDiv = createDiv('').parent(root).class('link');
 
   syncVisibility();
+}
+
+// How large the drawing is, and how far off the middle of the sheet its frame's middle —
+// and, with the frame shown, the weight of its ink — sits.
+function offMiddle(x, y) {
+  const [W, H] = paperDims();
+  const dx = x - W / 2, dy = y - H / 2, out = [];
+  if (Math.abs(dx) >= 0.05) out.push(`${Math.abs(dx).toFixed(1)} mm ${dx > 0 ? 'right' : 'left'}`);
+  if (Math.abs(dy) >= 0.05) out.push(`${Math.abs(dy).toFixed(1)} mm ${dy > 0 ? 'down' : 'up'}`);
+  return out.length ? out.join(' and ') + ' off the middle of the sheet' : 'on the middle of the sheet';
+}
+
+function placeLine() {
+  const fb = frameBox;
+  if (!fb) return '';
+  let html = `<div>The drawing is <b>${(fb.x1 - fb.x0).toFixed(0)} × ` +
+    `${(fb.y1 - fb.y0).toFixed(0)} mm</b>, its frame's middle ` +
+    `${offMiddle((fb.x0 + fb.x1) / 2, (fb.y0 + fb.y1) / 2)}</div>`;
+  if (settings.showFrame && inkMid) {
+    html += `<div>The weight of the ink ${offMiddle(inkMid.x, inkMid.y)}</div>`;
+  }
+  return html;
 }
 
 // One row per plot pass, since each is a separate sitting at the plotter with a
@@ -3472,6 +3689,7 @@ function updateStats() {
     `whole · ${groupNum(counts.hatch)} hatch lines</div>` +
     `<div>Pen up for ${(plan.travel / 1000).toFixed(1)} m between strokes</div>` +
     `<div>Ink covers <b>${(100 * cover).toFixed(0)} %</b> of the drawable area</div>` +
+    placeLine() +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ${lastMs.toFixed(0)} ms to ` +
     `build</div>`;
 
