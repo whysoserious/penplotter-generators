@@ -1,0 +1,396 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: #222;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+#controls {
+  width: 290px;
+  flex-shrink: 0;
+  padding: 14px 16px 20px;
+  overflow-y: auto;
+  border-right: 1px solid #ddd;
+  background: #f7f7f8;
+  box-sizing: border-box;
+}
+
+#controls .field {
+  margin-top: 12px;
+}
+
+#controls .label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #333;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+#controls .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#controls input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+#controls .row input[type="number"],
+#controls .row input[type="text"] {
+  width: 64px;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+
+#controls input[type="color"] {
+  width: 100%;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #ccc;
+  background: none;
+  cursor: pointer;
+}
+
+#controls select {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+#controls button {
+  width: 100%;
+  padding: 8px;
+  background: #222;
+  color: white;
+  border: none;
+  cursor: pointer;
+  margin-top: 10px;
+  border-radius: 2px;
+  font-size: 13px;
+}
+
+#controls button:hover {
+  background: #000;
+}
+
+#controls .primary {
+  background: #1a6dd1;
+}
+
+#controls .primary:hover {
+  background: #1257b0;
+}
+
+#controls .btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+#controls .btn-row button {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 4px;
+  font-size: 12px;
+}
+
+#controls .inline-btn {
+  width: auto;
+  margin-top: 0;
+  padding: 3px 8px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+#controls .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+#controls .section {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid #dcdce0;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #1a6dd1;
+}
+
+#controls .section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+#controls .note {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #777;
+}
+
+#controls .note b {
+  color: #444;
+  font-family: 'Courier New', monospace;
+}
+
+#controls .stats {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: #555;
+}
+
+#controls .stats b {
+  color: #222;
+}
+
+#controls .stats .big {
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+#controls .stats .big b {
+  font-size: 16px;
+}
+
+#controls .ok   { color: #1a7f37; }
+#controls .dim  { color: #999; }
+#controls .warn { color: #b23a00; font-weight: 600; }
+
+#controls .stats .warn {
+  display: block;
+  margin-top: 6px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+#controls .link {
+  margin-top: 8px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: #999;
+  word-break: break-all;
+  font-family: 'Courier New', monospace;
+  max-height: 62px;
+  overflow: hidden;
+}
+
+#controls .copied {
+  color: #1a7f37;
+  font-weight: 600;
+}
+
+#controls .keys div {
+  margin-top: 2px;
+}
+
+#controls .keys kbd,
+#transport kbd {
+  display: inline-block;
+  min-width: 10px;
+  padding: 0 4px;
+  border: 1px solid #ccc;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: #fff;
+  color: #333;
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* one row per pen: swatch, what it draws, how much of it */
+#controls .pen-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: #555;
+}
+
+#controls .pen-row .sw,
+#controls button .sw {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+  vertical-align: -1px;
+  margin-right: 6px;
+}
+
+#controls button .sw {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* the sheet, and the bar under it that runs the fluid back and forth */
+#stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #e9e9ec;
+}
+
+#canvas-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+#sheet {
+  position: relative;
+  line-height: 0;
+}
+
+#sheet canvas {
+  display: block;
+}
+
+#sheet canvas.p5Canvas {
+  background: white;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+#sheet canvas.p5Canvas.stirring {
+  cursor: grabbing;
+}
+
+#sheet canvas.overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+#transport {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px 10px;
+  border-top: 1px solid #d6d6db;
+  background: #f7f7f8;
+  font-size: 12px;
+  color: #555;
+  user-select: none;
+}
+
+#transport button {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #c9c9cf;
+  border-radius: 3px;
+  background: #fff;
+  color: #222;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+#transport button:hover {
+  background: #eef3fb;
+  border-color: #1a6dd1;
+}
+
+#transport button.play {
+  width: 38px;
+  background: #1a6dd1;
+  border-color: #1a6dd1;
+  color: #fff;
+}
+
+#transport button.play:hover {
+  background: #1257b0;
+}
+
+#transport .scrub {
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  height: 26px;
+  margin: 0 8px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+#transport .scrub .track,
+#transport .scrub .done,
+#transport .scrub .played {
+  position: absolute;
+  left: 0;
+  top: 11px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+#transport .scrub .track  { right: 0; background: #d8d8de; }
+#transport .scrub .done   { background: #b7c9e6; }
+#transport .scrub .played { background: #1a6dd1; }
+
+#transport .scrub .knob {
+  position: absolute;
+  top: 6px;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #1a6dd1;
+  box-sizing: border-box;
+}
+
+#transport .clock {
+  min-width: 190px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+#transport .clock b {
+  color: #222;
+}
+
+#transport .tools {
+  display: flex;
+  gap: 4px;
+  margin-left: 10px;
+}
+
+#transport .tools button {
+  width: auto;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+
+#transport .tools button.on {
+  background: #222;
+  border-color: #222;
+  color: #fff;
+}
