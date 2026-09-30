@@ -4698,10 +4698,15 @@ function svgGroup(keep, colour, id) {
 }
 
 // A file of the groups asked for, the cut guides first in the first one's colour.
-function svgFile(groups, tag) {
+//
+// Only the whole sheet carries them. A layer's file and a pen's file are pieces of that
+// sheet, brought together again in a drawing program, where they land by the page they all
+// share — the same size and the same viewBox — and a second set of marks in every file
+// would only be plotted again with every pass.
+function svgFile(groups, tag, guides) {
   const [W, H] = paperDims();
   const all = [];
-  if (settings.cropMarks && groups.length) {
+  if (guides && settings.cropMarks && groups.length) {
     all.push([i => shapes.ink[i] === INK_MARK, groups[0][1], 'cut-guides']);
   }
   all.push(...groups);
@@ -4736,21 +4741,21 @@ function exportSvg(what) {
   if (what.all) {
     const groups = [];
     for (let i = 0; i < pens; i++) groups.push(penGroup(i));
-    files.push([groups, 'everything']);
+    files.push([groups, 'everything', true]);
   } else if (what.perPen) {
     for (let i = 0; i < pens; i++) {
-      if (perPen[i] && perPen[i].strokes) files.push([[penGroup(i)], 'pen' + (i + 1)]);
+      if (perPen[i] && perPen[i].strokes) files.push([[penGroup(i)], 'pen' + (i + 1), false]);
     }
   } else if (what.layer !== undefined) {
     const li = what.layer, ly = LAYERS[li];
-    files.push([[[j => shapes.lay[j] === li, inkColor(perLayer[li].pen), ly.id]], ly.id]);
+    files.push([[[j => shapes.lay[j] === li, inkColor(perLayer[li].pen), ly.id]], ly.id, false]);
   }
 
   const stem = `rippled sphere ${s.mesh} seed${s.seed} ${s.paper}-${s.orientation}`;
   const stamp = timestamp();
   let saved = 0;
-  for (const [groups, tag] of files) {
-    const svg = svgFile(groups, tag);
+  for (const [groups, tag, guides] of files) {
+    const svg = svgFile(groups, tag, guides);
     if (!svg) continue;
     saveStrings([svg], `${stem} ${tag} pen${s.penWidth} ${stamp}`, 'svg');
     saved++;

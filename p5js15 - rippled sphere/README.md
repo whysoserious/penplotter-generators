@@ -292,8 +292,10 @@ pans the frame's middle there, **Centre the ink** the weight of the ink.
 No fills and no background rectangle — everything in a file is meant to be plotted.
 `stroke-width` is the nib and the caps are round, so the file previews as the finished
 plot looks. **everything** is one `<g>` per pen, `id="pen1"` … ; a layer's file or a
-pen's file is one group. The cut guides go into every file, so the passes line up on
-the paper.
+pen's file is one group. The cut guides go into **everything** alone: every file is the
+same sheet — the same `width`, `height` and `viewBox` in millimetres — so two of them
+opened over one another land exactly on top of each other without a mark to align by,
+and a set of marks in every file would only be drawn again with every pass.
 
 Strokes come out in the order the pen should visit them, each already flipped to the end
 it should be entered from: greedy nearest-neighbour over the endpoints, one pen at a
