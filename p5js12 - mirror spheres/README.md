@@ -8,7 +8,10 @@ the camera in the middle and the room behind the ball pressed into the rim. Wher
 perspective or the rim crowds a pattern together it thins itself out, so the pen never has
 to lay lines on top of one another. Round the ball, close enough to be seen up close,
 ribbons can loop — the lines of a magnet's field, hoops, a helix — hiding the room and one
-another; and mirrors standing on the disc can fold the whole of it into a kaleidoscope.
+another, one side of them hatched or inked solid black; the walls can have windows and the
+open sky a sun, white holes in the room; the mirror can be shattered, or the ball be a
+cratered moon instead; and mirrors standing on the disc can fold the whole of it into a
+kaleidoscope.
 The result is exported as an SVG in millimetres, one file or one per pen, ready for the
 plotter.
 
@@ -226,7 +229,53 @@ piece of line is then cut against the triangles in front of it, which is four ha
 in its own parameter per triangle. A patch that halving never flattens is torn by the
 mirror across the rim and hides nothing. The camera looks past the ribbons: they are only
 ever seen in the ball, never in front of it. Untick **They hide what is behind them** for
-wire ribbons that hide nothing.
+wire ribbons that hide nothing. A piece of line under 0.5 mm with a ribbon on both sides of
+it has come through a crack between two triangles, and is left out.
+
+### Ink on one side
+
+**Ink on one side** fills one side of every ribbon — **hatch**ed at **Hatch gap**, or
+**solid** black in passes **Solid passes** per cent of the nib apart (85 overlaps them by
+15 %, as everywhere else in the repository). The mirror shows the two sides of a ribbon
+turned opposite ways round on paper, so a ribbon that turns over in the mirror goes from
+white to black; **Which side** picks the one inked. The passes run at **Passes run at**
+across the sheet and are cut from the ribbon's own triangles, each only where nothing
+nearer hides it. Solid passes stop half a nib short of where they run out, so the ink ends
+where the black does; what edges the black — the ribbon's own edges, whatever stands in
+front of it, the rim — is drawn already, or it is the fold where the ribbon turns over. The
+passes are strung back and forth into as few strokes as keep the step between two passes
+on the ink.
+
+Which side faces the ball depends on the ribbon: a helix drawn round the ball shows the
+ball only its inner side, so it is the **front** that is worth inking there.
+
+## Windows and the sun
+
+**Windows in each wall** cuts holes in the four walls, evenly along each, **Window width**
+by **Window height** with their **Sill above the floor**, edged by a frame and **Glazing
+bars each way**. When the floor is open, **The sun in the sky** puts a disc **Sun size**
+across its radius, **Sun above the horizon** and **Sun round** from behind the camera — at
+0 it shows in the middle of the ball, at 180 it is behind the ball and pressed into the
+rim — with **Sun rays** round it if asked. Through a hole there is nothing but white.
+
+A hole is laid down as triangles the way a ribbon is, but looked up by direction like the
+rest of the room and set past every ribbon, so it hides the room behind it and never a
+ribbon in front of it. Its frame belongs to it and is never hidden by it.
+
+## The ball's skin
+
+- **mirror** — everything above.
+- **shattered** — the mirror broken into shards: the cells of the ball round **Shards**
+  points scattered over it (Fibonacci's, shaken by the seed), **Shards left in** of them
+  kept and the rest fallen out. Each is drawn **Gap between shards** smaller about its
+  middle, so paper shows between them, and **Edge the shards** outlines it — a shard's
+  edges are arcs of great circles, found exactly, corners and all.
+- **moon** — no mirror at all: a moon seen straight on, drawn as **Contours** of its
+  height. The ground rolls by **Rolling ground**, four octaves of value noise **How finely
+  it rolls**, and **Craters** are bowls sunk into it in raised rims, small ones common and
+  big ones rare. The contours crowd together towards the limb, where the moon turns away.
+
+Both are laid out by the **Seed**.
 
 ## The kaleidoscope
 
@@ -239,8 +288,9 @@ that runs into a mirror meets its own image there, and the two are joined into o
 ## Pens
 
 Up to three, one plotter pass each. The floor, the ceiling, the walls, the corners (or the
-horizon), the ribbons and the rim each have a pen of their own, set next to them in the
-panel.
+horizon), the ribbons, the shards' edges or the moon, and the rim each have a pen of their
+own, set next to them in the panel. A window's frame goes with its wall and the sun with
+the sky; a ribbon's ink with the ribbon.
 
 ## What ends up in the file
 

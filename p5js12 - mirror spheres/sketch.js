@@ -80,6 +80,8 @@ const PATTERNS    = ['none', 'grid', 'stripes', 'diamonds', 'triangles', 'hexago
                      'spiral', 'rays', 'whirl', 'posts', 'net'];
 const UNSIZED     = ['none', 'rays', 'whirl', 'net'];   // patterns the tile does not scale
 const THINGS      = ['none', 'field', 'hoops', 'helix'];
+const FILLS       = ['none', 'hatch', 'solid'];
+const SKINS       = ['mirror', 'shattered', 'moon'];
 const SVG_OUTPUTS = ['one file', 'one file per pen', 'both'];
 
 const MAX_PENS       = 3;
@@ -176,6 +178,37 @@ const settings = {
   ribbonLanes: 2,       // lines along each ribbon, its edges included
   thingsHide: true,     // they hide the room behind them, and one another
   thingPen: 1,
+
+  // ink on one side of every ribbon
+  ribbonFill: 'none',   // none, hatch, solid
+  fillSide: 'back',     // which side of a ribbon — the mirror shows the two turned opposite ways
+  fillGap: 0.8,         // mm between two passes of a hatch
+  solidGap: 85,         // % of the nib between two passes of solid black
+  fillAngle: 45,        // deg the passes run at, on the sheet
+
+  // holes in the room: windows in the walls, the sun in an open sky
+  windows: 0,           // along each wall
+  windowW: 1.2,         // units
+  windowH: 1.6,
+  windowSill: 0.9,      // units above the floor
+  windowBars: 1,        // glazing bars each way
+  sun: false,
+  sunElev: 25,          // deg above the horizon
+  sunTurn: 0,           // deg round from straight ahead
+  sunSize: 8,           // deg across its radius
+  sunRays: 0,
+
+  // the ball's skin
+  ballSkin: 'mirror',   // mirror, shattered, moon
+  shards: 60,           // cells the mirror breaks into, over the whole ball
+  shardKeep: 0.7,       // share of them left in
+  shardGap: 0.06,       // each drawn this much smaller about its seed
+  shardEdges: true,
+  moonLevels: 14,       // contours
+  moonCraters: 90,
+  moonRough: 0.15,      // how much the ground rolls between the craters
+  moonScale: 3,         // how finely
+  skinPen: 1,
 
   // the kaleidoscope — mirrors standing on the disc, through its middle
   kaleido: 0,           // how many; 0 is none
@@ -288,6 +321,28 @@ const SCENES = [
       things: 'field', fieldShift: 0.85, thingCount: 10, thingShells: 4, thingReach: 6,
       thingTilt: 70, ribbonW: 0.2, ribbonLanes: 3, floor: 'grid', ceiling: 'none',
       walls: 'none', edges: false, kaleido: 1 } },
+  { label: 'Black ribbons', s: {
+      things: 'field', fieldShift: 0.85, thingCount: 10, thingShells: 4, thingReach: 6,
+      thingTilt: 70, ribbonW: 0.2, ribbonLanes: 3, ribbonFill: 'solid', ceiling: 'none',
+      walls: 'none', edges: false } },
+  { label: 'Hatched peel', s: {
+      things: 'helix', thingCount: 5, thingReach: 1.8, ribbonW: 0.5, ribbonLanes: 2,
+      ribbonFill: 'hatch', fillSide: 'front', fillGap: 1, ceiling: 'rays', walls: 'none', edges: false } },
+  { label: 'Windows', s: {
+      windows: 3, windowW: 1.4, windowH: 2, windowSill: 0.8, walls: 'bricks',
+      floor: 'cells', floorScale: 2, ceiling: 'diamonds', ceilingScale: 2, yaw: 30,
+      pitch: 10 } },
+  { label: 'Sun over the fields', s: {
+      scene: 'open', sun: true, sunElev: 20, sunSize: 10, sunRays: 16, floor: 'stripes',
+      ceiling: 'rings', roomH: 8, ballH: 1, tile: 0.5, yaw: 0, pitch: 4 } },
+  { label: 'Shattered mirror', s: {
+      ballSkin: 'shattered', rim: false, floor: 'hexagons', ceiling: 'rays', walls: 'grid' } },
+  { label: 'Shattered kaleidoscope', s: {
+      ballSkin: 'shattered', shards: 40, shardKeep: 0.8, rim: false, roomW: 8, roomD: 8,
+      roomH: 8, ballH: 4, floor: 'polygons', ceiling: 'polygons', walls: 'arches',
+      sides: 6, floorScale: 2, ceilingScale: 2, wallScale: 1.5, yaw: 10, pitch: 40,
+      kaleido: 3 } },
+  { label: 'The moon itself', s: { ballSkin: 'moon' } },
 ];
 
 const setters   = {};        // settings key -> function that moves its control
@@ -931,7 +986,7 @@ function traceCurve(c, sink) {
 // next.
 function begin(t, id, level) {
   C.t = t; C.id = id; C.level = level;
-  C.nm = NB_FAMILY; C.closed = false; C.g = 0; C.tw = 0; C.rib = -1;
+  C.nm = NB_FAMILY; C.closed = false; C.g = 0; C.tw = 0; C.rib = CUR_RIB;
 }
 
 function onFace(f) {
@@ -1248,6 +1303,7 @@ function countCurves() {
       case 'net':       n += NET_AXES.length; break;
     }
   }
+  if (settings.ballSkin === 'moon') return 0;
   return n + countRibbonCurves();
 }
 
@@ -2469,12 +2525,14 @@ function countRibbonCurves() {
 const TRI_SAG   = 0.1;        // mm — how far the middle of a triangle's side may stray
 const TRI_DEPTH = 10;         // halvings a patch is allowed
 const TRI_TORN  = 1;          // mm — a side longer than this, still bent at the last halving, is torn
+const CRACK     = 0.5;        // mm — a piece of line shorter than this, hidden both sides, is a crack
 const TRI_EDGE  = 4;          // halvings a patch half in the ball's shadow is allowed
 
 let NOCC = 0, OCAP = 0;
 let OAX = new Float64Array(0), OAY = OAX, OBX = OAX, OBY = OAX, OCX = OAX, OCY = OAX;
 let OPA = OAX, OPB = OAX, OPC = OAX, OX0 = OAX, OY0 = OAX, OX1 = OAX, OY1 = OAX, OQM = OAX;
 let ORIB = new Int32Array(0), OIDX = ORIB, OSTAMP = ORIB, OSTAMP_N = 0;
+let OBK = new Uint8Array(0);         // per triangle: 1 when the mirror shows it turned over
 let RIB_N = [], RIB_C = [];          // per ribbon: its samples, and whether it closes
 let BIN_W = 1, BIN_H = 1, BIN_X0 = 0, BIN_Y0 = 0, BIN_SZ = 1;
 let BIN_OFF = new Int32Array(2), BIN_IDX = new Int32Array(0);
@@ -2487,6 +2545,7 @@ function growOccluders() {
   OPA = f(OPA); OPB = f(OPB); OPC = f(OPC);
   OX0 = f(OX0); OY0 = f(OY0); OX1 = f(OX1); OY1 = f(OY1); OQM = f(OQM);
   ORIB = g(ORIB); OIDX = g(OIDX);
+  const bk = new Uint8Array(cap); bk.set(OBK.subarray(0, NOCC)); OBK = bk;
   OSTAMP = new Int32Array(cap);
   OCAP = cap;
 }
@@ -2496,6 +2555,7 @@ function addTriangle(ax, ay, qa, bx, by, qb, cx, cy, qc, rib, idx) {
   if (Math.abs(den) < 1e-12) return;              // seen edge on: it hides nothing
   if (Math.max(ax, bx, cx) < area.x0 || Math.min(ax, bx, cx) > area.x1 ||
       Math.max(ay, by, cy) < area.y0 || Math.min(ay, by, cy) > area.y1) return;
+  const turned = den < 0 ? 1 : 0;
   if (den < 0) {
     let t = bx; bx = cx; cx = t;
     t = by; by = cy; cy = t;
@@ -2503,6 +2563,7 @@ function addTriangle(ax, ay, qa, bx, by, qb, cx, cy, qc, rib, idx) {
     den = -den;
   }
   if (NOCC === OCAP) growOccluders();
+  OBK[NOCC] = turned;
   const k = NOCC++;
   OAX[k] = ax; OAY[k] = ay; OBX[k] = bx; OBY[k] = by; OCX[k] = cx; OCY[k] = cy;
   const A = ((qb - qa) * (cy - ay) - (qc - qa) * (by - ay)) / den;
@@ -2531,39 +2592,39 @@ function sideLong(a, b) {
   return Math.hypot(b[0] - a[0], b[1] - a[1]) > TRI_TORN;
 }
 
-// The patch p over [f0, f1] × [g0, g1], its corners a (f0 g0), b (f1 g0), c (f1 g1) and
-// e (f0 g1) already looked up.
-function laPatch(p, f0, f1, g0, g1, a, b, c, e, d, rib, idx) {
+// The patch over [f0, f1] × [g0, g1] that `look` looks up, its corners a (f0 g0), b (f1
+// g0), c (f1 g1) and e (f0 g1) already looked up.
+function laPatch(look, f0, f1, g0, g1, a, b, c, e, d, rib, idx) {
   if (!a && !b && !c && !e) return;
   const fm = 0.5 * (f0 + f1), gm = 0.5 * (g0 + g1);
   if (!a || !b || !c || !e) {
     if (d >= TRI_EDGE) return;
-    const mb = patchLook(p, fm, g0), mt = patchLook(p, fm, g1);
-    const ml = patchLook(p, f0, gm), mr = patchLook(p, f1, gm), mm = patchLook(p, fm, gm);
-    laPatch(p, f0, fm, g0, gm, a, mb, mm, ml, d + 1, rib, idx);
-    laPatch(p, fm, f1, g0, gm, mb, b, mr, mm, d + 1, rib, idx);
-    laPatch(p, fm, f1, gm, g1, mm, mr, c, mt, d + 1, rib, idx);
-    laPatch(p, f0, fm, gm, g1, ml, mm, mt, e, d + 1, rib, idx);
+    const mb = look(fm, g0), mt = look(fm, g1);
+    const ml = look(f0, gm), mr = look(f1, gm), mm = look(fm, gm);
+    laPatch(look, f0, fm, g0, gm, a, mb, mm, ml, d + 1, rib, idx);
+    laPatch(look, fm, f1, g0, gm, mb, b, mr, mm, d + 1, rib, idx);
+    laPatch(look, fm, f1, gm, g1, mm, mr, c, mt, d + 1, rib, idx);
+    laPatch(look, f0, fm, gm, g1, ml, mm, mt, e, d + 1, rib, idx);
     return;
   }
-  const mb = patchLook(p, fm, g0), mt = patchLook(p, fm, g1);
-  const ml = patchLook(p, f0, gm), mr = patchLook(p, f1, gm);
+  const mb = look(fm, g0), mt = look(fm, g1);
+  const ml = look(f0, gm), mr = look(f1, gm);
   const along = !mb || !mt || sideBent(a, mb, b) || sideBent(e, mt, c);
   const across = !ml || !mr || sideBent(a, ml, e) || sideBent(b, mr, c);
   if ((along || across) && d < TRI_DEPTH) {
     if (along && across) {
-      const mm = patchLook(p, fm, gm);
+      const mm = look(fm, gm);
       if (!mm) return;
-      laPatch(p, f0, fm, g0, gm, a, mb, mm, ml, d + 1, rib, idx);
-      laPatch(p, fm, f1, g0, gm, mb, b, mr, mm, d + 1, rib, idx);
-      laPatch(p, fm, f1, gm, g1, mm, mr, c, mt, d + 1, rib, idx);
-      laPatch(p, f0, fm, gm, g1, ml, mm, mt, e, d + 1, rib, idx);
+      laPatch(look, f0, fm, g0, gm, a, mb, mm, ml, d + 1, rib, idx);
+      laPatch(look, fm, f1, g0, gm, mb, b, mr, mm, d + 1, rib, idx);
+      laPatch(look, fm, f1, gm, g1, mm, mr, c, mt, d + 1, rib, idx);
+      laPatch(look, f0, fm, gm, g1, ml, mm, mt, e, d + 1, rib, idx);
     } else if (along) {
-      laPatch(p, f0, fm, g0, g1, a, mb, mt, e, d + 1, rib, idx);
-      laPatch(p, fm, f1, g0, g1, mb, b, c, mt, d + 1, rib, idx);
+      laPatch(look, f0, fm, g0, g1, a, mb, mt, e, d + 1, rib, idx);
+      laPatch(look, fm, f1, g0, g1, mb, b, c, mt, d + 1, rib, idx);
     } else {
-      laPatch(p, f0, f1, g0, gm, a, b, mr, ml, d + 1, rib, idx);
-      laPatch(p, f0, f1, gm, g1, ml, mr, c, e, d + 1, rib, idx);
+      laPatch(look, f0, f1, g0, gm, a, b, mr, ml, d + 1, rib, idx);
+      laPatch(look, f0, f1, gm, g1, ml, mr, c, e, d + 1, rib, idx);
     }
     return;
   }
@@ -2573,13 +2634,19 @@ function laPatch(p, f0, f1, g0, g1, a, b, c, e, d, rib, idx) {
   addTriangle(a[0], a[1], a[2], c[0], c[1], c[2], e[0], e[1], e[2], rib, idx);
 }
 
-function buildOccluders(ribs) {
+function buildOccluders(ribs, holes) {
   NOCC = 0;
   RIB_N = ribs.map(r => r.n);
   RIB_C = ribs.map(r => r.closed);
-  if (!ribs.length || !settings.thingsHide) return;
+  if (settings.thingsHide) ribbonTriangles(ribs);
+  holeTriangles(holes);
+  binOccluders();
+}
+
+function ribbonTriangles(ribs) {
   const cols = ribbonCols();
   const p = new Float64Array(12);                 // a patch: (i, o0) (i+1, o0) (i, o1) (i+1, o1)
+  const look = (f, g) => patchLook(p, f, g);
 
   for (let ri = 0; ri < ribs.length; ri++) {
     const rb = ribs[ri], m = rb.closed ? rb.n + 1 : rb.n;
@@ -2590,11 +2657,13 @@ function buildOccluders(ribs) {
         ribbonPoint(rb, i + 1, o0); p.set(RIB_PT, 3);
         ribbonPoint(rb, i, o1); p.set(RIB_PT, 6);
         ribbonPoint(rb, i + 1, o1); p.set(RIB_PT, 9);
-        laPatch(p, 0, 1, 0, 1, patchLook(p, 0, 0), patchLook(p, 1, 0), patchLook(p, 1, 1),
-                patchLook(p, 0, 1), 0, ri, i);
+        laPatch(look, 0, 1, 0, 1, look(0, 0), look(1, 0), look(1, 1), look(0, 1), 0, ri, i);
       }
     }
   }
+}
+
+function binOccluders() {
   OSTAMP.fill(0);
   OSTAMP_N = 0;
 
@@ -2711,6 +2780,7 @@ function visibleStretches(x0, y0, q0, x1, y1, q1, rib, i0, i1, back) {
           OSTAMP[k] = stamp;
           if (OX1[k] < mnx || OX0[k] > mxx || OY1[k] < mny || OY0[k] > mxy) continue;
           if (!back && (OQM[k] >= qmax - Q_EPS || nextTo(k, rib, i0, i1))) continue;
+          if (rib <= -2 && ORIB[k] === rib) continue;       // a window and its own frame
           if (!hideStretch(k, x0, y0, q0, dx, dy, dq, back)) continue;
           if (2 * n + 2 > INTS.length) {
             const bigger = new Float64Array(INTS.length * 2);
@@ -2788,7 +2858,15 @@ function occludedRun(sink, c, closed) {
     t.xs.pop(); t.ys.pop(); t.gs.pop();
     pieces[0] = { xs: t.xs.concat(h.xs), ys: t.ys.concat(h.ys), gs: t.gs.concat(h.gs) };
   }
-  for (const p of pieces) emitPath(p.xs, p.ys, p.gs, p.xs.length, true, false, sink, c.id);
+  for (const p of pieces) {
+    // A crumb hidden on both sides has come through a crack between two triangles.
+    if (!p.head && !p.tail) {
+      let L = 0;
+      for (let i = 1; i < p.xs.length && L < CRACK; i++) L += Math.hypot(p.xs[i] - p.xs[i - 1], p.ys[i] - p.ys[i - 1]);
+      if (L < CRACK) continue;
+    }
+    emitPath(p.xs, p.ys, p.gs, p.xs.length, true, false, sink, c.id);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -2902,6 +2980,452 @@ function joinRuns(runs, eps) {
   return out;
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
+// Windows and the sun
+//
+// A window in a wall, or the sun in the sky, is a hole in the room: the ball shows
+// nothing there but white. It is laid down as triangles like a ribbon is, walked by the
+// room's own lookup by direction, and set HOLE_Q ball radii off — past every ribbon and
+// short of the room — so it hides the room behind it and nothing in front of it. Its
+// frame is drawn as part of the room and must not be hidden by the hole it frames, so
+// every hole has an id of its own, −2 and down, which its frame carries along with it.
+
+const HOLE_Q = 1e9;
+let CUR_RIB = -1;                    // what the curves begun now belong to: −1 the room
+
+// The windows along each wall, and the sun when the floor is open: for each, how a
+// point (f, g) of it is looked up, the grid its triangles start from, and its frame.
+function holeList(B) {
+  const s = settings, out = [];
+  if (!B.open && s.windows >= 1) {
+    const n = Math.round(s.windows), w = Math.max(0.05, s.windowW), h = Math.max(0.05, s.windowH);
+    for (const f of faces(B).slice(2)) {
+      const L = f.u1 - f.u0;
+      const v0 = B.y0 + Math.max(0, s.windowSill), v1 = Math.min(B.y1, v0 + h);
+      if (w * n > L || !(v1 > v0)) continue;
+      for (let k = 0; k < n; k++) {
+        const uc = f.u0 + (k + 0.5) * L / n, u0 = uc - w / 2, u1 = uc + w / 2;
+        const F = f.F, U = f.U, V = f.V;
+        out.push({
+          nf: 8, ng: 8,
+          look(a, b) {
+            const u = u0 + (u1 - u0) * a, v = v0 + (v1 - v0) * b;
+            HD[0] = F[0] + u * U[0] + v * V[0];
+            HD[1] = F[1] + u * U[1] + v * V[1];
+            HD[2] = F[2] + u * U[2] + v * V[2];
+            return toPaper() ? [PX, PY, HOLE_Q] : null;
+          },
+          frame(sink) {
+            const nb = { id: f.id, level: -1, N: [0, 0, 0] };
+            polyCurve(f, [u0, u1, u1, u0, u0], [v0, v0, v1, v1, v0], true, nb, sink);
+            const bars = Math.max(0, Math.round(s.windowBars));
+            for (let i = 1; i <= bars; i++) {
+              const u = u0 + (u1 - u0) * i / (bars + 1), v = v0 + (v1 - v0) * i / (bars + 1);
+              polyCurve(f, [u, u], [v0, v1], false, nb, sink);
+              polyCurve(f, [u0, u1], [v, v], false, nb, sink);
+            }
+          },
+        });
+      }
+    }
+  }
+  if (B.open && s.sun) {
+    const el = radians(clamp(s.sunElev, -89, 89)), az = radians(s.sunTurn);
+    const rho = radians(clamp(s.sunSize, 0.2, 60));
+    // at 0 the sun is behind the camera, before the room is turned — the room's +z — so it
+    // shows up in the middle of the disc rather than squeezed into the rim
+    const S = [Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)];
+    const E1 = [Math.cos(az), 0, Math.sin(az)];
+    const E2 = [S[1] * E1[2] - S[2] * E1[1], S[2] * E1[0] - S[0] * E1[2], S[0] * E1[1] - S[1] * E1[0]];
+    const id = penId(s.ceilingPen);
+    out.push({
+      nf: 16, ng: 2,
+      look(a, b) {
+        const r = rho * b, cr = Math.cos(r), sr = Math.sin(r);
+        const ca = Math.cos(2 * Math.PI * a), sa = Math.sin(2 * Math.PI * a);
+        for (let e = 0; e < 3; e++) HD[e] = cr * S[e] + sr * (ca * E1[e] + sa * E2[e]);
+        return toPaper() ? [PX, PY, HOLE_Q] : null;
+      },
+      frame(sink) {
+        begin(2, id, -1);
+        C.ax = S[0]; C.ay = S[1]; C.az = S[2];
+        C.ux = E1[0]; C.uy = E1[1]; C.uz = E1[2];
+        C.vx = E2[0]; C.vy = E2[1]; C.vz = E2[2];
+        C.r = Math.tan(rho); C.dr = C.r;
+        C.s0 = 0; C.s1 = 2 * Math.PI; C.n0 = 32; C.closed = true;
+        traceCurve(C, sink);
+        const n = Math.max(0, Math.round(s.sunRays));
+        for (let k = 0; k < n; k++) {
+          const a = 2 * Math.PI * (k + 0.5) / n;
+          begin(3, id, -1);
+          C.ux = S[0]; C.uy = S[1]; C.uz = S[2];
+          for (const [e, key] of [[0, 'vx'], [1, 'vy'], [2, 'vz']]) C[key] = Math.cos(a) * E1[e] + Math.sin(a) * E2[e];
+          C.s0 = 1.3 * rho; C.s1 = Math.min(Math.PI / 2, 2.1 * rho); C.n0 = 4;
+          traceCurve(C, sink);
+        }
+      },
+    });
+  }
+  return out;
+}
+
+function holeTriangles(holes) {
+  for (let h = 0; h < holes.length; h++) {
+    const H = holes[h], look = H.look, rib = -2 - h;
+    for (let i = 0; i < H.nf; i++) {
+      for (let j = 0; j < H.ng; j++) {
+        const f0 = i / H.nf, f1 = (i + 1) / H.nf, g0 = j / H.ng, g1 = (j + 1) / H.ng;
+        laPatch(look, f0, f1, g0, g1, look(f0, g0), look(f1, g0), look(f1, g1), look(f0, g1), 0, rib, 0);
+      }
+    }
+  }
+}
+
+function holeFrames(holes, sink) {
+  for (let h = 0; h < holes.length; h++) {
+    CUR_RIB = -2 - h;
+    holes[h].frame(sink);
+  }
+  CUR_RIB = -1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Ink on the ribbons
+//
+// One side of every ribbon can be inked, in passes across the paper at `fillAngle`:
+// spaced `fillGap` apart as a hatch, or as solid black, closer than the nib by
+// `solidGap` per cent of it. The passes are cut from the ribbon's own triangles, those
+// turned the chosen way on paper — the mirror shows a ribbon's two sides turned opposite
+// ways round — and from each only the stretch nothing nearer hides. The stretches of one
+// pass are joined where they meet, and the passes are strung into as few strokes as
+// run on over ink from one to the next.
+//
+// A solid pass stops half a nib short of where it runs out, so the ink ends where the
+// black does. The black is edged by lines already drawn — the ribbon's edges, the edges
+// of what stands in front of it, the rim — or by the fold where the ribbon turns over,
+// so it needs no outline of its own.
+
+function ribbonFill(sink) {
+  const mode = settings.ribbonFill;
+  if (mode === 'none' || !NOCC) return;
+  const side = settings.fillSide === 'front' ? 0 : 1, nib = settings.penWidth;
+  const solid = mode === 'solid';
+  const gap = solid ? nib * clamp(settings.solidGap, 10, 200) / 100 : Math.max(nib, settings.fillGap);
+  const trim = solid ? nib / 2 : 0;
+  const th = radians(settings.fillAngle), ca = Math.cos(th), sa = Math.sin(th);
+  const rows = new Map();
+  const put = (kk, a, b) => { const l = rows.get(kk); if (l) l.push(a, b); else rows.set(kk, [a, b]); };
+
+  for (let k = 0; k < NOCC; k++) {
+    if (ORIB[k] < 0 || OBK[k] !== side) continue;
+    const xs = [OAX[k], OBX[k], OCX[k]], ys = [OAY[k], OBY[k], OCY[k]];
+    const ss = xs.map((x, i) => x * ca + ys[i] * sa), ts = xs.map((x, i) => -x * sa + ys[i] * ca);
+    const k0 = Math.ceil(Math.min(...ts) / gap), k1 = Math.floor(Math.max(...ts) / gap);
+    for (let kk = k0; kk <= k1; kk++) {
+      const t = kk * gap;
+      let lo = Infinity, hi = -Infinity;
+      for (let e = 0; e < 3; e++) {
+        const e2 = (e + 1) % 3, ta = ts[e], tb = ts[e2];
+        if ((ta - t) * (tb - t) > 0 || ta === tb) continue;
+        const s = ss[e] + (ss[e2] - ss[e]) * (t - ta) / (tb - ta);
+        if (s < lo) lo = s;
+        if (s > hi) hi = s;
+      }
+      if (!(hi > lo)) continue;
+      const x0 = lo * ca - t * sa, y0 = lo * sa + t * ca, x1 = hi * ca - t * sa, y1 = hi * sa + t * ca;
+      const q0 = OPA[k] * x0 + OPB[k] * y0 + OPC[k], q1 = OPA[k] * x1 + OPB[k] * y1 + OPC[k];
+      const m = visibleStretches(x0, y0, q0, x1, y1, q1, ORIB[k], OIDX[k], OIDX[k], false);
+      for (let v = 0; v < m; v++) put(kk, lo + (hi - lo) * VIS[2 * v], lo + (hi - lo) * VIS[2 * v + 1]);
+    }
+  }
+
+  // each pass: its stretches joined, and trimmed back from where they run out
+  const keys = [...rows.keys()].sort((a, b) => a - b), passes = [];
+  for (const kk of keys) {
+    const l = rows.get(kk), iv = [];
+    for (let i = 0; i < l.length; i += 2) iv.push([l[i], l[i + 1]]);
+    iv.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const [a, b] of iv) {
+      const last = merged[merged.length - 1];
+      if (last && a <= last[1] + 1e-4) last[1] = Math.max(last[1], b);
+      else merged.push([a, b]);
+    }
+    // and a crumb — a sliver where the ribbon folds over — left out
+    const segs = [];
+    for (const [a, b] of merged) if (b - a > 2 * trim + 2 * nib) segs.push([a + trim, b - trim]);
+    passes.push([kk, segs]);
+  }
+
+  // strung together, back and forth, where the next pass starts right under the last end
+  // a step to the next pass may run this far along it: on solid black it stays on the ink,
+  // on a hatch it is a line of its own and has to stay short
+  const id = penId(settings.thingPen), open = [], reach = solid ? 4 * gap : gap;
+  const at = (s, t) => [s * ca - t * sa, s * sa + t * ca];
+  const done = tr => emitPath(tr.xs, tr.ys, null, tr.xs.length, false, false, sink, id);
+  for (const [kk, segs] of passes) {
+    const t = kk * gap, still = [];
+    for (const [a, b] of segs) {
+      let tr = null;
+      for (let i = 0; i < open.length; i++) {
+        const o = open[i];
+        if (o.kk !== kk - 1) continue;
+        if (Math.abs(o.end - a) <= reach || Math.abs(o.end - b) <= reach) { tr = o; open.splice(i, 1); break; }
+      }
+      const fwd = tr ? Math.abs(tr.end - a) <= Math.abs(tr.end - b) : true;
+      const [sa0, sb0] = fwd ? [a, b] : [b, a];
+      if (!tr) tr = { xs: [], ys: [] };
+      for (const s of [sa0, sb0]) { const [x, y] = at(s, t); tr.xs.push(x); tr.ys.push(y); }
+      tr.kk = kk; tr.end = sb0;
+      still.push(tr);
+    }
+    for (const o of open) done(o);
+    open.length = 0;
+    open.push(...still);
+  }
+  for (const o of open) done(o);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// The ball's skin
+//
+//   mirror     everything above
+//   shattered  the mirror broken into shards: the cells round a scatter of seeds on the
+//              ball, some kept and some fallen out, each drawn a little smaller about
+//              its seed so paper shows between them, and edged
+//   moon       no mirror at all, but a moon: the contours of a height over the ball —
+//              rolling ground and craters, each a bowl in a raised rim — seen straight on
+//
+// Both are worked on the ball itself, a point of the disc at (u, v) being the point
+// (u, v, √(1 − u² − v²)) of the ball.
+
+function shardSeeds() {
+  const n = Math.max(2, Math.round(settings.shards)), salt = Math.round(settings.seed) * 1013 + 17;
+  const out = [], ga = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < n; i++) {
+    const z = 1 - 2 * (i + 0.5) / n, r = Math.sqrt(1 - z * z), a = ga * i;
+    const p = [r * Math.cos(a) + 0.35 * (hash01(i, 1, salt) - 0.5) * 3.5 / Math.sqrt(n),
+               r * Math.sin(a) + 0.35 * (hash01(i, 2, salt) - 0.5) * 3.5 / Math.sqrt(n),
+               z + 0.35 * (hash01(i, 3, salt) - 0.5) * 3.5 / Math.sqrt(n)];
+    const l = Math.hypot(p[0], p[1], p[2]);
+    out.push([p[0] / l, p[1] / l, p[2] / l]);
+  }
+  return out;
+}
+
+function shatter(sink) {
+  const seeds = shardSeeds(), n = seeds.length;
+  const salt = Math.round(settings.seed) * 7919 + 3;
+  const keep = seeds.map((_, i) => hash01(i, 0, salt) < settings.shardKeep);
+  const k = 1 - clamp(settings.shardGap, 0, 0.9);
+  const cell = (x, y) => {
+    const u = (x - OX) / BR, v = (OY - y) / BR, w = Math.sqrt(Math.max(0, 1 - u * u - v * v));
+    let best = -1, bd = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const s = seeds[i], d = s[0] * u + s[1] * v + s[2] * w;
+      if (d > bd) { bd = d; best = i; }
+    }
+    return best;
+  };
+  const cx = seeds.map(s => OX + BR * s[0]), cy = seeds.map(s => OY - BR * s[1]);
+  const out = makeSink();
+  const put = (xs, ys, c, id) => {
+    if (xs.length < 2 || !keep[c]) return;
+    const rx = xs.map(x => cx[c] + k * (x - cx[c])), ry = ys.map(y => cy[c] + k * (y - cy[c]));
+    const runs = [];
+    clipRuns(rx, ry, rx.length, runs);
+    for (const [a, b] of runs) out.run(a, b, a.length, id);
+  };
+
+  const { pts, off, ink } = sink;
+  for (let r = 0; r + 1 < off.length; r++) {
+    let xs = [pts[2 * off[r]]], ys = [pts[2 * off[r] + 1]], c = cell(xs[0], ys[0]);
+    // where the cell changes between two points: halved down to a hair, both ways
+    const walk = (x0, y0, c0, x1, y1, c1, depth) => {
+      if (c0 === c1 && Math.hypot(x1 - x0, y1 - y0) < 0.5) {
+        xs.push(x1); ys.push(y1);
+        return;
+      }
+      if (depth > 40 || Math.hypot(x1 - x0, y1 - y0) < 1e-5) {
+        xs.push(x1); ys.push(y1);
+        if (c1 !== c) { put(xs, ys, c, ink[r]); xs = [x1]; ys = [y1]; c = c1; }
+        return;
+      }
+      const xm = 0.5 * (x0 + x1), ym = 0.5 * (y0 + y1), cm = cell(xm, ym);
+      walk(x0, y0, c0, xm, ym, cm, depth + 1);
+      walk(xm, ym, cm, x1, y1, c1, depth + 1);
+    };
+    for (let i = off[r]; i + 1 < off[r + 1]; i++) {
+      const x1 = pts[2 * i + 2], y1 = pts[2 * i + 3];
+      walk(pts[2 * i], pts[2 * i + 1], cell(pts[2 * i], pts[2 * i + 1]), x1, y1, cell(x1, y1), 0);
+    }
+    put(xs, ys, c, ink[r]);
+  }
+
+  if (settings.shardEdges) {
+    const id = penId(settings.skinPen), M = 720;
+    for (let i = 0; i < n; i++) {
+      if (!keep[i]) continue;
+      const s = seeds[i];
+      let t1 = Math.abs(s[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+      const d = t1[0] * s[0] + t1[1] * s[1] + t1[2] * s[2];
+      t1 = [t1[0] - d * s[0], t1[1] - d * s[1], t1[2] - d * s[2]];
+      const l = Math.hypot(t1[0], t1[1], t1[2]);
+      t1 = [t1[0] / l, t1[1] / l, t1[2] / l];
+      const t2 = [s[1] * t1[2] - s[2] * t1[1], s[2] * t1[0] - s[0] * t1[2], s[0] * t1[1] - s[1] * t1[0]];
+      // the edge of the cell the way φ: the nearest bisector, and whose it is
+      const edge = phi => {
+        const t = [Math.cos(phi) * t1[0] + Math.sin(phi) * t2[0], Math.cos(phi) * t1[1] + Math.sin(phi) * t2[1],
+                   Math.cos(phi) * t1[2] + Math.sin(phi) * t2[2]];
+        let al = Math.PI, who = -1;
+        for (let j = 0; j < n; j++) {
+          if (j === i) continue;
+          const q = seeds[j];
+          const a = Math.atan2(1 - (s[0] * q[0] + s[1] * q[1] + s[2] * q[2]), q[0] * t[0] + q[1] * t[1] + q[2] * t[2]);
+          if (a < al) { al = a; who = j; }
+        }
+        const ca = Math.cos(al), sa = Math.sin(al);
+        return [ca * s[0] + sa * t[0], ca * s[1] + sa * t[1], ca * s[2] + sa * t[2], who];
+      };
+      const ring = [];
+      let prev = edge(0), pphi = 0;
+      ring.push(prev);
+      for (let m = 1; m <= M; m++) {
+        const phi = 2 * Math.PI * m / M, cur = edge(phi);
+        if (cur[3] !== prev[3]) {                 // a corner in between: pin it down
+          let a = pphi, b = phi, pa = prev;
+          for (let it = 0; it < 40; it++) {
+            const mid = 0.5 * (a + b), pm = edge(mid);
+            if (pm[3] === pa[3]) { a = mid; pa = pm; } else b = mid;
+          }
+          ring.push(edge(a), edge(b));
+        }
+        ring.push(cur);
+        prev = cur; pphi = phi;
+      }
+      let xs = [], ys = [];
+      const flush = () => { if (xs.length >= 2) put(xs, ys, i, id); xs = []; ys = []; };
+      for (const p of ring) {
+        if (p[2] < 0) { flush(); continue; }
+        xs.push(OX + BR * p[0]); ys.push(OY - BR * p[1]);
+      }
+      flush();
+    }
+  }
+  return out;
+}
+
+// The ground is value noise over four octaves, smoothly interpolated between the points of
+// a lattice hashed from the seed; the craters are bowls a little below it, each in a
+// rim a little above it, small ones common and big ones rare.
+function moonShapes(sink) {
+  const s = settings, id = penId(s.skinPen), seed = Math.round(s.seed) * 1013;
+  const nc = Math.max(0, Math.round(s.moonCraters));
+  const CX = new Float64Array(nc), CY = new Float64Array(nc), CZ = new Float64Array(nc);
+  const CA = new Float64Array(nc), CR = new Float64Array(nc);     // radius, and where it reaches
+  for (let i = 0; i < nc; i++) {
+    const z = 2 * hash01(i, 11, seed) - 1, a = 2 * Math.PI * hash01(i, 12, seed), r = Math.sqrt(1 - z * z);
+    CX[i] = r * Math.cos(a); CY[i] = r * Math.sin(a); CZ[i] = z;
+    CA[i] = 0.04 + 0.3 * Math.pow(hash01(i, 13, seed), 2.5);
+    CR[i] = Math.cos(2 * CA[i]);
+  }
+  const sc = Math.max(0.1, s.moonScale), rough = Math.max(0, s.moonRough);
+  // The lattice of every octave hashed once into a table, the ball lying in [−1, 1]³.
+  const oct = [];
+  for (let o = 0, f = sc; o < 4; o++, f *= 2) {
+    const n = Math.ceil(2 * f) + 3, T = new Float64Array(n * n * n), k0 = Math.floor(-f) - 1;
+    for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) for (let c = 0; c < n; c++) {
+      T[(a * n + b) * n + c] = hash01(k0 + a, k0 + b, seed + o * 101 + (k0 + c) * 7919) - 0.5;
+    }
+    oct.push({ f, n, T, k0 });
+  }
+  const noise = (O, x, y, z) => {
+    x = x * O.f - O.k0; y = y * O.f - O.k0; z = z * O.f - O.k0;
+    const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z), n = O.n, T = O.T;
+    const fx = x - xi, fy = y - yi, fz = z - zi;
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy), sz = fz * fz * (3 - 2 * fz);
+    const i000 = (xi * n + yi) * n + zi, i100 = i000 + n * n, i010 = i000 + n, i110 = i100 + n;
+    const x00 = T[i000] + (T[i100] - T[i000]) * sx, x10 = T[i010] + (T[i110] - T[i010]) * sx;
+    const x01 = T[i000 + 1] + (T[i100 + 1] - T[i000 + 1]) * sx, x11 = T[i010 + 1] + (T[i110 + 1] - T[i010 + 1]) * sx;
+    const y0 = x00 + (x10 - x00) * sy, y1 = x01 + (x11 - x01) * sy;
+    return y0 + (y1 - y0) * sz;
+  };
+  const height = (x, y, z) => {
+    let h = 0, amp = rough;
+    for (const O of oct) { h += amp * noise(O, x, y, z); amp *= 0.5; }
+    for (let i = 0; i < nc; i++) {
+      const d = x * CX[i] + y * CY[i] + z * CZ[i];
+      if (d < CR[i]) continue;
+      const a = CA[i], t = Math.acos(Math.min(1, d)) / a, depth = 0.6 * a / 0.2;
+      h += t < 1 ? depth * (t * t - 1) * 0.5 + 0.15 * depth : 0.15 * depth * Math.exp(-(((t - 1) / 0.3) ** 2));
+    }
+    return h;
+  };
+
+  const R = RIM_CUT ? RIM_R : BR;
+  if (!(R > 0)) return;
+  const cellMm = clamp(BR / 220, 0.25, 1.5), N = Math.ceil(2 * R / cellMm) + 1;
+  const H = new Float64Array(N * N);
+  let lo = Infinity, hi = -Infinity;
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const u = (-R + i * cellMm) / BR, v = (R - j * cellMm) / BR, q = 1 - u * u - v * v;
+      if (u * u + v * v > (R / BR) ** 2 || q <= 0) { H[j * N + i] = NaN; continue; }
+      const h = height(u, v, Math.sqrt(q));
+      H[j * N + i] = h;
+      if (h < lo) lo = h;
+      if (h > hi) hi = h;
+    }
+  }
+  // Marching squares, every level at once: a cell is only asked about the levels that
+  // fall between its lowest corner and its highest.
+  const L = Math.max(1, Math.round(s.moonLevels)), step = (hi - lo) / (L + 1);
+  const X = i => OX - R + i * cellMm, Y = j => OY - R + j * cellMm;
+  const segs = [];
+  for (let l = 0; l < L; l++) segs.push([]);
+  const c = [0, 0, 0, 0], h = [0, 0, 0, 0], up = [false, false, false, false], ed = [];
+  let lev = 0;
+  // where the level crosses the edge from grid point a to b, the same from either side
+  const cross = (a, b) => {
+    if (a > b) { const t = a; a = b; b = t; }
+    const ha = H[a], hb = H[b], t = (lev - ha) / (hb - ha);
+    const ia = a % N, ja = (a - ia) / N, ib = b % N, jb = (b - ib) / N;
+    return [X(ia + (ib - ia) * t), Y(ja + (jb - ja) * t)];
+  };
+  const P = e => cross(c[e], c[(e + 1) & 3]);
+  for (let j = 0; j + 1 < N; j++) {
+    for (let i = 0; i + 1 < N; i++) {
+      c[0] = j * N + i; c[1] = c[0] + 1; c[2] = c[1] + N; c[3] = c[0] + N;
+      let mn = Infinity, mx = -Infinity, gone = false;
+      for (let e = 0; e < 4; e++) {
+        const v = H[c[e]];
+        if (v !== v) { gone = true; break; }
+        h[e] = v;
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+      }
+      if (gone) continue;
+      const l0 = Math.max(1, Math.floor((mn - lo) / step)), l1 = Math.min(L, Math.ceil((mx - lo) / step));
+      for (let l = l0; l <= l1; l++) {
+        lev = lo + step * l;
+        ed.length = 0;
+        for (let e = 0; e < 4; e++) up[e] = h[e] > lev;
+        for (let e = 0; e < 4; e++) if (up[e] !== up[(e + 1) & 3]) ed.push(e);
+        if (!ed.length) continue;
+        const out = segs[l - 1];
+        if (ed.length === 2) { const a = P(ed[0]), b = P(ed[1]); out.push(a[0], a[1], b[0], b[1]); continue; }
+        // a saddle: the middle says which way the two lines run past it
+        const mid = (h[0] + h[1] + h[2] + h[3]) / 4 > lev;
+        const pairs = mid === up[0] ? [[0, 1], [2, 3]] : [[0, 3], [1, 2]];
+        for (const [e0, e1] of pairs) { const a = P(e0), b = P(e1); out.push(a[0], a[1], b[0], b[1]); }
+      }
+    }
+  }
+  for (const sg of segs) {
+    for (const [xs, ys] of chainSegments(sg, 1e-7)) emitPath(xs, ys, null, xs.length, false, false, sink, id);
+  }
+}
+
 function buildShapes() {
   computeConstants();
 
@@ -2910,16 +3434,23 @@ function buildShapes() {
   perPen = [];
   for (let i = 0; i < pens; i++) perPen.push({ strokes: 0, ink: 0 });
 
-  // The ribbons are looked up first: they hide some of the room behind them.
-  const ribs = buildRibbons();
-  buildOccluders(ribs);
-
   const B = roomBox();
-  for (const f of faces(B)) if (f.pat !== 'none') faceCurves(f, B, sink);
-  if (!B.open && settings.edges) edgeCurves(B, sink);
-  if (B.open && settings.horizon) horizonCurve(sink);
-  ribbonCurves(ribs, sink);
-  NOCC = 0;
+  if (settings.ballSkin === 'moon') {
+    NOCC = 0;
+    moonShapes(sink);
+  } else {
+    // The ribbons and the holes are looked up first: they hide some of the room.
+    const ribs = buildRibbons(), holes = holeList(B);
+    buildOccluders(ribs, holes);
+    for (const f of faces(B)) if (f.pat !== 'none') faceCurves(f, B, sink);
+    if (!B.open && settings.edges) edgeCurves(B, sink);
+    if (B.open && settings.horizon) horizonCurve(sink);
+    holeFrames(holes, sink);
+    ribbonCurves(ribs, sink);
+    ribbonFill(sink);
+    NOCC = 0;
+    if (settings.ballSkin === 'shattered') sink = shatter(sink);
+  }
   sink = foldSink(sink);
   if (settings.rim) rimShape(sink);
   if (settings.cropMarks) cropMarkShapes(sink);
@@ -3346,7 +3877,7 @@ function syncVisibility() {
   setVisible('twist', uses('whirl'));
   setVisible('sides', uses('polygons'));
   setVisible('postH', uses('posts'));
-  setVisible('seed', uses('cells', 'craters'));
+  setVisible('seed', uses('cells', 'craters') || s.ballSkin !== 'mirror');
   setVisible('ink1', pens > 1);
   setVisible('ink2', pens > 2);
   setVisible('floorPen', pens > 1);
@@ -3363,6 +3894,21 @@ function syncVisibility() {
   setVisible('hoopSpread', s.things === 'hoops');
   setVisible('thingPen', th && pens > 1);
   setVisible('kaleidoTurn', Math.round(s.kaleido) > 0);
+  const fill = th && s.ribbonFill !== 'none';
+  setVisible('ribbonFill', th);
+  setVisible('fillSide', fill);
+  setVisible('fillAngle', fill);
+  setVisible('fillGap', fill && s.ribbonFill === 'hatch');
+  setVisible('solidGap', fill && s.ribbonFill === 'solid');
+  const win = !open && Math.round(s.windows) > 0;
+  setVisible('windows', !open);
+  for (const k of ['windowW', 'windowH', 'windowSill', 'windowBars']) setVisible(k, win);
+  setVisible('sun', open);
+  for (const k of ['sunElev', 'sunTurn', 'sunSize', 'sunRays']) setVisible(k, open && s.sun);
+  const shat = s.ballSkin === 'shattered', moon = s.ballSkin === 'moon';
+  for (const k of ['shards', 'shardKeep', 'shardGap', 'shardEdges']) setVisible(k, shat);
+  for (const k of ['moonLevels', 'moonCraters', 'moonRough', 'moonScale']) setVisible(k, moon);
+  setVisible('skinPen', pens > 1 && (moon || (shat && s.shardEdges)));
   refreshPenList();
 }
 
@@ -3546,6 +4092,22 @@ function buildControls() {
   addSlider(root, 'Keep off the rim (mm)', 'rimGap', 0, 20, 0.1,
     'The back half of the room is pressed into the band just inside the rim. This stops ' +
     'the reflection short of it and leaves a clean ring of paper instead.');
+  addSelect(root, 'Skin', 'ballSkin', SKINS, refit,
+    '<b>mirror</b> — the room and everything round the ball, reflected.<br>' +
+    '<b>shattered</b> — the mirror broken into shards round a scatter of points on the ' +
+    'ball, some fallen out, the rest drawn a little apart and edged.<br>' +
+    '<b>moon</b> — no mirror at all: the contours of a cratered ground, seen straight on.');
+  addSlider(root, 'Shards', 'shards', 4, 400, 1, 'Over the whole ball; about half face the camera.');
+  addSlider(root, 'Shards left in', 'shardKeep', 0, 1, 0.01);
+  addSlider(root, 'Gap between shards', 'shardGap', 0, 0.5, 0.01,
+    'Each shard is drawn this much smaller about its middle.');
+  addCheckbox(root, 'Edge the shards', 'shardEdges');
+  addSlider(root, 'Contours', 'moonLevels', 2, 60, 1);
+  addSlider(root, 'Craters', 'moonCraters', 0, 400, 1);
+  addSlider(root, 'Rolling ground', 'moonRough', 0, 2, 0.01,
+    'How much the ground between the craters rises and falls.');
+  addSlider(root, 'How finely it rolls', 'moonScale', 0.5, 12, 0.1);
+  addSlider(root, 'Shard edge and moon pen', 'skinPen', 1, MAX_PENS, 1);
 
   // --- Camera ---
   addSection(root, 'Camera');
@@ -3617,6 +4179,23 @@ function buildControls() {
   addCheckbox(root, 'Draw the horizon', 'horizon');
   addSlider(root, 'Corner and horizon pen', 'edgePen', 1, MAX_PENS, 1);
 
+  // --- Windows and the sun ---
+  addSection(root, 'Windows and sun');
+  addSlider(root, 'Windows in each wall', 'windows', 0, 12, 1,
+    'Holes in the walls, edged with a frame and glazing bars. Nothing shows through ' +
+    'them but white.');
+  addSlider(root, 'Window width', 'windowW', 0.1, 20, 0.05);
+  addSlider(root, 'Window height', 'windowH', 0.1, 20, 0.05);
+  addSlider(root, 'Sill above the floor', 'windowSill', 0, 20, 0.05);
+  addSlider(root, 'Glazing bars each way', 'windowBars', 0, 8, 1);
+  addCheckbox(root, 'The sun in the sky', 'sun');
+  addSlider(root, 'Sun above the horizon (°)', 'sunElev', -89, 89, 0.5);
+  addSlider(root, 'Sun round (°)', 'sunTurn', -180, 180, 0.5,
+    'At <b>0</b> it is behind the camera and shows in the middle of the ball; at 180 it is ' +
+    'behind the ball and pressed into the rim.');
+  addSlider(root, 'Sun size (°)', 'sunSize', 0.5, 60, 0.5);
+  addSlider(root, 'Sun rays', 'sunRays', 0, 64, 1);
+
   // --- Round the ball ---
   addSection(root, 'Round the ball');
   addSelect(root, 'Ribbons', 'things', THINGS, refit,
@@ -3653,6 +4232,16 @@ function buildControls() {
     'Its two edges among them. <b>1</b> is a single line down the middle, still as ' +
     'wide as the ribbon where it hides what is behind it.');
   addCheckbox(root, 'They hide what is behind them', 'thingsHide');
+  addSelect(root, 'Ink on one side', 'ribbonFill', FILLS, refit,
+    'One side of every ribbon <b>hatch</b>ed, or inked <b>solid</b> black in passes ' +
+    'closer than the nib. The mirror shows a ribbon\'s two sides turned opposite ways, ' +
+    'so a ribbon that turns over goes from white to black.');
+  addSelect(root, 'Which side', 'fillSide', ['back', 'front'], refit);
+  addSlider(root, 'Hatch gap (mm)', 'fillGap', 0.2, 5, 0.05);
+  addSlider(root, 'Solid passes (% of the nib)', 'solidGap', 30, 150, 1,
+    'How far apart the passes of solid black are. Under 100 they overlap; over it a ' +
+    'hair of paper shows between them.');
+  addSlider(root, 'Passes run at (°)', 'fillAngle', 0, 180, 1);
   addSlider(root, 'Ribbon pen', 'thingPen', 1, MAX_PENS, 1);
 
   // --- Kaleidoscope ---
@@ -3835,6 +4424,10 @@ function metaComment() {
     `${s.rimGap > 0 ? '/clear' + s.rimGap + 'mm' : ''} ` +
     `pens=${s.pens} simplify=${s.simplifyTol}mm ` +
     `${s.things !== 'none' ? thingsMeta() + ' ' : ''}` +
+    `${!open && Math.round(s.windows) > 0 ? `windows=${s.windows}@${s.windowW}x${s.windowH}+${s.windowSill}/${s.windowBars} ` : ''}` +
+    `${open && s.sun ? `sun=${s.sunElev}°/${s.sunTurn}°/${s.sunSize}°${s.sunRays ? '/' + s.sunRays + 'rays' : ''} ` : ''}` +
+    `${s.ballSkin === 'shattered' ? `shattered=${s.shards}/${s.shardKeep}/${s.shardGap} seed=${s.seed} ` : ''}` +
+    `${s.ballSkin === 'moon' ? `moon=${s.moonLevels}/${s.moonCraters}/${s.moonRough}/${s.moonScale} seed=${s.seed} ` : ''}` +
     `${Math.round(s.kaleido) > 0 ? 'kaleido=' + Math.round(s.kaleido) + '@' + s.kaleidoTurn + '° ' : ''}` +
     `${s.cropMarks ? 'cropmarks<=' + s.cropMarkGap + 'mm ' : ''}` +
     `pen=${s.penWidth}mm strokes=${strokes}`;
@@ -3847,7 +4440,8 @@ function thingsMeta() {
     : s.things === 'hoops' ? `hoops=${s.thingCount}/${s.hoopSpread}°` : `helix=${s.thingCount}`;
   return `${what} reach=${s.thingReach} axis=${s.thingTilt}°/${s.thingSpin}° ` +
     `ribbon=${s.ribbonW}x${s.ribbonLanes}/${s.ribbonTurn}°${s.ribbonTwist ? '/' + s.ribbonTwist + 'tw' : ''}` +
-    `${s.things === 'field' ? '/taper' + s.ribbonTaper : ''}${s.thingsHide ? '' : '/clear'}`;
+    `${s.things === 'field' ? '/taper' + s.ribbonTaper : ''}${s.thingsHide ? '' : '/clear'}` +
+    `${s.ribbonFill === 'none' ? '' : ` fill=${s.ribbonFill}/${s.fillSide}/${s.ribbonFill === 'solid' ? s.solidGap + '%' : s.fillGap + 'mm'}@${s.fillAngle}°`}`;
 }
 
 // The strokes of one pen, in plot order, as one <g>.
