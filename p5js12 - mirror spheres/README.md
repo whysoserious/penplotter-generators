@@ -6,8 +6,11 @@ bricks, fish scales, arcades, flagstones, craters, rings, spirals, rays, whirls,
 of posts or a geodesic net; the ball bends all of them into one disc, with the room behind
 the camera in the middle and the room behind the ball pressed into the rim. Where
 perspective or the rim crowds a pattern together it thins itself out, so the pen never has
-to lay lines on top of one another. The result is exported as an SVG in millimetres, one
-file or one per pen, ready for the plotter.
+to lay lines on top of one another. Round the ball, close enough to be seen up close,
+ribbons can loop — the lines of a magnet's field, hoops, a helix — hiding the room and one
+another; and mirrors standing on the disc can fold the whole of it into a kaleidoscope.
+The result is exported as an SVG in millimetres, one file or one per pen, ready for the
+plotter.
 
 ## Running it
 
@@ -180,10 +183,64 @@ they stay put while the camera moves and more or less of a face is worth drawing
 *Draw the corners of the room* adds the twelve edges as lines of their own; a grid line
 that would fall on an edge is left to the edge, so no corner is ever drawn twice.
 
+## Round the ball
+
+Ribbons laid in space a few ball radii out. The room is far enough away to be looked up by
+direction alone; these are not, so each point of them is looked up up close. The answer
+still lies in one plane — the one through the camera's axis and the point — and in it the
+ray that lands α off the axis leaves the ball at (sin α, cos α) along (sin 2α, cos 2α). It
+runs through a point ρ off the axis and z towards the camera when
+
+```
+f(α) = ρ·cos 2α − z·sin 2α + sin α = 0
+```
+
+which Newton solves from the far-away answer, half the angle the point stands off the
+axis. Anything straight behind the ball, in its shadow, has no image at all. The same
+lookup says how far the ray runs from the mirror to the point, which is what lets ribbons
+stand in front of one another and of the room.
+
+- **field** — the lines of a magnet's field, r = L·sin²θ about its axis, **How many** to a
+  shell and **Shells** of them one inside the other, the outermost at **Reach**. **Field
+  source off centre** moves the magnet sideways inside the ball: near 1 its lines come out
+  close to one point and sweep round the ball in loops. A field line comes out of the ball
+  as a point and grows to its full width over **Field line grows over** ball radii — seen
+  in the mirror right where it leaves the ball it is seen all but full size, and a ribbon as
+  wide there as anywhere else stands on the ball like a board.
+- **hoops** — rings about the ball, from just outside it to **Reach**, each tipped about
+  one diameter a little further than the last, over **Hoops fanned over** in all. At 0 they
+  lie in one plane, like Saturn's.
+- **helix** — one ribbon wound round a sphere **Reach** across, **How many** turns from
+  pole to pole: at **Ribbon turn** 0 and a wide ribbon, the peel of an apple.
+
+**Axis tipped** and **Axis turned** set the axis they are laid about. A ribbon lies along
+the shell it is drawn on at **Ribbon turn** 0 and stands across it at 90; **Ribbon twist**
+turns it that many whole turns along its length (half a turn in a hoop is a Möbius band).
+It is drawn with **Lines along a ribbon**, its two edges among them, and a line across
+each end.
+
+A ribbon hides what is behind it exactly. It is cut into small patches between its lanes
+and samples, each patch halved until the middle of every side lies within 0.1 mm of its
+chord on paper, and laid down as triangles carrying their distance from the mirror; every
+piece of line is then cut against the triangles in front of it, which is four half-lines
+in its own parameter per triangle. A patch that halving never flattens is torn by the
+mirror across the rim and hides nothing. The camera looks past the ribbons: they are only
+ever seen in the ball, never in front of it. Untick **They hide what is behind them** for
+wire ribbons that hide nothing.
+
+## The kaleidoscope
+
+**Mirrors** stand on the disc through its middle, 180°/mirrors apart, the first at **First
+mirror at** from the right of the sheet (90 is upright). Everything but the rim is cut down
+to the wedge between the first two and laid round the disc turned and turned over — what
+the two mirrors would show. One mirror makes the left and right of the ball alike. A stroke
+that runs into a mirror meets its own image there, and the two are joined into one.
+
 ## Pens
 
 Up to three, one plotter pass each. The floor, the ceiling, the walls, the corners (or the
-horizon) and the rim each have a pen of their own, set next to them in the panel.
+horizon), the ribbons and the rim each have a pen of their own, set next to them in the
+panel.
 
 ## What ends up in the file
 

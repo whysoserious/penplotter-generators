@@ -79,6 +79,7 @@ const PATTERNS    = ['none', 'grid', 'stripes', 'diamonds', 'triangles', 'hexago
                      'bricks', 'scales', 'arches', 'cells', 'craters', 'rings', 'polygons',
                      'spiral', 'rays', 'whirl', 'posts', 'net'];
 const UNSIZED     = ['none', 'rays', 'whirl', 'net'];   // patterns the tile does not scale
+const THINGS      = ['none', 'field', 'hoops', 'helix'];
 const SVG_OUTPUTS = ['one file', 'one file per pen', 'both'];
 
 const MAX_PENS       = 3;
@@ -108,6 +109,10 @@ const WHEEL_STEP     = 0.0015;    // ball height per wheel delta unit, as a shar
 const PEN_CYCLE_S    = 0.3;       // rough pen-up + pen-down time, seconds
 const DRAW_SPEED     = 60;        // rough drawing speed, mm/s
 const TRAVEL_SPEED   = 150;       // rough pen-up travel speed, mm/s
+const RIB_STEP       = 0.04;      // of its distance from the ball — how far apart a ribbon is sampled
+const RIB_MAX        = 4000;      // samples one ribbon may have
+const Q_EPS          = 1e-3;      // ball radii — how much nearer a ribbon must be to hide a line
+const SIDE_TOL       = 1e-9;      // how far past its sides a triangle hides, against gaps
 
 const settings = {
   // paper + pen
@@ -154,6 +159,27 @@ const settings = {
   seed: 1,              // which flagstones, which craters
   edges: true,          // the corners of the room, as lines of their own
   horizon: true,        // the horizon itself, when the floor is open
+
+  // what stands round the ball, close enough to be more than a direction — in ball radii
+  things: 'none',
+  thingCount: 12,       // field lines to a shell, hoops, or turns of the helix
+  thingShells: 3,       // shells of field lines, one inside the other
+  thingReach: 4,        // ball radii — how far out the furthest of them goes
+  thingTilt: 20,        // deg — the axis they are laid about, tipped off the vertical
+  thingSpin: 0,         // deg — and turned about the vertical
+  fieldShift: 0,        // ball radii — the field's source moved off the centre, sideways
+  hoopSpread: 120,      // deg — the hoops fanned about one diameter
+  ribbonW: 0.12,        // ball radii — how wide a ribbon is
+  ribbonTurn: 0,        // deg — 0 lies along the shell a ribbon is drawn on, 90 stands across it
+  ribbonTwist: 0,       // full turns a ribbon twists along its length
+  ribbonTaper: 0.6,     // ball radii off the ball over which a field line grows to full width
+  ribbonLanes: 2,       // lines along each ribbon, its edges included
+  thingsHide: true,     // they hide the room behind them, and one another
+  thingPen: 1,
+
+  // the kaleidoscope — mirrors standing on the disc, through its middle
+  kaleido: 0,           // how many; 0 is none
+  kaleidoTurn: 90,      // deg — where the first stands, from the right of the sheet
 
   // the far away
   minGap: 0.6,          // mm — lines of one family never close up tighter; 0 lets them
@@ -225,6 +251,43 @@ const SCENES = [
       floor: 'scales', walls: 'scales', ceiling: 'spiral', floorScale: 1.5, wallScale: 1.5 } },
   { label: 'Everything, piled up', s: { minGap: 0 } },
   { label: 'Two pens', s: { pens: 2, wallPen: 2, edgePen: 2 } },
+  { label: 'Field lines', s: {
+      things: 'field', thingCount: 12, thingShells: 3, thingReach: 5, thingTilt: 90,
+      ribbonW: 0.2, ceiling: 'none', walls: 'stripes', pitch: 14 } },
+  { label: 'Lotus', s: {
+      things: 'field', thingCount: 12, thingShells: 3, thingReach: 5, thingTilt: 0,
+      ribbonW: 0.25, ribbonLanes: 3, ceiling: 'none', walls: 'stripes', pitch: 14 } },
+  { label: 'Loops out of one point', s: {
+      things: 'field', fieldShift: 0.85, thingCount: 10, thingShells: 4, thingReach: 6,
+      thingTilt: 70, ribbonW: 0.2, ribbonLanes: 3, ceiling: 'none', walls: 'none',
+      edges: false } },
+  { label: 'Armillary', s: {
+      things: 'hoops', thingCount: 6, thingReach: 2.5, ribbonW: 0.4, ribbonLanes: 4,
+      hoopSpread: 150, thingTilt: 30, floor: 'rings', ceiling: 'none', walls: 'none',
+      edges: false } },
+  { label: 'Rings of Saturn', s: {
+      things: 'hoops', thingCount: 5, thingReach: 3, hoopSpread: 0, ribbonW: 0.3,
+      ribbonTurn: 90, ribbonLanes: 3, thingTilt: 75, thingSpin: 30, scene: 'open',
+      floor: 'grid', ceiling: 'rings', roomH: 8, ballH: 1, tile: 1, pitch: 6 } },
+  { label: 'Apple peel', s: {
+      things: 'helix', thingCount: 5, thingReach: 1.8, ribbonW: 0.5, ribbonLanes: 5,
+      ceiling: 'rays', walls: 'none', edges: false } },
+  { label: 'Twisted hoops', s: {
+      things: 'hoops', thingCount: 4, thingReach: 2.2, ribbonW: 0.5, ribbonLanes: 5,
+      ribbonTwist: 2, hoopSpread: 120, floor: 'none', ceiling: 'none', walls: 'none',
+      edges: false } },
+  { label: 'Kaleidoscope rotunda', s: {
+      roomW: 8, roomD: 8, roomH: 8, ballH: 4, floor: 'polygons', ceiling: 'polygons',
+      walls: 'arches', sides: 6, floorScale: 2, ceilingScale: 2, wallScale: 1.5,
+      yaw: 10, pitch: 40, kaleido: 6 } },
+  { label: 'Kaleidoscope cloister', s: {
+      roomW: 12, roomD: 12, roomH: 6, ballH: 1.5, walls: 'arches', wallScale: 2,
+      floor: 'polygons', floorScale: 2, ceiling: 'polygons', ceilingScale: 2,
+      yaw: 20, pitch: 10, kaleido: 3 } },
+  { label: 'Loops in a mirror', s: {
+      things: 'field', fieldShift: 0.85, thingCount: 10, thingShells: 4, thingReach: 6,
+      thingTilt: 70, ribbonW: 0.2, ribbonLanes: 3, floor: 'grid', ceiling: 'none',
+      walls: 'none', edges: false, kaleido: 1 } },
 ];
 
 const setters   = {};        // settings key -> function that moves its control
@@ -488,8 +551,78 @@ function toPaper() {
   const k = BR / Math.sqrt(2 * l * w);
   PX = OX + k * cx;
   PY = OY - k * cy;
+  PQ = Infinity;
   maps++;
   return true;
+}
+
+// Where a point close to the ball is seen in it — the point in ball radii, from the
+// ball's centre, in the room's own axes — and PQ, how far the ray runs from the mirror
+// to it. False inside the ball, and in its shadow: straight behind it, where no ray off
+// the front of the ball can reach.
+//
+// Up close a point is no longer just a direction, but the answer still lies in one
+// plane: the one through the camera's axis and the point, since the ball is round and
+// the camera looks straight down that axis. In it, with the point ρ off the axis and z
+// towards the camera, the ray that lands α off the axis leaves the ball at
+// (sin α, cos α) along (sin 2α, cos 2α), and it runs through the point when
+//
+//     f(α) = ρ·cos 2α − z·sin 2α + sin α = 0.
+//
+// f(0) = ρ and f(90°) = 1 − ρ, so anything off to the side of the ball has its image,
+// and the far away answer, half the angle the point stands off the axis, is where
+// Newton starts looking for it.
+let PQ = Infinity;
+
+function nearPaper(x, y, z) {
+  const cx = M0 * x + M1 * y + M2 * z;
+  const cy = M3 * x + M4 * y + M5 * z;
+  const cz = M6 * x + M7 * y + M8 * z;
+  const rho = Math.sqrt(cx * cx + cy * cy);
+  if (rho * rho + cz * cz <= 1 || (rho < 1 && cz < 0)) return false;
+  maps++;
+  let a = 0.5 * Math.atan2(rho, cz), ok = false;
+  for (let it = 0; it < 24; it++) {
+    const s2 = Math.sin(2 * a), c2 = Math.cos(2 * a);
+    const f = rho * c2 - cz * s2 + Math.sin(a);
+    const df = -2 * rho * s2 - 2 * cz * c2 + Math.cos(a);
+    if (df === 0) break;
+    const step = f / df;
+    a -= step;
+    if (a < 0 || a > Math.PI / 2) break;
+    if (Math.abs(step) < 1e-13) { ok = true; break; }
+  }
+  if (!ok) a = nearRoot(rho, cz);
+  if (!(a >= 0)) return false;
+  const sa = Math.sin(a), ca = Math.cos(a);
+  const t = (rho - sa) * Math.sin(2 * a) + (cz - ca) * Math.cos(2 * a);
+  if (!(t > -1e-9)) return false;
+  const k = rho > 1e-12 ? BR * sa / rho : 0;
+  PX = OX + k * cx;
+  PY = OY - k * cy;
+  PQ = Math.max(0, t);
+  return true;
+}
+
+// Newton's way round, for the points it misses: the first root of f walking out from
+// the middle of the disc, pinned down by bisection. NaN when there is none.
+function nearRoot(rho, cz) {
+  const f = a => rho * Math.cos(2 * a) - cz * Math.sin(2 * a) + Math.sin(a);
+  const N = 64;
+  let a0 = 0, f0 = f(0);
+  for (let i = 1; i <= N; i++) {
+    const a1 = Math.PI / 2 * i / N, f1 = f(a1);
+    if ((f0 > 0) !== (f1 > 0)) {
+      let lo = a0, hi = a1;
+      for (let it = 0; it < 60; it++) {
+        const m = 0.5 * (lo + hi);
+        if ((f(m) > 0) === (f0 > 0)) lo = m; else hi = m;
+      }
+      return 0.5 * (lo + hi);
+    }
+    a0 = a1; f0 = f1;
+  }
+  return f0 === 0 ? Math.PI / 2 : NaN;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -507,6 +640,7 @@ function toPaper() {
 //   2  a circle or a spiral on a plane    C + (r + g·s + e·dr)·(cos s·U + sin s·V)
 //   3  a great circle                     cos s·U + sin s·V
 //   4  a polyline laid on a face          F + u(s)·U + v(s)·V, straight between points
+//   5  a polyline in space by the ball    lp(s), straight between points, seen up close
 //
 // A is the point of the line nearest the ball, p its distance and N the step across to
 // the next line of the family; the neighbour is looked up at the same distance along
@@ -524,7 +658,7 @@ const C = {
   t: 0, ax: 0, ay: 0, az: 0, dx: 0, dy: 0, dz: 0, nx: 0, ny: 0, nz: 0,
   ux: 0, uy: 0, uz: 0, vx: 0, vy: 0, vz: 0,
   p: 1, r: 0, g: 0, dr: 0, th: 0, dth: 0, tw: 0,
-  pu: null, pv: null, pn: 0,
+  pu: null, pv: null, pn: 0, lp: null, rib: -1, sk0: 0, sk1: 1,
   nm: 0, nk: 0, sux: 0, suy: 0, suz: 0, svx: 0, svy: 0, svz: 0,
   s0: 0, s1: 1, n0: 8, level: -1, closed: false, id: 0,
 };
@@ -587,6 +721,14 @@ function curveAt(c, s, e) {
 }
 
 function look(c, s) {
+  if (c.t === 5) {
+    const n = c.pn, p = c.lp;
+    let i = Math.floor(s);
+    if (i < 0) i = 0; else if (i > n - 2) i = n - 2;
+    const f = s - i, a = 3 * i;
+    return nearPaper(p[a] + (p[a + 3] - p[a]) * f, p[a + 1] + (p[a + 4] - p[a + 1]) * f,
+                     p[a + 2] + (p[a + 5] - p[a + 2]) * f);
+  }
   curveAt(c, s, 0);
   return toPaper();
 }
@@ -695,24 +837,29 @@ function segDist2(px, py, ax, ay, bx, by) {
   return qx * qx + qy * qy;
 }
 
-// The run being walked, and the right-hand ends of the pieces still to be reached.
+// The run being walked — each point with its gate, how far off in the mirror it is and
+// where along its curve — and the right-hand ends of the pieces still to be reached.
 let RX = new Float64Array(4096), RY = new Float64Array(4096), RG = new Float64Array(4096);
+let RQ = new Float64Array(4096), RS = new Float64Array(4096);
 let rn = 0;
 const STACK = MAX_DEPTH + 2;
 const SS = new Float64Array(STACK), SX = new Float64Array(STACK), SY = new Float64Array(STACK);
-const SG = new Float64Array(STACK), SL = new Float64Array(STACK);
+const SG = new Float64Array(STACK), SL = new Float64Array(STACK), SQ = new Float64Array(STACK);
 const SOK = new Uint8Array(STACK), SD = new Uint8Array(STACK);
 
-function pushPt(x, y, g) {
+function pushPt(x, y, g, q = Infinity, s = 0) {
   if (rn === RX.length) {
     const grow = a => { const b = new Float64Array(a.length * 2); b.set(a); return b; };
-    RX = grow(RX); RY = grow(RY); RG = grow(RG);
+    RX = grow(RX); RY = grow(RY); RG = grow(RG); RQ = grow(RQ); RS = grow(RS);
   }
-  RX[rn] = x; RY[rn] = y; RG[rn] = g; rn++;
+  RX[rn] = x; RY[rn] = y; RG[rn] = g; RQ[rn] = q; RS[rn] = s; rn++;
 }
 
-function flushRun(sink, id, closed) {
-  if (rn >= 2) emitPath(RX, RY, RG, rn, true, closed, sink, id);
+function flushRun(sink, c, closed) {
+  if (rn >= 2) {
+    if (NOCC) occludedRun(sink, c, closed);
+    else emitPath(RX, RY, RG, rn, true, closed, sink, c.id);
+  }
   rn = 0;
 }
 
@@ -726,24 +873,27 @@ function traceCurve(c, sink) {
   let broken = false;
   const s0 = c.s0, span = c.s1 - c.s0, n0 = c.n0;
 
-  let sL = s0, okL = look(c, sL), xL = PX, yL = PY, lL = NO_GATE;
-  if (okL) { pushPt(xL, yL, gateAt(c, sL, xL, yL)); lL = LAST_LOD; }
+  let sL = s0, okL = look(c, sL), xL = PX, yL = PY, qL = PQ, lL = NO_GATE;
+  if (okL) { pushPt(xL, yL, gateAt(c, sL, xL, yL), qL, sL); lL = LAST_LOD; }
 
   for (let i = 1; i <= n0; i++) {
     let top = 0;
     SS[0] = s0 + span * i / n0;
     SOK[0] = look(c, SS[0]) ? 1 : 0;
-    SX[0] = PX; SY[0] = PY; SD[0] = 0;
+    SX[0] = PX; SY[0] = PY; SQ[0] = PQ; SD[0] = 0;
     if (SOK[0]) { SG[0] = gateAt(c, SS[0], SX[0], SY[0]); SL[0] = LAST_LOD; }
     else { SG[0] = -1; SL[0] = NO_GATE; }
 
     while (top >= 0) {
-      const sR = SS[top], okR = SOK[top] === 1, xR = SX[top], yR = SY[top];
+      const sR = SS[top], okR = SOK[top] === 1, xR = SX[top], yR = SY[top], qR = SQ[top];
       const gR = SG[top], lR = SL[top], d = SD[top];
 
-      if (d < MAX_DEPTH && !(okL && okR && lL < CULL_OCT && lR < CULL_OCT)) {
+      // Up close whole stretches have no image — they are in the ball's shadow — and a
+      // piece with neither end in sight is not worth halving down to nothing.
+      if (d < MAX_DEPTH && !(okL && okR && lL < CULL_OCT && lR < CULL_OCT) &&
+          !(c.t === 5 && !okL && !okR)) {
         const sm = 0.5 * (sL + sR);
-        const okM = look(c, sm), xm = PX, ym = PY;
+        const okM = look(c, sm), xm = PX, ym = PY, qm = PQ;
         let split = !okL || !okR || !okM;
         if (!split) {
           const ex = xR - xL, ey = yR - yL;
@@ -752,7 +902,8 @@ function traceCurve(c, sink) {
         if (split) {
           SD[top] = d + 1;
           top++;
-          SS[top] = sm; SOK[top] = okM ? 1 : 0; SX[top] = xm; SY[top] = ym; SD[top] = d + 1;
+          SS[top] = sm; SOK[top] = okM ? 1 : 0; SX[top] = xm; SY[top] = ym; SQ[top] = qm;
+          SD[top] = d + 1;
           if (okM) { SG[top] = gateAt(c, sm, xm, ym); SL[top] = LAST_LOD; }
           else { SG[top] = -1; SL[top] = NO_GATE; }
           continue;
@@ -763,24 +914,24 @@ function traceCurve(c, sink) {
       // or halving gave out with the ends still apart: the curve crossed the rim there.
       const ex = xR - xL, ey = yR - yL;
       if (okL && okR && (d < MAX_DEPTH || ex * ex + ey * ey <= JUMP2)) {
-        pushPt(xR, yR, gR);
+        pushPt(xR, yR, gR, qR, sR);
       } else {
-        flushRun(sink, c.id, false);
+        flushRun(sink, c, false);
         broken = true;
-        if (okR) pushPt(xR, yR, gR);
+        if (okR) pushPt(xR, yR, gR, qR, sR);
       }
-      sL = sR; okL = okR; xL = xR; yL = yR; lL = lR;
+      sL = sR; okL = okR; xL = xR; yL = yR; qL = qR; lL = lR;
       top--;
     }
   }
-  flushRun(sink, c.id, c.closed && !broken);
+  flushRun(sink, c, c.closed && !broken);
 }
 
 // The setting up every curve shares, so that nothing one curve left in C leaks into the
 // next.
 function begin(t, id, level) {
   C.t = t; C.id = id; C.level = level;
-  C.nm = NB_FAMILY; C.closed = false; C.g = 0; C.tw = 0;
+  C.nm = NB_FAMILY; C.closed = false; C.g = 0; C.tw = 0; C.rib = -1;
 }
 
 function onFace(f) {
@@ -1097,7 +1248,7 @@ function countCurves() {
       case 'net':       n += NET_AXES.length; break;
     }
   }
-  return n;
+  return n + countRibbonCurves();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -2040,18 +2191,736 @@ function cropMarkShapes(sink) {
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
+// Things round the ball
+//
+// The room is far enough away to be looked up by direction alone. What stands round the
+// ball is not: ribbons a few ball radii out, laid in space and seen in the mirror by
+// `nearPaper`, which also says how far each point of them is from the mirror along the
+// ray that brings it back. That is what lets them stand in front of one another, and of
+// the room, which is further off than any of them.
+//
+//   field  the lines of a magnet's field, r = L·sin²θ about its axis, a shell of them
+//          for every L; moved off the centre, they come out of the ball near one point
+//          and sweep round in loops
+//   hoops  rings about the ball, fanned about one diameter like an armillary sphere
+//   helix  one ribbon wound round the ball from pole to pole, like the peel of an apple
+//
+// Everything here is in ball radii, with the ball's centre the origin and the room's
+// axes, y up. The ribbons are only ever seen in the mirror: a camera far away looks past
+// them at the ball, as if they were not there.
+//
+// A ribbon is a centre line with, at every sample, the way along the shell it is drawn
+// on and the way standing off it. Its width lies between the two by `ribbonTurn`, and
+// turns further by `ribbonTwist` whole turns along its length.
+
+// The axis the things are laid about, and two ways square to it.
+function thingFrame() {
+  const t = radians(settings.thingTilt), p = radians(settings.thingSpin);
+  const A = [Math.sin(t) * Math.cos(p), Math.cos(t), Math.sin(t) * Math.sin(p)];
+  const E1 = [Math.cos(t) * Math.cos(p), -Math.sin(t), Math.cos(t) * Math.sin(p)];
+  const E2 = [A[1] * E1[2] - A[2] * E1[1], A[2] * E1[0] - A[0] * E1[2], A[0] * E1[1] - A[1] * E1[0]];
+  return { A, E1, E2 };
+}
+
+// A ribbon from its centre line P and, per sample, the way off the shell it lies on, G.
+// The tangent is read off the neighbours, and G is squared up against it. Along the
+// shell is then T × G, unless `B` says which way round it should run.
+function makeRibbon(P, G, closed, B) {
+  const n = P.length / 3, AL = new Float64Array(3 * n), ST = new Float64Array(3 * n);
+  for (let i = 0; i < n; i++) {
+    const a = closed ? (i + n - 1) % n : Math.max(0, i - 1);
+    const b = closed ? (i + 1) % n : Math.min(n - 1, i + 1);
+    let tx = P[3 * b] - P[3 * a], ty = P[3 * b + 1] - P[3 * a + 1], tz = P[3 * b + 2] - P[3 * a + 2];
+    const tl = Math.hypot(tx, ty, tz) || 1;
+    tx /= tl; ty /= tl; tz /= tl;
+    let gx = G[3 * i], gy = G[3 * i + 1], gz = G[3 * i + 2];
+    const d = gx * tx + gy * ty + gz * tz;
+    gx -= d * tx; gy -= d * ty; gz -= d * tz;
+    const gl = Math.hypot(gx, gy, gz) || 1;
+    gx /= gl; gy /= gl; gz /= gl;
+    let ax = ty * gz - tz * gy, ay = tz * gx - tx * gz, az = tx * gy - ty * gx;
+    if (B && ax * B[0] + ay * B[1] + az * B[2] < 0) { ax = -ax; ay = -ay; az = -az; }
+    ST[3 * i] = gx; ST[3 * i + 1] = gy; ST[3 * i + 2] = gz;
+    AL[3 * i] = ax; AL[3 * i + 1] = ay; AL[3 * i + 2] = az;
+  }
+  return { P, AL, ST, n, closed, wk: null };
+}
+
+// Where sample i of a ribbon lies, `o` across it — i may be n on a closed ribbon, which
+// is sample 0 again with the twist carried all the way round. A ribbon may be narrower
+// than its width at some samples, by wk.
+const RIB_PT = new Float64Array(3);
+
+function ribbonPoint(r, i, o) {
+  const k = r.closed ? i % r.n : i;
+  const span = r.closed ? r.n : Math.max(1, r.n - 1);
+  const tau = radians(settings.ribbonTurn) + 2 * Math.PI * settings.ribbonTwist * i / span;
+  if (r.wk) o *= r.wk[k];
+  const c = Math.cos(tau) * o, s = Math.sin(tau) * o;
+  for (let e = 0; e < 3; e++) RIB_PT[e] = r.P[3 * k + e] + c * r.AL[3 * k + e] + s * r.ST[3 * k + e];
+}
+
+// The field lines of a magnet at c, its axis A: r = L·sin²θ, θ from pole to pole, in the
+// plane that holds A and the way ψ round it. Only the stretches outside the ball are
+// kept, each run right to the ball's surface where it goes in. The shell a line lies on
+// is the one all the lines of its L make together, so off it is the way from c to the
+// line, squared up — and along it is round the axis.
+function fieldRibbons(out) {
+  const { A, E1, E2 } = thingFrame();
+  const sh = clamp(settings.fieldShift, 0, 0.95);
+  const c = [sh * E1[0], sh * E1[1], sh * E1[2]];
+  const N = Math.max(1, Math.round(settings.thingCount));
+  const S = Math.max(1, Math.round(settings.thingShells));
+  const L0 = 1 - sh, reach = Math.max(L0 + 0.05, settings.thingReach);
+
+  for (let k = 0; k < S; k++) {
+    const L = L0 + (reach - L0) * (k + 1) / S;
+    for (let j = 0; j < N; j++) {
+      const psi = 2 * Math.PI * (j + 0.5 * (k & 1)) / N;
+      const cp = Math.cos(psi), sp = Math.sin(psi);
+      const ex = [cp * E1[0] + sp * E2[0], cp * E1[1] + sp * E2[1], cp * E1[2] + sp * E2[2]];
+      const B = [-sp * E1[0] + cp * E2[0], -sp * E1[1] + cp * E2[1], -sp * E1[2] + cp * E2[2]];
+      const at = th => {
+        const st = Math.sin(th), ct = Math.cos(th), r = L * st * st;
+        return [c[0] + r * (st * ex[0] + ct * A[0]), c[1] + r * (st * ex[1] + ct * A[1]),
+                c[2] + r * (st * ex[2] + ct * A[2])];
+      };
+      const outside = th => { const p = at(th); return p[0] * p[0] + p[1] * p[1] + p[2] * p[2] > 1; };
+      // the surface between a and b, one inside the ball and one out: the outer side of it
+      const edge = (a, b) => {
+        const ia = outside(a);
+        for (let it = 0; it < 50; it++) { const m = 0.5 * (a + b); if (outside(m) === ia) a = m; else b = m; }
+        return ia ? a : b;
+      };
+      let run = null;
+      const flush = () => {
+        const m = run ? run.length / 3 : 0;
+        if (m >= 3) {
+          const P = Float64Array.from(run), G = new Float64Array(3 * m);
+          for (let i = 0; i < m; i++) for (let e = 0; e < 3; e++) G[3 * i + e] = run[3 * i + e] - c[e];
+          out.push(taper(makeRibbon(P, G, false, B)));
+        }
+        run = null;
+      };
+      let th = 0, prev = false;
+      while (th < Math.PI) {
+        const st = Math.sin(th), ct = Math.cos(th);
+        const th1 = Math.min(Math.PI, th + Math.max(2e-4, RIB_STEP * st / Math.sqrt(st * st + 4 * ct * ct)));
+        const now = outside(th1);
+        if (now) {
+          if (!prev) run = at(edge(th, th1));
+          run.push(...at(th1));
+          if (run.length > 3 * RIB_MAX) { flush(); run = at(th1); }
+        } else if (prev) {
+          run.push(...at(edge(th, th1)));
+          flush();
+        }
+        prev = now; th = th1;
+      }
+      flush();
+    }
+  }
+}
+
+// A field line comes out of the ball, and seen in it there it is seen all but full size:
+// a ribbon of the same width all the way would stand on the ball like a board. So it
+// grows out of a point instead, to its full width `ribbonTaper` ball radii off.
+function taper(rb) {
+  const t = Math.max(0, settings.ribbonTaper);
+  if (!t) return rb;
+  rb.wk = new Float64Array(rb.n);
+  for (let i = 0; i < rb.n; i++) {
+    const d = Math.hypot(rb.P[3 * i], rb.P[3 * i + 1], rb.P[3 * i + 2]) - 1;
+    const u = clamp(d / t, 0, 1);
+    rb.wk[i] = u * (2 - u);
+  }
+  return rb;
+}
+
+// Hoops about the ball, evenly from just outside it to the reach, each tipped about the
+// same diameter a little further than the last, over `hoopSpread` in all.
+function hoopRibbons(out) {
+  const { A, E1, E2 } = thingFrame();
+  const K = Math.max(1, Math.round(settings.thingCount));
+  const reach = Math.max(1.05, settings.thingReach), r0 = Math.min(reach, 1.25);
+  const n = Math.ceil(2 * Math.PI / RIB_STEP);
+  for (let k = 0; k < K; k++) {
+    const R = K === 1 ? reach : r0 + (reach - r0) * k / (K - 1);
+    const g = K === 1 ? 0 : radians(settings.hoopSpread) * (k / (K - 1) - 0.5);
+    const cg = Math.cos(g), sg = Math.sin(g);
+    const ax = [cg * A[0] + sg * E2[0], cg * A[1] + sg * E2[1], cg * A[2] + sg * E2[2]];
+    const V = [ax[1] * E1[2] - ax[2] * E1[1], ax[2] * E1[0] - ax[0] * E1[2], ax[0] * E1[1] - ax[1] * E1[0]];
+    const P = new Float64Array(3 * n), G = new Float64Array(3 * n);
+    for (let i = 0; i < n; i++) {
+      const a = 2 * Math.PI * i / n, ca = Math.cos(a), sa = Math.sin(a);
+      for (let e = 0; e < 3; e++) {
+        G[3 * i + e] = ca * E1[e] + sa * V[e];
+        P[3 * i + e] = R * G[3 * i + e];
+      }
+    }
+    out.push(makeRibbon(P, G, true, ax));
+  }
+}
+
+// One ribbon wound round a sphere `reach` across, `thingCount` turns from pole to pole.
+function helixRibbons(out) {
+  const { A, E1, E2 } = thingFrame();
+  const turns = Math.max(0.5, settings.thingCount), R = Math.max(1.05, settings.thingReach);
+  const th0 = 0.03, span = Math.PI - 2 * th0;
+  const n = Math.min(RIB_MAX, Math.ceil(span * Math.sqrt(1 + 4 * turns * turns) / RIB_STEP));
+  const P = new Float64Array(3 * n), G = new Float64Array(3 * n);
+  for (let i = 0; i < n; i++) {
+    const th = th0 + span * i / (n - 1), psi = 2 * Math.PI * turns * (th - th0) / span;
+    const st = Math.sin(th), ct = Math.cos(th), cp = Math.cos(psi), sp = Math.sin(psi);
+    for (let e = 0; e < 3; e++) {
+      G[3 * i + e] = st * (cp * E1[e] + sp * E2[e]) + ct * A[e];
+      P[3 * i + e] = R * G[3 * i + e];
+    }
+  }
+  out.push(makeRibbon(P, G, false, null));
+}
+
+function buildRibbons() {
+  const out = [];
+  switch (settings.things) {
+    case 'field': fieldRibbons(out); break;
+    case 'hoops': hoopRibbons(out); break;
+    case 'helix': helixRibbons(out); break;
+  }
+  return out;
+}
+
+// The lines a ribbon is drawn with: `ribbonLanes` of them along it, its two edges among
+// them, and a line across each end of a ribbon that does not close. Its triangles are
+// cut between the same lanes, so every lane is an edge of them.
+function ribbonCols() {
+  const l = Math.round(clamp(settings.ribbonLanes, 1, 16));
+  return l === 1 ? 3 : l;
+}
+
+function laneOffset(j, cols) {
+  return 0.5 * Math.max(0, settings.ribbonW) * (2 * j / (cols - 1) - 1);
+}
+
+function ribbonCurves(ribs, sink) {
+  const id = penId(settings.thingPen);
+  const lanes = Math.round(clamp(settings.ribbonLanes, 1, 16)), cols = ribbonCols();
+  const whole = Number.isInteger(settings.ribbonTwist);
+  for (let r = 0; r < ribs.length; r++) {
+    const rb = ribs[r], m = rb.closed ? rb.n + 1 : rb.n;
+    const js = lanes === 1 ? [1] : [...Array(cols).keys()];
+    for (const j of js) {
+      const o = laneOffset(j, cols), lp = new Float64Array(3 * m);
+      for (let i = 0; i < m; i++) { ribbonPoint(rb, i, o); lp.set(RIB_PT, 3 * i); }
+      nearCurve(lp, m, rb.closed && whole, r, 0, 1, id, sink);
+    }
+    if (rb.closed || lanes < 2) continue;
+    for (const i of [0, rb.n - 1]) {
+      const lp = new Float64Array(6);
+      ribbonPoint(rb, i, laneOffset(0, cols)); lp.set(RIB_PT, 0);
+      ribbonPoint(rb, i, laneOffset(cols - 1, cols)); lp.set(RIB_PT, 3);
+      nearCurve(lp, 2, false, r, i, 0, id, sink);
+    }
+  }
+}
+
+// A polyline in space by the ball, walked like any other curve. Its point s stands for
+// sample sk0 + sk1·s of ribbon `rib`, so that the ribbon does not hide it from itself.
+function nearCurve(lp, m, closed, rib, sk0, sk1, id, sink) {
+  begin(5, id, -1);
+  C.lp = lp; C.pn = m;
+  C.rib = rib; C.sk0 = sk0; C.sk1 = sk1;
+  C.closed = closed;
+  C.s0 = 0; C.s1 = m - 1;
+  C.n0 = m - 1;
+  traceCurve(C, sink);
+}
+
+// A rough count of the lines the ribbons will be drawn with.
+function countRibbonCurves() {
+  const n = Math.max(1, Math.round(settings.thingCount));
+  const lanes = Math.round(clamp(settings.ribbonLanes, 1, 16)) + 2;
+  switch (settings.things) {
+    case 'field': return 2 * n * Math.max(1, Math.round(settings.thingShells)) * lanes;
+    case 'hoops': return n * lanes;
+    case 'helix': return lanes;
+  }
+  return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// What can hide anything
+//
+// A ribbon between two neighbouring samples and two neighbouring lanes is a small
+// patch, straight both ways in space — the lanes are drawn straight between samples as
+// well. The mirror bends it, gently in the middle of the disc and hard towards the rim,
+// and where the ribbon passes close behind the ball a step of a hair across its shadow
+// swings the image right round the rim. So each patch is looked up the way a curve is
+// walked: halved, along or across, until the middle of every side lies within TRI_SAG
+// of its chord on paper, and only then laid down as two triangles. A patch halving never
+// flattens is torn across the rim and hides nothing, nor does one with a corner in the
+// shadow of the ball.
+//
+// Every triangle keeps its three corners on paper, turned anticlockwise, and the plane
+// their distances from the mirror make over the paper, q = A x + B y + C. They are filed
+// in a grid of bins over the paper, each listing the triangles whose box reaches into it.
+
+const TRI_SAG   = 0.1;        // mm — how far the middle of a triangle's side may stray
+const TRI_DEPTH = 10;         // halvings a patch is allowed
+const TRI_TORN  = 1;          // mm — a side longer than this, still bent at the last halving, is torn
+const TRI_EDGE  = 4;          // halvings a patch half in the ball's shadow is allowed
+
+let NOCC = 0, OCAP = 0;
+let OAX = new Float64Array(0), OAY = OAX, OBX = OAX, OBY = OAX, OCX = OAX, OCY = OAX;
+let OPA = OAX, OPB = OAX, OPC = OAX, OX0 = OAX, OY0 = OAX, OX1 = OAX, OY1 = OAX, OQM = OAX;
+let ORIB = new Int32Array(0), OIDX = ORIB, OSTAMP = ORIB, OSTAMP_N = 0;
+let RIB_N = [], RIB_C = [];          // per ribbon: its samples, and whether it closes
+let BIN_W = 1, BIN_H = 1, BIN_X0 = 0, BIN_Y0 = 0, BIN_SZ = 1;
+let BIN_OFF = new Int32Array(2), BIN_IDX = new Int32Array(0);
+
+function growOccluders() {
+  const cap = Math.max(4096, 2 * OCAP);
+  const f = a => { const b = new Float64Array(cap); b.set(a.subarray(0, NOCC)); return b; };
+  const g = a => { const b = new Int32Array(cap); b.set(a.subarray(0, NOCC)); return b; };
+  OAX = f(OAX); OAY = f(OAY); OBX = f(OBX); OBY = f(OBY); OCX = f(OCX); OCY = f(OCY);
+  OPA = f(OPA); OPB = f(OPB); OPC = f(OPC);
+  OX0 = f(OX0); OY0 = f(OY0); OX1 = f(OX1); OY1 = f(OY1); OQM = f(OQM);
+  ORIB = g(ORIB); OIDX = g(OIDX);
+  OSTAMP = new Int32Array(cap);
+  OCAP = cap;
+}
+
+function addTriangle(ax, ay, qa, bx, by, qb, cx, cy, qc, rib, idx) {
+  let den = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay);
+  if (Math.abs(den) < 1e-12) return;              // seen edge on: it hides nothing
+  if (Math.max(ax, bx, cx) < area.x0 || Math.min(ax, bx, cx) > area.x1 ||
+      Math.max(ay, by, cy) < area.y0 || Math.min(ay, by, cy) > area.y1) return;
+  if (den < 0) {
+    let t = bx; bx = cx; cx = t;
+    t = by; by = cy; cy = t;
+    t = qb; qb = qc; qc = t;
+    den = -den;
+  }
+  if (NOCC === OCAP) growOccluders();
+  const k = NOCC++;
+  OAX[k] = ax; OAY[k] = ay; OBX[k] = bx; OBY[k] = by; OCX[k] = cx; OCY[k] = cy;
+  const A = ((qb - qa) * (cy - ay) - (qc - qa) * (by - ay)) / den;
+  const B = ((bx - ax) * (qc - qa) - (cx - ax) * (qb - qa)) / den;
+  OPA[k] = A; OPB[k] = B; OPC[k] = qa - A * ax - B * ay;
+  OX0[k] = Math.min(ax, bx, cx); OX1[k] = Math.max(ax, bx, cx);
+  OY0[k] = Math.min(ay, by, cy); OY1[k] = Math.max(ay, by, cy);
+  OQM[k] = Math.min(qa, qb, qc);                  // the nearest it comes
+  ORIB[k] = rib; OIDX[k] = idx;
+}
+
+// A point of the patch between samples i and i + 1 and lanes o0 and o1, at f along and
+// g across, looked up: [x, y, q], or null where it has no image.
+function patchLook(p, f, g) {
+  const x = p[0] + (p[3] - p[0]) * f, y = p[1] + (p[4] - p[1]) * f, z = p[2] + (p[5] - p[2]) * f;
+  const X = p[6] + (p[9] - p[6]) * f, Y = p[7] + (p[10] - p[7]) * f, Z = p[8] + (p[11] - p[8]) * f;
+  return nearPaper(x + (X - x) * g, y + (Y - y) * g, z + (Z - z) * g) ? [PX, PY, PQ] : null;
+}
+
+// How far the middle m of a side from a to b strays from its chord, and how long it is.
+function sideBent(a, m, b) {
+  return segDist2(m[0], m[1], a[0], a[1], b[0], b[1]) > TRI_SAG * TRI_SAG;
+}
+
+function sideLong(a, b) {
+  return Math.hypot(b[0] - a[0], b[1] - a[1]) > TRI_TORN;
+}
+
+// The patch p over [f0, f1] × [g0, g1], its corners a (f0 g0), b (f1 g0), c (f1 g1) and
+// e (f0 g1) already looked up.
+function laPatch(p, f0, f1, g0, g1, a, b, c, e, d, rib, idx) {
+  if (!a && !b && !c && !e) return;
+  const fm = 0.5 * (f0 + f1), gm = 0.5 * (g0 + g1);
+  if (!a || !b || !c || !e) {
+    if (d >= TRI_EDGE) return;
+    const mb = patchLook(p, fm, g0), mt = patchLook(p, fm, g1);
+    const ml = patchLook(p, f0, gm), mr = patchLook(p, f1, gm), mm = patchLook(p, fm, gm);
+    laPatch(p, f0, fm, g0, gm, a, mb, mm, ml, d + 1, rib, idx);
+    laPatch(p, fm, f1, g0, gm, mb, b, mr, mm, d + 1, rib, idx);
+    laPatch(p, fm, f1, gm, g1, mm, mr, c, mt, d + 1, rib, idx);
+    laPatch(p, f0, fm, gm, g1, ml, mm, mt, e, d + 1, rib, idx);
+    return;
+  }
+  const mb = patchLook(p, fm, g0), mt = patchLook(p, fm, g1);
+  const ml = patchLook(p, f0, gm), mr = patchLook(p, f1, gm);
+  const along = !mb || !mt || sideBent(a, mb, b) || sideBent(e, mt, c);
+  const across = !ml || !mr || sideBent(a, ml, e) || sideBent(b, mr, c);
+  if ((along || across) && d < TRI_DEPTH) {
+    if (along && across) {
+      const mm = patchLook(p, fm, gm);
+      if (!mm) return;
+      laPatch(p, f0, fm, g0, gm, a, mb, mm, ml, d + 1, rib, idx);
+      laPatch(p, fm, f1, g0, gm, mb, b, mr, mm, d + 1, rib, idx);
+      laPatch(p, fm, f1, gm, g1, mm, mr, c, mt, d + 1, rib, idx);
+      laPatch(p, f0, fm, gm, g1, ml, mm, mt, e, d + 1, rib, idx);
+    } else if (along) {
+      laPatch(p, f0, fm, g0, g1, a, mb, mt, e, d + 1, rib, idx);
+      laPatch(p, fm, f1, g0, g1, mb, b, c, mt, d + 1, rib, idx);
+    } else {
+      laPatch(p, f0, f1, g0, gm, a, b, mr, ml, d + 1, rib, idx);
+      laPatch(p, f0, f1, gm, g1, ml, mr, c, e, d + 1, rib, idx);
+    }
+    return;
+  }
+  // Out of halvings with a side still bent: it bends because it is torn, unless short.
+  if ((along && (sideLong(a, b) || sideLong(e, c))) || (across && (sideLong(a, e) || sideLong(b, c)))) return;
+  addTriangle(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], rib, idx);
+  addTriangle(a[0], a[1], a[2], c[0], c[1], c[2], e[0], e[1], e[2], rib, idx);
+}
+
+function buildOccluders(ribs) {
+  NOCC = 0;
+  RIB_N = ribs.map(r => r.n);
+  RIB_C = ribs.map(r => r.closed);
+  if (!ribs.length || !settings.thingsHide) return;
+  const cols = ribbonCols();
+  const p = new Float64Array(12);                 // a patch: (i, o0) (i+1, o0) (i, o1) (i+1, o1)
+
+  for (let ri = 0; ri < ribs.length; ri++) {
+    const rb = ribs[ri], m = rb.closed ? rb.n + 1 : rb.n;
+    for (let i = 0; i + 1 < m; i++) {
+      for (let j = 0; j + 1 < cols; j++) {
+        const o0 = laneOffset(j, cols), o1 = laneOffset(j + 1, cols);
+        ribbonPoint(rb, i, o0); p.set(RIB_PT, 0);
+        ribbonPoint(rb, i + 1, o0); p.set(RIB_PT, 3);
+        ribbonPoint(rb, i, o1); p.set(RIB_PT, 6);
+        ribbonPoint(rb, i + 1, o1); p.set(RIB_PT, 9);
+        laPatch(p, 0, 1, 0, 1, patchLook(p, 0, 0), patchLook(p, 1, 0), patchLook(p, 1, 1),
+                patchLook(p, 0, 1), 0, ri, i);
+      }
+    }
+  }
+  OSTAMP.fill(0);
+  OSTAMP_N = 0;
+
+  let sumW = 0, bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+  for (let k = 0; k < NOCC; k++) {
+    sumW += (OX1[k] - OX0[k]) + (OY1[k] - OY0[k]);
+    if (OX0[k] < bx0) bx0 = OX0[k];
+    if (OY0[k] < by0) by0 = OY0[k];
+    if (OX1[k] > bx1) bx1 = OX1[k];
+    if (OY1[k] > by1) by1 = OY1[k];
+  }
+
+
+  if (!NOCC) return;
+  // Bins about twice the size of a triangle, fewer if there would be too many.
+  const w = Math.max(1e-6, bx1 - bx0), h = Math.max(1e-6, by1 - by0);
+  let sz = Math.max(sumW / NOCC, 1e-3);
+  sz = Math.max(sz, Math.sqrt(w * h / 250_000));
+  BIN_SZ = sz;
+  BIN_X0 = bx0; BIN_Y0 = by0;
+  BIN_W = Math.max(1, Math.ceil(w / sz));
+  BIN_H = Math.max(1, Math.ceil(h / sz));
+  const nb = BIN_W * BIN_H;
+  BIN_OFF = new Int32Array(nb + 1);
+  const bi = v => clamp(Math.floor((v - BIN_X0) / sz), 0, BIN_W - 1);
+  const bj = v => clamp(Math.floor((v - BIN_Y0) / sz), 0, BIN_H - 1);
+  for (let k = 0; k < NOCC; k++) {
+    for (let j = bj(OY0[k]); j <= bj(OY1[k]); j++) {
+      for (let i = bi(OX0[k]); i <= bi(OX1[k]); i++) BIN_OFF[j * BIN_W + i + 1]++;
+    }
+  }
+  for (let b = 0; b < nb; b++) BIN_OFF[b + 1] += BIN_OFF[b];
+  BIN_IDX = new Int32Array(BIN_OFF[nb]);
+  const cur = BIN_OFF.slice(0, nb);
+  for (let k = 0; k < NOCC; k++) {
+    for (let j = bj(OY0[k]); j <= bj(OY1[k]); j++) {
+      for (let i = bi(OX0[k]); i <= bi(OX1[k]); i++) BIN_IDX[cur[j * BIN_W + i]++] = k;
+    }
+  }
+}
+
+// A piece of line from (x0, y0, q0) to (x1, y1, q1) on paper, and one triangle. The
+// point at t along it is inside the triangle when it is on the inner side of all three
+// of its sides, and each side's test — a cross product — is linear in t; it is behind
+// the triangle when the triangle's plane there is nearer than the line, and that too is
+// linear in t. Four half-lines in t, one stretch of the piece where all four hold: the
+// part the triangle hides, exactly. The room is behind everything, so for a piece of it
+// only the three sides are asked.
+let HT0 = 0, HT1 = 1;
+
+function hideStretch(k, x0, y0, q0, dx, dy, dq, back) {
+  let lo = 0, hi = 1;
+  for (let e = 0; e < 3; e++) {
+    let ax, ay, bx, by;
+    if (e === 0) { ax = OAX[k]; ay = OAY[k]; bx = OBX[k]; by = OBY[k]; }
+    else if (e === 1) { ax = OBX[k]; ay = OBY[k]; bx = OCX[k]; by = OCY[k]; }
+    else { ax = OCX[k]; ay = OCY[k]; bx = OAX[k]; by = OAY[k]; }
+    const ex = bx - ax, ey = by - ay;
+    const f0 = ex * (y0 - ay) - ey * (x0 - ax) + SIDE_TOL * (Math.abs(ex) + Math.abs(ey));
+    const fd = ex * dy - ey * dx;
+    if (fd === 0) { if (f0 < 0) return false; }
+    else {
+      const t = -f0 / fd;
+      if (fd > 0) { if (t > lo) lo = t; } else if (t < hi) hi = t;
+      if (lo >= hi) return false;
+    }
+  }
+  if (!back) {
+    const g0 = q0 - (OPA[k] * x0 + OPB[k] * y0 + OPC[k]) - Q_EPS;
+    const gd = dq - (OPA[k] * dx + OPB[k] * dy);
+    if (gd === 0) { if (g0 <= 0) return false; }
+    else {
+      const t = -g0 / gd;
+      if (gd > 0) { if (t > lo) lo = t; } else if (t < hi) hi = t;
+      if (lo >= hi) return false;
+    }
+  }
+  if (hi - lo < 1e-12) return false;
+  HT0 = lo; HT1 = hi;
+  return true;
+}
+
+// Whether triangle k belongs to the same ribbon as a piece of line, right next to it:
+// the piece lies on it, and a ribbon must not hide what it carries.
+function nextTo(k, rib, i0, i1) {
+  if (ORIB[k] !== rib) return false;
+  const i = OIDX[k];
+  if (i >= i0 - 1 && i <= i1 + 1) return true;
+  if (!RIB_C[rib]) return false;
+  const n = RIB_N[rib];
+  return (i + n >= i0 - 1 && i + n <= i1 + 1) || (i - n >= i0 - 1 && i - n <= i1 + 1);
+}
+
+// What is left of a piece once every triangle that could stand in front of it has been
+// asked: the visible stretches, as pairs of t in VIS, and how many.
+let INTS = new Float64Array(512), VIS = new Float64Array(512);
+
+function visibleStretches(x0, y0, q0, x1, y1, q1, rib, i0, i1, back) {
+  const dx = x1 - x0, dy = y1 - y0, dq = back ? 0 : q1 - q0;
+  const mnx = Math.min(x0, x1), mxx = Math.max(x0, x1);
+  const mny = Math.min(y0, y1), mxy = Math.max(y0, y1);
+  const qmax = Math.max(q0, q1);
+  const bi0 = Math.floor((mnx - BIN_X0) / BIN_SZ), bi1 = Math.floor((mxx - BIN_X0) / BIN_SZ);
+  const bj0 = Math.floor((mny - BIN_Y0) / BIN_SZ), bj1 = Math.floor((mxy - BIN_Y0) / BIN_SZ);
+  let n = 0;
+  if (bi1 >= 0 && bj1 >= 0 && bi0 < BIN_W && bj0 < BIN_H) {
+    const stamp = ++OSTAMP_N;
+    for (let j = Math.max(0, bj0); j <= Math.min(BIN_H - 1, bj1); j++) {
+      for (let i = Math.max(0, bi0); i <= Math.min(BIN_W - 1, bi1); i++) {
+        const b = j * BIN_W + i;
+        for (let p = BIN_OFF[b]; p < BIN_OFF[b + 1]; p++) {
+          const k = BIN_IDX[p];
+          if (OSTAMP[k] === stamp) continue;
+          OSTAMP[k] = stamp;
+          if (OX1[k] < mnx || OX0[k] > mxx || OY1[k] < mny || OY0[k] > mxy) continue;
+          if (!back && (OQM[k] >= qmax - Q_EPS || nextTo(k, rib, i0, i1))) continue;
+          if (!hideStretch(k, x0, y0, q0, dx, dy, dq, back)) continue;
+          if (2 * n + 2 > INTS.length) {
+            const bigger = new Float64Array(INTS.length * 2);
+            bigger.set(INTS);
+            INTS = bigger;
+          }
+          INTS[2 * n] = HT0; INTS[2 * n + 1] = HT1;
+          n++;
+        }
+      }
+    }
+  }
+  if (!n) { VIS[0] = 0; VIS[1] = 1; return 1; }
+  // by where they start, then what is between them
+  for (let a = 1; a < n; a++) {
+    const s0 = INTS[2 * a], s1 = INTS[2 * a + 1];
+    let b = a - 1;
+    while (b >= 0 && INTS[2 * b] > s0) { INTS[2 * b + 2] = INTS[2 * b]; INTS[2 * b + 3] = INTS[2 * b + 1]; b--; }
+    INTS[2 * b + 2] = s0; INTS[2 * b + 3] = s1;
+  }
+  if (VIS.length < 2 * n + 2) VIS = new Float64Array(2 * n + 2);
+  let m = 0, t = 0;
+  for (let a = 0; a < n; a++) {
+    const s0 = INTS[2 * a], s1 = INTS[2 * a + 1];
+    if (s0 > t + 1e-9) { VIS[2 * m] = t; VIS[2 * m + 1] = s0; m++; }
+    if (s1 > t) t = s1;
+    if (t >= 1) break;
+  }
+  if (t < 1 - 1e-9) { VIS[2 * m] = t; VIS[2 * m + 1] = 1; m++; }
+  return m;
+}
+
+// One walked run with what the ribbons hide taken out of it: the pieces that are left,
+// each gated, clipped and handed over as usual. A closed run that was cut only away from
+// where it starts is joined back up there.
+function occludedRun(sink, c, closed) {
+  const pieces = [];
+  let xs = null, ys = null, gs = null, head = false, whole = true;
+  const put = (i, t) => {
+    const x = RX[i] + (RX[i + 1] - RX[i]) * t, y = RY[i] + (RY[i + 1] - RY[i]) * t;
+    const g = RG[i] + (RG[i + 1] - RG[i]) * t;
+    if (!xs) { xs = [x]; ys = [y]; gs = [g]; head = i === 0 && t === 0; }
+    else { xs.push(x); ys.push(y); gs.push(g); }
+  };
+  const flush = tail => {
+    if (xs && xs.length >= 2) pieces.push({ xs, ys, gs, head, tail });
+    xs = null;
+  };
+
+  for (let i = 0; i + 1 < rn; i++) {
+    const back = !(RQ[i] < Infinity);
+    const s0 = c.sk0 + c.sk1 * RS[i], s1 = c.sk0 + c.sk1 * RS[i + 1];
+    const m = visibleStretches(RX[i], RY[i], RQ[i], RX[i + 1], RY[i + 1], RQ[i + 1],
+                               c.rib, Math.floor(Math.min(s0, s1)), Math.floor(Math.max(s0, s1)), back);
+    if (m === 1 && VIS[0] === 0 && VIS[1] === 1) {
+      if (!xs) put(i, 0);
+      put(i, 1);
+      continue;
+    }
+    whole = false;
+    if (!m) { flush(false); continue; }
+    for (let k = 0; k < m; k++) {
+      const a = VIS[2 * k], b = VIS[2 * k + 1];
+      if (a > 0) flush(false);
+      if (!xs) put(i, a);
+      put(i, b);
+      if (b < 1) flush(false);
+    }
+  }
+  flush(true);
+
+  if (whole) { emitPath(RX, RY, RG, rn, true, closed, sink, c.id); return; }
+  if (closed && pieces.length > 1 && pieces[0].head && pieces[pieces.length - 1].tail) {
+    const h = pieces[0], t = pieces.pop();
+    t.xs.pop(); t.ys.pop(); t.gs.pop();
+    pieces[0] = { xs: t.xs.concat(h.xs), ys: t.ys.concat(h.ys), gs: t.gs.concat(h.gs) };
+  }
+  for (const p of pieces) emitPath(p.xs, p.ys, p.gs, p.xs.length, true, false, sink, c.id);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// The kaleidoscope
+//
+// `kaleido` mirrors stand on the disc through its middle, π/kaleido apart, the first at
+// `kaleidoTurn` from the right of the sheet. Everything drawn is cut down to the wedge
+// between the first two, and the wedge is laid round the disc turned and turned over,
+// 2·kaleido times in all — which is what the two mirrors would show. The rim and the cut
+// guides are drawn after, whole. A stroke that runs into a mirror meets its own image
+// there, and the two are joined into one.
+
+function foldSink(sink) {
+  const K = Math.round(settings.kaleido);
+  if (K < 1) return sink;
+  const w = Math.PI / K, b0 = radians(settings.kaleidoTurn);
+  const e0x = Math.cos(b0), e0y = Math.sin(b0), e1x = Math.cos(b0 + w), e1y = Math.sin(b0 + w);
+  const c2 = Math.cos(2 * b0), s2 = Math.sin(2 * b0);
+  const rot = [];
+  for (let j = 0; j < K; j++) rot.push([Math.cos(2 * w * j), Math.sin(2 * w * j)]);
+  // on the sheet as it is seen, anticlockwise: u to the right, v up
+  const h0 = (u, v) => e0x * v - e0y * u, h1 = (u, v) => u * e1y - v * e1x;
+
+  const runs = [];                                 // [xs, ys, id]
+  const cast = (au, av, id) => {
+    for (const [c, s] of rot) {
+      for (const flip of [false, true]) {
+        const xs = [], ys = [];
+        for (let i = 0; i < au.length; i++) {
+          let u = au[i], v = av[i];
+          if (flip) { const t = u * c2 + v * s2; v = u * s2 - v * c2; u = t; }
+          xs.push(OX + u * c - v * s);
+          ys.push(OY - (u * s + v * c));
+        }
+        const out = [];
+        clipRuns(xs, ys, xs.length, out);
+        for (const [cx, cy] of out) runs.push([cx, cy, id]);
+      }
+    }
+  };
+  const { pts, off, ink } = sink;
+  for (let r = 0; r + 1 < off.length; r++) {
+    let us = null, vs = null;
+    const flush = () => { if (us && us.length >= 2) cast(us, vs, ink[r]); us = vs = null; };
+    for (let k = off[r]; k + 1 < off[r + 1]; k++) {
+      const u0 = pts[2 * k] - OX, v0 = OY - pts[2 * k + 1];
+      const u1 = pts[2 * k + 2] - OX, v1 = OY - pts[2 * k + 3];
+      let t0 = 0, t1 = 1;
+      for (const h of [h0, h1]) {
+        const a = h(u0, v0), b = h(u1, v1);
+        if (a < 0 && b < 0) { t1 = -1; break; }
+        if (a < 0) t0 = Math.max(t0, a / (a - b));
+        else if (b < 0) t1 = Math.min(t1, a / (a - b));
+      }
+      if (!(t1 > t0)) { flush(); continue; }
+      const bu = u0 + (u1 - u0) * t1, bv = v0 + (v1 - v0) * t1;
+      if (us && t0 === 0) { us.push(bu); vs.push(bv); }
+      else { flush(); us = [u0 + (u1 - u0) * t0, bu]; vs = [v0 + (v1 - v0) * t0, bv]; }
+      if (t1 < 1) flush();
+    }
+    flush();
+  }
+
+  const out = makeSink();
+  for (const [xs, ys, id] of joinRuns(runs, 1e-6 * Math.max(1, BR))) out.run(xs, ys, xs.length, id);
+  return out;
+}
+
+// Runs of one pen that meet end to end, joined into as few strokes as a greedy walk
+// finds — but only where exactly two ends meet, so no crossing is ever walked through.
+function joinRuns(runs, eps) {
+  const key = (x, y, id) => id + ':' + Math.round(x / eps) + ',' + Math.round(y / eps);
+  const at = new Map();
+  for (let r = 0; r < runs.length; r++) {
+    const [xs, ys, id] = runs[r], n = xs.length - 1;
+    for (const k of [key(xs[0], ys[0], id), key(xs[n], ys[n], id)]) {
+      const l = at.get(k);
+      if (l) l.push(r); else at.set(k, [r]);
+    }
+  }
+  const used = new Uint8Array(runs.length), out = [];
+  const next = (k, self) => {
+    const l = at.get(k);
+    if (!l || l.length !== 2) return -1;
+    const o = l[0] === self ? l[1] : l[0];
+    return o === self || used[o] ? -1 : o;
+  };
+  for (let r = 0; r < runs.length; r++) {
+    if (used[r]) continue;
+    used[r] = 1;
+    let xs = runs[r][0].slice(), ys = runs[r][1].slice(), last = r, first = r;
+    const id = runs[r][2];
+    for (;;) {                                   // on from the tail
+      const k = key(xs[xs.length - 1], ys[ys.length - 1], id), o = next(k, last);
+      if (o < 0) break;
+      used[o] = 1; last = o;
+      let [ox, oy] = runs[o];
+      if (key(ox[0], oy[0], id) !== k) { ox = ox.slice().reverse(); oy = oy.slice().reverse(); }
+      for (let i = 1; i < ox.length; i++) { xs.push(ox[i]); ys.push(oy[i]); }
+    }
+    for (;;) {                                   // and back from the head
+      const k = key(xs[0], ys[0], id), o = next(k, first);
+      if (o < 0) break;
+      used[o] = 1; first = o;
+      let [ox, oy] = runs[o];
+      if (key(ox[ox.length - 1], oy[oy.length - 1], id) !== k) { ox = ox.slice().reverse(); oy = oy.slice().reverse(); }
+      xs = ox.slice(0, -1).concat(xs); ys = oy.slice(0, -1).concat(ys);
+    }
+    out.push([xs, ys, id]);
+  }
+  return out;
+}
+
 function buildShapes() {
   computeConstants();
 
-  const sink = makeSink();
+  let sink = makeSink();
   const pens = Math.round(clamp(settings.pens, 1, MAX_PENS));
   perPen = [];
   for (let i = 0; i < pens; i++) perPen.push({ strokes: 0, ink: 0 });
+
+  // The ribbons are looked up first: they hide some of the room behind them.
+  const ribs = buildRibbons();
+  buildOccluders(ribs);
 
   const B = roomBox();
   for (const f of faces(B)) if (f.pat !== 'none') faceCurves(f, B, sink);
   if (!B.open && settings.edges) edgeCurves(B, sink);
   if (B.open && settings.horizon) horizonCurve(sink);
+  ribbonCurves(ribs, sink);
+  NOCC = 0;
+  sink = foldSink(sink);
   if (settings.rim) rimShape(sink);
   if (settings.cropMarks) cropMarkShapes(sink);
 
@@ -2485,6 +3354,15 @@ function syncVisibility() {
   setVisible('wallPen', pens > 1 && !open);
   setVisible('edgePen', pens > 1 && (open ? settings.horizon : settings.edges));
   setVisible('rimPen', pens > 1 && settings.rim);
+  const th = s.things !== 'none';
+  for (const k of ['thingCount', 'thingReach', 'thingTilt', 'thingSpin', 'ribbonW',
+                   'ribbonTurn', 'ribbonTwist', 'ribbonLanes', 'thingsHide']) setVisible(k, th);
+  setVisible('thingShells', s.things === 'field');
+  setVisible('fieldShift', s.things === 'field');
+  setVisible('ribbonTaper', s.things === 'field');
+  setVisible('hoopSpread', s.things === 'hoops');
+  setVisible('thingPen', th && pens > 1);
+  setVisible('kaleidoTurn', Math.round(s.kaleido) > 0);
   refreshPenList();
 }
 
@@ -2739,6 +3617,53 @@ function buildControls() {
   addCheckbox(root, 'Draw the horizon', 'horizon');
   addSlider(root, 'Corner and horizon pen', 'edgePen', 1, MAX_PENS, 1);
 
+  // --- Round the ball ---
+  addSection(root, 'Round the ball');
+  addSelect(root, 'Ribbons', 'things', THINGS, refit,
+    '<b>field</b> — the lines of a magnet\'s field, a shell of them one inside the other; ' +
+    'moved off the centre they come out of the ball near one point and loop round.<br>' +
+    '<b>hoops</b> — rings about the ball, fanned about one diameter.<br>' +
+    '<b>helix</b> — one ribbon wound round the ball from pole to pole.<br>' +
+    'They are close by, so they are seen up close, and they hide the room and each ' +
+    'other. The camera looks past them at the ball.');
+  addSlider(root, 'How many', 'thingCount', 1, 48, 1,
+    'Field lines to a shell, hoops, or turns of the helix.');
+  addSlider(root, 'Shells', 'thingShells', 1, 8, 1);
+  addSlider(root, 'Reach (ball radii)', 'thingReach', 1.1, 20, 0.1,
+    'How far out the furthest of them goes.');
+  addSlider(root, 'Field source off centre', 'fieldShift', 0, 0.95, 0.01,
+    'In ball radii, sideways. Near 1 the field comes out of the ball close to one ' +
+    'point and sweeps round in loops.');
+  addSlider(root, 'Hoops fanned over (°)', 'hoopSpread', 0, 180, 1,
+    'At <b>0</b> they are rings in one plane, like Saturn\'s.');
+  addSlider(root, 'Axis tipped (°)', 'thingTilt', 0, 180, 1,
+    'The axis they are laid about, tipped off the vertical…');
+  addSlider(root, 'Axis turned (°)', 'thingSpin', -180, 180, 1, '…and turned about it.');
+  addSlider(root, 'Ribbon width (ball radii)', 'ribbonW', 0, 1.5, 0.01);
+  addSlider(root, 'Ribbon turn (°)', 'ribbonTurn', 0, 180, 1,
+    'At <b>0</b> a ribbon lies along the shell it is drawn on; at <b>90</b> it stands ' +
+    'across it, and is seen much more edge on.');
+  addSlider(root, 'Ribbon twist (turns)', 'ribbonTwist', -8, 8, 0.5,
+    'Whole turns a ribbon twists along its length. A hoop with half a turn in it is a ' +
+    'Möbius band.');
+  addSlider(root, 'Field line grows over (ball radii)', 'ribbonTaper', 0, 3, 0.05,
+    'A field line comes out of the ball as a point and is full width this far off it. ' +
+    'At <b>0</b> it is full width all the way, and stands on the ball like a board.');
+  addSlider(root, 'Lines along a ribbon', 'ribbonLanes', 1, 16, 1,
+    'Its two edges among them. <b>1</b> is a single line down the middle, still as ' +
+    'wide as the ribbon where it hides what is behind it.');
+  addCheckbox(root, 'They hide what is behind them', 'thingsHide');
+  addSlider(root, 'Ribbon pen', 'thingPen', 1, MAX_PENS, 1);
+
+  // --- Kaleidoscope ---
+  addSection(root, 'Kaleidoscope');
+  addSlider(root, 'Mirrors', 'kaleido', 0, 12, 1,
+    'Mirrors standing on the disc through its middle. The wedge between the first two ' +
+    'is laid round the disc, turned and turned over. <b>1</b> is one mirror, the left ' +
+    'and right of the ball alike; <b>0</b> is none.');
+  addSlider(root, 'First mirror at (°)', 'kaleidoTurn', 0, 180, 1,
+    'From the right of the sheet, anticlockwise. At <b>90</b> it stands upright.');
+
   // --- The far away ---
   addSection(root, 'Far away');
   addSlider(root, 'Closest two lines may come (mm)', 'minGap', 0, 5, 0.05,
@@ -2909,8 +3834,20 @@ function metaComment() {
     `ball=${s.ballR > 0 ? s.ballR + 'mm' : 'fit'}${s.rim ? '/rim' : ''}` +
     `${s.rimGap > 0 ? '/clear' + s.rimGap + 'mm' : ''} ` +
     `pens=${s.pens} simplify=${s.simplifyTol}mm ` +
+    `${s.things !== 'none' ? thingsMeta() + ' ' : ''}` +
+    `${Math.round(s.kaleido) > 0 ? 'kaleido=' + Math.round(s.kaleido) + '@' + s.kaleidoTurn + '° ' : ''}` +
     `${s.cropMarks ? 'cropmarks<=' + s.cropMarkGap + 'mm ' : ''}` +
     `pen=${s.penWidth}mm strokes=${strokes}`;
+}
+
+function thingsMeta() {
+  const s = settings;
+  const what = s.things === 'field'
+    ? `field=${s.thingCount}x${s.thingShells}${s.fieldShift > 0 ? '@' + s.fieldShift : ''}`
+    : s.things === 'hoops' ? `hoops=${s.thingCount}/${s.hoopSpread}°` : `helix=${s.thingCount}`;
+  return `${what} reach=${s.thingReach} axis=${s.thingTilt}°/${s.thingSpin}° ` +
+    `ribbon=${s.ribbonW}x${s.ribbonLanes}/${s.ribbonTurn}°${s.ribbonTwist ? '/' + s.ribbonTwist + 'tw' : ''}` +
+    `${s.things === 'field' ? '/taper' + s.ribbonTaper : ''}${s.thingsHide ? '' : '/clear'}`;
 }
 
 // The strokes of one pen, in plot order, as one <g>.
