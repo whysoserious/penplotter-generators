@@ -103,7 +103,7 @@ const MAX_STROKES    = 400_000;   // past this nothing is ordered, drawn or expo
 const BUSY_STROKES   = 80_000;    // above this, warn about the plot time
 const EPS            = 0.01;      // mm — the stub that stands in for a single dot
 const PREVIEW_MAX_PX = 1500;      // preview canvas resolution (paper is in mm)
-const MAX_PREVIEW_W  = 900;       // on-screen size of that canvas
+const MAX_PREVIEW_W  = 900;       // on-screen size of that canvas, if there is no room to measure
 const MAX_PREVIEW_H  = 700;
 const LIVE_BUDGET_MS = 150;       // slower than this and a drag waits for the release
 const DRAG_DEG       = 180;       // how far the room turns for a drag across the whole ball
@@ -495,6 +495,7 @@ function setup() {
   applyState(location.hash.replace(/^#/, ''));
   urlWritten = encodeState();
   window.addEventListener('hashchange', onHashChange);
+  new ResizeObserver(applyCanvasDisplay).observe(document.getElementById('canvas-container'));
   area = drawArea();            // the sidebar is built before the first update
 
   const [w, h] = paperDims();
@@ -509,7 +510,10 @@ function setup() {
 
 function applyCanvasDisplay() {
   const [pw, ph] = paperDims();
-  const scale = Math.min(MAX_PREVIEW_W / pw, MAX_PREVIEW_H / ph);
+  const box = document.getElementById('canvas-container');
+  const aw = box ? box.clientWidth - 48 : MAX_PREVIEW_W;
+  const ah = box ? box.clientHeight - 48 : MAX_PREVIEW_H;
+  const scale = Math.max(0.5, Math.min(aw / pw, ah / ph));
   const c = canvasEl();
   if (c) {
     c.style.width  = pw * scale + 'px';

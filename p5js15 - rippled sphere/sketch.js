@@ -515,7 +515,7 @@ function setup() {
   applyState(location.hash.replace(/^#/, ''));
   urlWritten = encodeState();
   window.addEventListener('hashchange', onHashChange);
-  window.addEventListener('resize', applyCanvasDisplay);
+  new ResizeObserver(applyCanvasDisplay).observe(document.getElementById('canvas-container'));
   area = drawArea();            // the sidebar is built before the first update
 
   const [w, h] = paperDims();

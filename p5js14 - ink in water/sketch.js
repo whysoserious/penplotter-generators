@@ -2604,7 +2604,7 @@ function setup() {
   applyState(location.hash.replace(/^#/, ''));
   urlWritten = encodeState();
   window.addEventListener('hashchange', onHashChange);
-  window.addEventListener('resize', applyCanvasDisplay);
+  new ResizeObserver(applyCanvasDisplay).observe(document.getElementById('canvas-container'));
   area = drawArea();
 
   const [w, h] = paperDims();
