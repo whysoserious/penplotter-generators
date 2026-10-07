@@ -20,8 +20,13 @@
 // stopped exactly at the edge of every glyph they reach, and now and then running on
 // past their last glyph into an end mark. Stems are short sticks off a glyph, arcs are
 // long curves through or round one, rays run out of the band, and a voice is one long
-// line wandering through the whole score from one end to the other. Marks — tallies,
-// bars, combs, coils, small letters — sit beside the threads or the glyphs.
+// line wandering through the whole score from one end to the other.
+//
+// The signs themselves are a chemist's, not the picture's: atoms as dots and circles,
+// element symbols in circles or standing bare, rings of six and five, charges; hubs that
+// are benzene rings, Bohr atoms, orbits, unit cells; marks that are skeletal chains,
+// reaction arrows, orbitals, wedge bonds, ionic lattices and spectra; and labels naming
+// compounds by formula or by name, in Polish or in English, in a stroke font of its own.
 //
 // Two pens draw all of that finely: black, and red for an accent — a share of it at
 // random, whole clusters, a stretch of the band, its edges or its core — and for the
@@ -62,18 +67,24 @@ const SLOTS = 5;
 
 const LAYOUTS = ['band', 'ellipse', 'ring', 'islands', 'sheet'];
 
-// The signs, each with the setting that weighs how often it comes up.
+// The signs at the joints, each with the setting that weighs how often it comes up. They
+// are a chemist's: atoms as dots and circles, an element's symbol in a circle or standing
+// bare where the bonds stop short of it, small rings of six and of five, charges.
 const GLYPHS = [
-  ['dot', 'gDot'], ['circle', 'gCircle'], ['ring', 'gRing'], ['target', 'gTarget'],
-  ['triangle', 'gTriangle'], ['square', 'gSquare'], ['cross', 'gCross'],
-  ['half', 'gHalf'], ['none', 'gNone'],
+  ['dot', 'gDot'], ['circle', 'gCircle'], ['element', 'gElement'], ['letter', 'gLetter'],
+  ['hexagon', 'gHexagon'], ['pentagon', 'gPentagon'], ['charge', 'gCharge'],
+  ['none', 'gNone'],
 ];
-const HUB_KINDS = ['ticks', 'concentric', 'diameter', 'eye', 'crosshair'];
+// which element a lettered glyph is, and how often
+const ELEMENTS = [['C', 30], ['O', 20], ['N', 16], ['H', 9], ['S', 8], ['P', 5], ['F', 3],
+                  ['Cl', 3], ['Br', 2], ['Si', 2], ['B', 2]];
+const HUB_KINDS = ['benzene', 'bohr', 'orbitals', 'cell', 'furan'];
 const STYLES = [
   ['solid', 'lsSolid'], ['dashed', 'lsDashed'], ['dotted', 'lsDotted'],
-  ['dash-dot', 'lsDashDot'], ['ticked', 'lsTicked'], ['comb', 'lsComb'],
+  ['dash-dot', 'lsDashDot'], ['double', 'lsDouble'], ['triple', 'lsTriple'],
+  ['hashed', 'lsHashed'], ['ticked', 'lsTicked'], ['comb', 'lsComb'],
   ['ladder', 'lsLadder'], ['zigzag', 'lsZigzag'], ['wave', 'lsWave'],
-  ['beaded', 'lsBeaded'], ['double', 'lsDouble'], ['coil', 'lsCoil'],
+  ['beaded', 'lsBeaded'], ['coil', 'lsCoil'],
 ];
 const STYLE_NAMES = STYLES.map(s => s[0]);
 const STYLE_CHOICES = ['mixed'].concat(STYLE_NAMES);
@@ -84,24 +95,27 @@ const CAPS = [
   ['flag', 'capFlag'],
 ];
 const MARKS = [
-  ['tally', 'mkTally'], ['gate', 'mkGate'], ['bars', 'mkBars'], ['comb', 'mkComb'],
-  ['ladder', 'mkLadder'], ['H', 'mkH'], ['bracket', 'mkBracket'], ['coil', 'mkCoil'],
-  ['zigzag', 'mkZigzag'], ['letter', 'mkLetter'], ['grid', 'mkGrid'], ['dots', 'mkDots'],
-  ['wave', 'mkWave'], ['star', 'mkStar'], ['arrow', 'mkArrow'],
+  ['benzene', 'mkBenzene'], ['ring of five', 'mkRing5'], ['chain', 'mkChain'],
+  ['reaction arrow', 'mkArrow'], ['atom', 'mkAtom'], ['orbital', 'mkOrbital'],
+  ['charge', 'mkCharge'], ['lattice', 'mkLattice'], ['wedge', 'mkWedge'],
+  ['spectrum', 'mkSpectrum'],
 ];
+const LABEL_TEXTS = ['mixed', 'formulas', 'names'];
+const LABEL_LANGS = ['polski', 'English'];
 const NOTE_SHAPES = ['disc', 'ring', 'beside'];
 const NOTE_PICKS  = ['hubs first', 'largest', 'random', 'clusters'];
 const ACCENTS     = ['none', 'random', 'clusters', 'region', 'outskirts', 'core'];
-const ACCENT_ON   = ['everything', 'glyphs', 'lines', 'marks', 'glyphs and marks'];
+const ACCENT_ON   = ['everything', 'glyphs', 'lines', 'marks', 'labels', 'glyphs and marks'];
 const UNDERLAYS   = ['broad first', 'fine first', 'by pen number'];
 
 // What goes on the sheet, one layer at a time, each with a pen of its own and a file of
-// its own. The first seven are drawn finely, the last four with a broad marker.
+// its own. The first eight are drawn finely, the last four with a broad marker.
 const LAYERS = [
   { id: 'glyphs',  label: 'glyphs',  pen: 'glyphsPen' },
   { id: 'threads', label: 'threads', pen: 'threadsPen' },
   { id: 'stems',   label: 'stems',   pen: 'stemsPen' },
   { id: 'marks',   label: 'marks',   pen: 'marksPen' },
+  { id: 'labels',  label: 'labels',  pen: 'labelsPen' },
   { id: 'arcs',    label: 'arcs',    pen: 'arcsPen' },
   { id: 'rays',    label: 'rays',    pen: 'raysPen' },
   { id: 'voices',  label: 'voices',  pen: 'voicesPen' },
@@ -110,13 +124,14 @@ const LAYERS = [
   { id: 'bars',    label: 'bars',    pen: 'barsPen' },
   { id: 'sweeps',  label: 'sweeps',  pen: 'sweepsPen' },
 ];
-const L_GLYPHS = 0, L_THREADS = 1, L_STEMS = 2, L_MARKS = 3, L_ARCS = 4, L_RAYS = 5,
-      L_VOICES = 6, L_NOTES = 7, L_STAVES = 8, L_BARS = 9, L_SWEEPS = 10;
+const L_GLYPHS = 0, L_THREADS = 1, L_STEMS = 2, L_MARKS = 3, L_LABELS = 4, L_ARCS = 5,
+      L_RAYS = 6, L_VOICES = 7, L_NOTES = 8, L_STAVES = 9, L_BARS = 10, L_SWEEPS = 11;
 const ACCENT_LAYERS = {
-  'everything':       [L_GLYPHS, L_THREADS, L_STEMS, L_MARKS, L_ARCS, L_RAYS],
+  'everything':       [L_GLYPHS, L_THREADS, L_STEMS, L_MARKS, L_LABELS, L_ARCS, L_RAYS],
   'glyphs':           [L_GLYPHS],
   'lines':            [L_THREADS, L_STEMS, L_ARCS, L_RAYS],
   'marks':            [L_MARKS],
+  'labels':           [L_LABELS],
   'glyphs and marks': [L_GLYPHS, L_MARKS],
 };
 
@@ -151,7 +166,7 @@ const settings = {
   underlay: 'broad first',
 
   // which pen each layer goes to
-  glyphsPen: 1, threadsPen: 1, stemsPen: 1, marksPen: 1, arcsPen: 1, raysPen: 1,
+  glyphsPen: 1, threadsPen: 1, stemsPen: 1, marksPen: 1, labelsPen: 1, arcsPen: 1, raysPen: 1,
   voicesPen: 2, notesPen: 4, stavesPen: 3, barsPen: 3, sweepsPen: 5,
 
   // the accent — some of the fine layers moved to another pen
@@ -187,9 +202,9 @@ const settings = {
   // the glyphs
   glyphSize: 100,       // %
   sizeVariety: 40,      // %
-  filled: 6,            // % of the closed glyphs inked solid
-  gDot: 30, gCircle: 55, gRing: 20, gTarget: 14, gTriangle: 9, gSquare: 5, gCross: 5,
-  gHalf: 4, gNone: 22,
+  filled: 6,            // % of the circles and rings inked solid
+  gDot: 30, gCircle: 50, gElement: 12, gLetter: 8, gHexagon: 9, gPentagon: 5, gCharge: 5,
+  gNone: 24,
   hubs: 4,
   hubSize: 3.5,         // units — a hub's radius
 
@@ -211,22 +226,30 @@ const settings = {
 
   // line styles — how often each comes up, and the size of their pattern
   motif: 100,           // %
-  lsSolid: 70, lsDashed: 14, lsDotted: 14, lsDashDot: 8, lsTicked: 6, lsComb: 3,
-  lsLadder: 2, lsZigzag: 4, lsWave: 3, lsBeaded: 6, lsDouble: 2, lsCoil: 2,
+  lsSolid: 70, lsDashed: 12, lsDotted: 12, lsDashDot: 6, lsDouble: 8, lsTriple: 3,
+  lsHashed: 5, lsTicked: 3, lsComb: 0, lsLadder: 0, lsZigzag: 2, lsWave: 3, lsBeaded: 4,
+  lsCoil: 0,
 
   // what a free end of a line ends in
   capSize: 100,         // %
-  capNone: 30, capTick: 30, capDouble: 6, capArrow: 10, capHead: 6, capDot: 16,
-  capCircle: 16, capTriangle: 7, capSquare: 4, capFork: 4, capFlag: 4,
+  capNone: 30, capTick: 16, capDouble: 4, capArrow: 12, capHead: 8, capDot: 18,
+  capCircle: 16, capTriangle: 6, capSquare: 4, capFork: 4, capFlag: 3,
 
-  // marks
-  marks: 160,
-  markSize: 100,        // %
+  // marks — small signs out of a chemist's notebook
+  marks: 90,
+  markSize: 180,        // %
   markAttach: 55,       // % beside a thread, the rest beside a glyph
   snap: 70,             // % of stems and marks squared to the band
-  mkTally: 30, mkGate: 6, mkBars: 14, mkComb: 6, mkLadder: 7, mkH: 6, mkBracket: 5,
-  mkCoil: 5, mkZigzag: 5, mkLetter: 14, mkGrid: 3, mkDots: 6, mkWave: 4, mkStar: 3,
-  mkArrow: 4,
+  mkBenzene: 18, mkRing5: 9, mkChain: 20, mkArrow: 12, mkAtom: 6, mkOrbital: 8,
+  mkCharge: 9, mkLattice: 5, mkWedge: 10, mkSpectrum: 6,
+
+  // labels — compounds, by formula or by name
+  labels: 26,
+  labelText: 'mixed',
+  labelLang: 'polski',
+  labelSize: 100,       // % of the unit — the height of a capital
+  labelAttach: 40,      // % beside a thread, the rest beside a glyph
+  labelLeaders: 45,     // % of those beside a glyph that point at it
 
   // arcs
   arcs: 12,
@@ -283,15 +306,20 @@ const DEFAULTS = { ...settings };
 // A handful of sheets worth starting from. Each one is the whole state.
 const SCENES = [
   { label: '— select scene —' },
-  { label: 'Like the picture: black, a touch of red', s: {} },
-  { label: 'Like the picture: white marker on black, large', s: {
+  { label: 'Black, a touch of red', s: {} },
+  { label: 'A chemist\'s notebook: labels everywhere', s: {
+      labels: 70, labelLeaders: 60, marks: 110, gElement: 22, gLetter: 16, gHexagon: 14,
+      lsDouble: 14, lsHashed: 9, accent: 'random', accentShare: 10, voices: 0, rays: 4 } },
+  { label: 'Formulas in red', s: {
+      labels: 45, labelText: 'formulas', labelsPen: 2, accent: 'none', voices: 0 } },
+  { label: 'White marker on black paper, large', s: {
       paper: 'B1', paperTone: 'black', paperColor: PAPER_TONES.black, unit: 18, nodes: 170,
       spacing: 1.5, pen1Kind: 'white marker', pen1W: 3, pen1Col: PEN_KINDS['white marker'].col,
       pen2Kind: 'red marker', pen2W: 3, pen2Col: PEN_KINDS['red marker'].col,
-      accentShare: 8, voices: 0, marks: 60, markSize: 130, threads: 85, motif: 125,
-      capSize: 120, lsTicked: 6, lsLadder: 0, lsCoil: 0, lsDouble: 0, lsComb: 2, lsZigzag: 4,
-      mkGrid: 0, mkLetter: 6, mkCoil: 0, mkLadder: 3, mkBars: 6, mkGate: 2, capDouble: 0,
-      capFork: 2, capHead: 0, filled: 0 } },
+      accentShare: 8, voices: 0, marks: 45, markSize: 190, labels: 12, labelSize: 110,
+      threads: 85, motif: 125, capSize: 120, lsTicked: 0, lsZigzag: 0, lsTriple: 0,
+      lsDouble: 5, lsHashed: 4, mkLattice: 0, mkSpectrum: 3, capDouble: 0, capFork: 2,
+      capHead: 0, filled: 0 } },
   { label: 'A red voice through a black score', s: {
       accent: 'none', voices: 2, voiceStyle: 'solid', voiceStep: 6, voiceWander: 80 } },
   { label: 'Red clusters', s: {
@@ -319,10 +347,10 @@ const SCENES = [
       staves: 5, staveGap: 3, pen3Kind: 'black', pen3W: 0.25, pen3Col: PEN_KINDS.black.col,
       staveBreaks: 1, voices: 0, accent: 'region', accentShare: 20 } },
   { label: 'Sparse: long lines, few signs', s: {
-      nodes: 90, spacing: 3, reach: 22, threads: 45, threadLen: 3, marks: 40, arcs: 9,
+      nodes: 90, spacing: 3, reach: 22, threads: 45, threadLen: 3, marks: 25, labels: 12, arcs: 9,
       arcMax: 40, rays: 9, rayMax: 45, hubs: 3, voices: 1 } },
   { label: 'Dense swarm', s: {
-      nodes: 520, spacing: 1.1, threads: 260, marks: 240, reach: 8, clusters: 7,
+      nodes: 520, spacing: 1.1, threads: 260, marks: 150, labels: 40, reach: 8, clusters: 7,
       clusterPull: 65, bandWidth: 24, unit: 2.2 } },
   { label: 'River: a meandering band', s: {
       bandWave: 22, bandWaveLen: 45, bandWidth: 16, bandSwell: 60, nodes: 260,
@@ -336,9 +364,9 @@ const SCENES = [
       pen2Kind: 'red marker', pen2W: 3, pen2Col: PEN_KINDS['red marker'].col,
       pen3W: 6, pen4W: 15, staves: 3, staveGap: 30, staveBreaks: 4, notes: 6, noteSize: 0,
       hubSize: 2.4,
-      accent: 'clusters', accentShare: 30, voices: 0, threads: 55, marks: 35, markSize: 130,
-      motif: 125, capSize: 120, arcs: 7, rays: 4, lsCoil: 0, lsLadder: 0, lsDouble: 0,
-      lsZigzag: 4, mkGrid: 0, mkCoil: 0, mkBars: 6, mkGate: 2, capHead: 0, filled: 0 } },
+      accent: 'clusters', accentShare: 30, voices: 0, threads: 55, marks: 28, markSize: 190,
+      labels: 8, labelSize: 110, motif: 125, capSize: 120, arcs: 7, rays: 4, lsZigzag: 0,
+      lsTriple: 0, lsDouble: 5, mkLattice: 0, capHead: 0, filled: 0 } },
 ];
 
 const setters   = {};
@@ -961,26 +989,35 @@ function placeNodes() {
 //
 // Each glyph's kind, size, turn and fill come from hashes of its own index, so changing
 // the weights of one kind repaints the glyphs and moves none of them. A hub is a glyph
-// grown several times over — a circle ringed with ticks, rings in rings, a circle cut by
-// its diameter, an eye, a crosshair — and the glyphs under it are taken away.
+// grown several times over — a benzene ring, a Bohr atom with its shells, an atom's three
+// orbits, a crystal's unit cell, a ring of five with an oxygen in it — and the glyphs
+// under it are taken away.
 
 function chooseGlyphs(nodes) {
   const s = settings, u = s.unit;
   const table = weights(GLYPHS);
   const base = u * 0.5 * clamp(s.glyphSize, 5, 500) / 100;
   const vary = clamp(s.sizeVariety, 0, 100) / 100;
+  const els = { ids: ELEMENTS.map(e => e[0]), w: ELEMENTS.map(e => e[1]),
+                tot: ELEMENTS.reduce((a, e) => a + e[1], 0) };
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
     n.type = pick(table, hash01(i, 1, 201)) || 'none';
+    n.el = pick(els, hash01(i, 10, 210));
+    n.sign = hash01(i, 11, 211) < 0.5 ? '+' : '-';
+    n.aromatic = hash01(i, 12, 212) < 0.4;
     // a size spread about the base, log-normally, the larger ones rarer
     const g = Math.sqrt(-2 * Math.log(1 - hash01(i, 2, 202) * 0.999)) *
               Math.cos(2 * Math.PI * hash01(i, 3, 203));
     n.r = base * Math.exp(clamp(g, -1.6, 2.2) * vary * 0.55);
+    // a symbol has to stay legible: no smaller than the usual glyph
+    if (n.type === 'element') n.r = Math.max(n.r * 1.3, base * 1.15);
+    if (n.type === 'letter') n.r = Math.max(n.r, base * 0.9);
     n.rot = hash01(i, 4, 204) < s.snap / 100
       ? axisAt(n.x, n.y) + Math.floor(hash01(i, 5, 205) * 4) * Math.PI / 2
       : hash01(i, 6, 206) * Math.PI * 2;
     n.filled = n.type === 'dot' ||
-      (['circle', 'triangle', 'square', 'half'].includes(n.type) && hash01(i, 7, 207) < s.filled / 100);
+      (['circle', 'hexagon', 'pentagon'].includes(n.type) && hash01(i, 7, 207) < s.filled / 100);
     n.hub = null;
     n.deg = 0;
     n.key = i;
@@ -1029,11 +1066,14 @@ function chooseGlyphs(nodes) {
 // How far from a glyph's middle a line leaving it at angle (dx, dy) crosses its edge.
 function exitDist(n, dx, dy) {
   switch (n.type) {
-    case 'none': case 'cross': return 0;
-    case 'dot': return 0;
-    case 'triangle': return polyExit(n, 3, n.r * 1.15, dx, dy);
-    case 'square': return polyExit(n, 4, n.r * 0.85 * Math.SQRT2, dx, dy);
-    case 'hub': return n.r * (n.hub === 'ticks' ? 1.2 : n.hub === 'crosshair' ? 1.15 : 1);
+    case 'none': case 'dot': return 0;
+    case 'hexagon': return polyExit(n, 6, n.r * 1.1, dx, dy);
+    case 'pentagon': return polyExit(n, 5, n.r * 1.1, dx, dy);
+    case 'letter': return n.r * 0.95;
+    case 'hub':
+      if (n.hub === 'benzene') return polyExit(n, 6, n.r, dx, dy);
+      if (n.hub === 'furan') return polyExit(n, 5, n.r, dx, dy);
+      return n.r;
     default: return n.r;
   }
 }
@@ -1051,10 +1091,9 @@ function polyExit(n, k, R, dx, dy) {
 // How far round a glyph other lines keep off it, when they cross it.
 function knockR(n) {
   switch (n.type) {
-    case 'none': case 'cross': case 'dot': return 0;
-    case 'triangle': return n.r * 1.15;
-    case 'square': return n.r * 0.85 * Math.SQRT2;
-    case 'hub': return exitDist(n, 1, 0);
+    case 'none': case 'dot': return 0;
+    case 'hexagon': case 'pentagon': return n.r * 1.1;
+    case 'letter': return n.r * 0.95;
     default: return n.r;
   }
 }
@@ -1473,6 +1512,10 @@ function stylePath(P, style) {
     case 'wave':     waveAlong(P, 1.1 * u, 0.26 * u); break;
     case 'beaded':   beadsAlong(P, 1.5 * u, 0.24 * u); break;
     case 'double':   emitPath(offsetPath(P, 0.19 * u)); emitPath(offsetPath(P, -0.19 * u)); break;
+    case 'triple':
+      emitPath(P); emitPath(offsetPath(P, 0.26 * u)); emitPath(offsetPath(P, -0.26 * u));
+      break;
+    case 'hashed':   hashedAlong(P, 0.3 * u, 0.03 * u, 0.3 * u); break;
     case 'coil':     coilAlong(P, 0.55 * u, 0.34 * u); break;
     default:         emitPath(P);
   }
@@ -1515,6 +1558,17 @@ function ticksAlong(P, gap, left, right) {
     pathAt(P, P.len * (i + 0.5) / n);
     const nx = -ATY, ny = ATX;
     emitSeg(AX + nx * left, AY + ny * left, AX - nx * right, AY - ny * right);
+  }
+}
+
+// A bond going into the paper: strokes across the path, short at its start and long at
+// its end, and no line along it.
+function hashedAlong(P, gap, w0, w1) {
+  const n = Math.max(2, Math.round(P.len / gap));
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n, w = w0 + (w1 - w0) * t;
+    pathAt(P, P.len * t);
+    emitSeg(AX - ATY * w, AY + ATX * w, AX + ATY * w, AY - ATX * w);
   }
 }
 
@@ -1720,33 +1774,32 @@ function drawGlyph(n) {
   switch (n.type) {
     case 'dot': discFill(x, y, Math.max(r * 0.32, PW * 0.5)); break;
     case 'circle': if (n.filled) discFill(x, y, r); else emitCirc(x, y, r); break;
-    case 'ring': emitCirc(x, y, r); emitCirc(x, y, r * 0.55); break;
-    case 'target': emitCirc(x, y, r); discFill(x, y, Math.max(r * 0.22, PW * 0.5)); break;
-    case 'triangle': case 'square': {
-      const k = n.type === 'triangle' ? 3 : 4;
-      const R = n.type === 'triangle' ? r * 1.15 : r * 0.85 * Math.SQRT2;
-      const xs = [], ys = [];
-      for (let j = 0; j < k; j++) {
-        const a = rot + j * 2 * Math.PI / k;
-        xs.push(x + R * Math.cos(a)); ys.push(y + R * Math.sin(a));
-      }
-      if (n.filled) polyFill(xs, ys); else emitPoly(xs, ys, true);
+    case 'element': {
+      emitCirc(x, y, r);
+      const w = textLayout(n.el, false).w;
+      drawText(n.el, false, x, y, r * Math.min(1, 1.25 / Math.max(w, 0.6)), readable(axisAt(x, y)));
       break;
     }
-    case 'cross': {
-      const l = r * 0.8, c = Math.cos(rot), s = Math.sin(rot);
-      emitSeg(x - c * l, y - s * l, x + c * l, y + s * l);
-      emitSeg(x + s * l, y - c * l, x - s * l, y + c * l);
-      break;
-    }
-    case 'half': {
-      const P = arcPath(x, y, r, rot, rot + Math.PI);
+    case 'letter': drawText(n.el, false, x, y, r * 1.45, readable(axisAt(x, y))); break;
+    case 'hexagon': case 'pentagon': {
+      const k = n.type === 'hexagon' ? 6 : 5;
+      MF = { ox: x, oy: y, c: Math.cos(rot), s: Math.sin(rot), k: r * 1.1 };
+      const p = ngon(k, 1, 0);
       if (n.filled) {
-        const xs = P.x.slice(), ys = P.y.slice();
+        const xs = [], ys = [];
+        for (let j = 0; j < p.length; j += 2) { const [wx, wy] = mpt(p[j], p[j + 1]); xs.push(wx); ys.push(wy); }
         polyFill(xs, ys);
       } else {
-        emit(P.x.concat(P.x[0]), P.y.concat(P.y[0]));
+        mring(p);
+        if (n.aromatic && r * 0.6 > PW * 1.5) mcirc(0, 0, 0.56);
       }
+      break;
+    }
+    case 'charge': {
+      emitCirc(x, y, r);
+      const l = r * 0.55;
+      emitSeg(x - l, y, x + l, y);
+      if (n.sign === '+') emitSeg(x, y - l, x, y + l);
       break;
     }
     case 'hub': drawHub(n); break;
@@ -1754,43 +1807,68 @@ function drawGlyph(n) {
   }
 }
 
+// The hubs are drawn in a frame of their own, a unit the hub's radius, turned by its turn.
 function drawHub(n) {
   const { x, y, r, rot } = n;
-  const k = n.key;
-  emitCirc(x, y, r);
+  const h = j => hash01(n.key, j, 301);
+  MF = { ox: x, oy: y, c: Math.cos(rot), s: Math.sin(rot), k: r };
+  const upright = readable(axisAt(x, y));
+  const dotR = Math.max(0.05, PW * 0.6 / r);
   switch (n.hub) {
-    case 'ticks': {
-      const m = 12 + 4 * Math.floor(hash01(k, 1, 301) * 4);
-      for (let j = 0; j < m; j++) {
-        const a = rot + j * 2 * Math.PI / m, c = Math.cos(a), s = Math.sin(a);
-        const r1 = j % (m / 4) === 0 ? r * 1.2 : r * 1.1;
-        emitSeg(x + c * r, y + s * r, x + c * r1, y + s * r1);
+    case 'benzene': {
+      const p = ngon(6, 1, 0);
+      mring(p);
+      if (h(1) < 0.5) mcirc(0, 0, 0.6);
+      else mkekule(p, [0, 2, 4], 0.2);
+      break;
+    }
+    case 'bohr': {
+      // a nucleus and two or three shells, two electrons in the first, eight in the next
+      mdot(0, 0, 0.11);
+      const shells = h(1) < 0.5 ? [0.45, 0.75, 1] : [0.55, 1];
+      const fill = [2, 8, 1 + Math.floor(h(2) * 7)];
+      shells.forEach((rr, j) => {
+        mcirc(0, 0, rr);
+        const m = fill[j], ph = h(3 + j) * Math.PI * 2;
+        for (let e = 0; e < m; e++) {
+          const a = ph + e * 2 * Math.PI / m;
+          mdot(rr * Math.cos(a), rr * Math.sin(a), dotR);
+        }
+      });
+      break;
+    }
+    case 'orbitals':
+      for (let j = 0; j < 3; j++) mellipse(0, 0, 1, 0.32, j * Math.PI / 3);
+      mdot(0, 0, 0.1);
+      break;
+    case 'cell': {
+      // a crystal's unit cell: a cube seen at a slant, an atom at every corner
+      const a = 0.6, d = 0.32;
+      const F = [[-a - d, -a + d], [a - d, -a + d], [a - d, a + d], [-a - d, a + d]];
+      const B = F.map(([px, py]) => [px + 2 * d, py - 2 * d]);
+      mline(...F.flat(), F[0][0], F[0][1]);
+      mline(...B.flat(), B[0][0], B[0][1]);
+      for (let j = 0; j < 4; j++) mline(F[j][0], F[j][1], B[j][0], B[j][1]);
+      for (const [px, py] of F.concat(B)) mdot(px, py, dotR * 1.6);
+      if (h(1) < 0.5) mdot(0, 0, dotR * 2.2);
+      break;
+    }
+    case 'furan': {
+      // a ring of five with a heteroatom at its first corner, the bonds to it stopping
+      // short of its symbol, and the double bonds across from it
+      const p = ngon(5, 1, 0);
+      const el = ['O', 'N', 'S'][Math.floor(h(1) * 3)];
+      const g = 0.32;
+      for (let j = 0; j < 5; j++) {
+        const a = j, b = (j + 1) % 5;
+        let ax = p[a * 2], ay = p[a * 2 + 1], bx = p[b * 2], by = p[b * 2 + 1];
+        const L = Math.hypot(bx - ax, by - ay);
+        if (a === 0) { ax += (bx - ax) * g / L; ay += (by - ay) * g / L; }
+        if (b === 0) { bx += (ax - bx) * g / L; by += (ay - by) * g / L; }
+        mline(ax, ay, bx, by);
       }
-      break;
-    }
-    case 'concentric':
-      emitCirc(x, y, r * 0.7);
-      emitCirc(x, y, r * 0.42);
-      discFill(x, y, Math.max(r * 0.08, PW * 0.5));
-      break;
-    case 'diameter': {
-      const c = Math.cos(rot), s = Math.sin(rot);
-      emitSeg(x - c * r * 1.35, y - s * r * 1.35, x + c * r * 1.35, y + s * r * 1.35);
-      discFill(x, y, Math.max(r * 0.07, PW * 0.5));
-      break;
-    }
-    case 'eye': {
-      const c = Math.cos(rot), s = Math.sin(rot);
-      emitCirc(x + c * r * 0.48, y + s * r * 0.48, r * 0.3);
-      emitCirc(x + c * r * 0.48, y + s * r * 0.48, r * 0.12);
-      break;
-    }
-    case 'crosshair': {
-      for (let j = 0; j < 4; j++) {
-        const a = rot + j * Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
-        emitSeg(x + c * r * 0.72, y + s * r * 0.72, x + c * r * 1.15, y + s * r * 1.15);
-      }
-      emitCirc(x, y, r * 0.18);
+      mkekule(p, [1, 3], 0.22);
+      mtext(el, p[0], p[1], 0.42, upright);
       break;
     }
   }
@@ -2144,14 +2222,184 @@ function layVoices() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
+// Lettering
+//
+// A stroke font of its own, for the labels and the symbols in the glyphs: capitals one
+// unit high, small letters 0.6, descenders to −0.32, every letter a few polylines and
+// every curve cut every 15°. Polish letters are their Latin ones with an accent, a dot,
+// an ogonek or a bar added. A formula is set the way a chemist sets it: the digits after
+// a symbol or a bracket small and dropped, a charge after ^ small and raised, a number at
+// the start or after the dot of a hydrate full size.
+
+const FONT = (() => {
+  const g = {};
+  const arc = (cx, cy, rx, ry, a0, a1) => {
+    const n = Math.max(2, Math.ceil(Math.abs(a1 - a0) / 15));
+    const p = [];
+    for (let i = 0; i <= n; i++) {
+      const a = (a0 + (a1 - a0) * i / n) * Math.PI / 180;
+      p.push(cx + rx * Math.cos(a), cy + ry * Math.sin(a));
+    }
+    return p;
+  };
+  const J = (...parts) => [].concat(...parts);
+  const def = (ch, w, ...st) => { g[ch] = { w, s: st }; };
+
+  def('A', 0.64, [0, 0, 0.32, 1, 0.64, 0], [0.13, 0.4, 0.51, 0.4]);
+  def('B', 0.56, J([0, 0.5, 0, 1, 0.28, 1], arc(0.28, 0.75, 0.25, 0.25, 90, -90), [0, 0.5]),
+                 J(arc(0.3, 0.25, 0.26, 0.25, 90, -90), [0, 0, 0, 0.5]));
+  def('C', 0.62, arc(0.37, 0.5, 0.37, 0.5, 50, 310));
+  def('D', 0.62, J([0, 0, 0, 1, 0.18, 1], arc(0.18, 0.5, 0.44, 0.5, 90, -90), [0, 0]));
+  def('E', 0.52, [0.52, 1, 0, 1, 0, 0, 0.52, 0], [0, 0.5, 0.42, 0.5]);
+  def('F', 0.5, [0.5, 1, 0, 1, 0, 0], [0, 0.5, 0.4, 0.5]);
+  def('G', 0.66, J(arc(0.37, 0.5, 0.37, 0.5, 50, 320), [0.66, 0.42, 0.4, 0.42]));
+  def('H', 0.6, [0, 0, 0, 1], [0.6, 0, 0.6, 1], [0, 0.5, 0.6, 0.5]);
+  def('I', 0, [0, 0, 0, 1]);
+  def('J', 0.46, J([0.46, 1, 0.46, 0.26], arc(0.23, 0.26, 0.23, 0.26, 0, -180)));
+  def('K', 0.56, [0, 0, 0, 1], [0.56, 1, 0, 0.36], [0.17, 0.53, 0.58, 0]);
+  def('L', 0.48, [0, 1, 0, 0, 0.48, 0]);
+  def('M', 0.74, [0, 0, 0, 1, 0.37, 0.32, 0.74, 1, 0.74, 0]);
+  def('N', 0.6, [0, 0, 0, 1, 0.6, 0, 0.6, 1]);
+  def('O', 0.74, arc(0.37, 0.5, 0.37, 0.5, 0, 360));
+  def('P', 0.54, J([0, 0, 0, 1, 0.28, 1], arc(0.28, 0.74, 0.26, 0.26, 90, -90), [0, 0.48]));
+  def('Q', 0.74, arc(0.37, 0.5, 0.37, 0.5, 0, 360), [0.46, 0.22, 0.76, -0.06]);
+  def('R', 0.56, J([0, 0, 0, 1, 0.28, 1], arc(0.28, 0.75, 0.25, 0.25, 90, -90), [0, 0.5]),
+                 [0.26, 0.5, 0.56, 0]);
+  def('S', 0.56, J(arc(0.28, 0.75, 0.26, 0.25, 15, 270), arc(0.28, 0.25, 0.28, 0.25, 90, -165)));
+  def('T', 0.6, [0, 1, 0.6, 1], [0.3, 1, 0.3, 0]);
+  def('U', 0.6, J([0, 1, 0, 0.3], arc(0.3, 0.3, 0.3, 0.3, 180, 360), [0.6, 1]));
+  def('V', 0.62, [0, 1, 0.31, 0, 0.62, 1]);
+  def('W', 0.86, [0, 1, 0.2, 0, 0.43, 0.72, 0.66, 0, 0.86, 1]);
+  def('X', 0.6, [0, 0, 0.6, 1], [0, 1, 0.6, 0]);
+  def('Y', 0.6, [0, 1, 0.3, 0.5, 0.6, 1], [0.3, 0.5, 0.3, 0]);
+  def('Z', 0.58, [0, 1, 0.58, 1, 0, 0, 0.58, 0]);
+
+  def('a', 0.5, arc(0.25, 0.3, 0.25, 0.3, 0, 360), [0.5, 0.6, 0.5, 0]);
+  def('b', 0.5, [0, 1, 0, 0], arc(0.25, 0.3, 0.25, 0.3, 0, 360));
+  def('c', 0.46, arc(0.25, 0.3, 0.25, 0.3, 45, 315));
+  def('d', 0.5, arc(0.25, 0.3, 0.25, 0.3, 0, 360), [0.5, 1, 0.5, 0]);
+  def('e', 0.5, J([0, 0.3, 0.5, 0.3], arc(0.25, 0.3, 0.25, 0.3, 0, 320)));
+  def('f', 0.34, J([0.12, 0], arc(0.3, 0.8, 0.18, 0.2, 180, 30)), [0, 0.6, 0.32, 0.6]);
+  def('g', 0.5, arc(0.25, 0.3, 0.25, 0.3, 0, 360),
+                J([0.5, 0.6, 0.5, -0.08], arc(0.25, -0.08, 0.25, 0.22, 0, -165)));
+  def('h', 0.5, [0, 1, 0, 0], J([0, 0.33], arc(0.25, 0.33, 0.25, 0.27, 180, 0), [0.5, 0]));
+  def('i', 0, [0, 0, 0, 0.6], [0, 0.8, 0, 0.84]);
+  def('j', 0.2, J([0.2, 0.6, 0.2, -0.1], arc(0.02, -0.1, 0.18, 0.2, 0, -150)), [0.2, 0.8, 0.2, 0.84]);
+  def('k', 0.46, [0, 1, 0, 0], [0.44, 0.6, 0, 0.24], [0.13, 0.33, 0.46, 0]);
+  def('l', 0, [0, 1, 0, 0]);
+  def('m', 0.8, [0, 0, 0, 0.6], J([0, 0.38], arc(0.2, 0.38, 0.2, 0.22, 180, 0), [0.4, 0]),
+                J([0.4, 0.38], arc(0.6, 0.38, 0.2, 0.22, 180, 0), [0.8, 0]));
+  def('n', 0.5, [0, 0, 0, 0.6], J([0, 0.33], arc(0.25, 0.33, 0.25, 0.27, 180, 0), [0.5, 0]));
+  def('o', 0.54, arc(0.27, 0.3, 0.27, 0.3, 0, 360));
+  def('p', 0.5, [0, 0.6, 0, -0.32], arc(0.25, 0.3, 0.25, 0.3, 0, 360));
+  def('q', 0.5, arc(0.25, 0.3, 0.25, 0.3, 0, 360), [0.5, 0.6, 0.5, -0.32]);
+  def('r', 0.36, [0, 0, 0, 0.6], J([0, 0.34], arc(0.24, 0.34, 0.24, 0.26, 180, 60)));
+  def('s', 0.42, J(arc(0.21, 0.45, 0.2, 0.15, 15, 270), arc(0.21, 0.15, 0.21, 0.15, 90, -165)));
+  def('t', 0.34, J([0.12, 0.92], arc(0.27, 0.1, 0.15, 0.1, 180, 270), [0.34, 0]), [0, 0.6, 0.32, 0.6]);
+  def('u', 0.5, J([0, 0.6, 0, 0.28], arc(0.25, 0.28, 0.25, 0.28, 180, 360)), [0.5, 0.6, 0.5, 0]);
+  def('v', 0.5, [0, 0.6, 0.25, 0, 0.5, 0.6]);
+  def('w', 0.74, [0, 0.6, 0.18, 0, 0.37, 0.45, 0.56, 0, 0.74, 0.6]);
+  def('x', 0.5, [0, 0, 0.5, 0.6], [0, 0.6, 0.5, 0]);
+  def('y', 0.5, [0, 0.6, 0.25, 0.04], [0.5, 0.6, 0.12, -0.32]);
+  def('z', 0.48, [0, 0.6, 0.48, 0.6, 0, 0, 0.48, 0]);
+
+  def('0', 0.56, arc(0.28, 0.5, 0.28, 0.5, 0, 360));
+  def('1', 0.3, [0, 0.78, 0.26, 1, 0.26, 0]);
+  def('2', 0.56, J(arc(0.28, 0.72, 0.27, 0.28, 165, -25), [0, 0, 0.56, 0]));
+  def('3', 0.54, J(arc(0.26, 0.76, 0.25, 0.24, 155, -90), arc(0.26, 0.26, 0.28, 0.26, 90, -155)));
+  def('4', 0.58, [0.44, 0, 0.44, 1, 0, 0.3, 0.58, 0.3]);
+  def('5', 0.54, J([0.52, 1, 0.08, 1, 0.05, 0.56], arc(0.26, 0.32, 0.28, 0.32, 135, -160)));
+  def('6', 0.56, [0.46, 1, 0.06, 0.42], arc(0.28, 0.3, 0.28, 0.3, 0, 360));
+  def('7', 0.56, [0, 1, 0.56, 1, 0.18, 0]);
+  def('8', 0.56, arc(0.28, 0.76, 0.23, 0.24, 0, 360), arc(0.28, 0.26, 0.28, 0.26, 0, 360));
+  def('9', 0.56, arc(0.28, 0.7, 0.28, 0.3, 0, 360), [0.56, 0.7, 0.14, 0]);
+
+  def('(', 0.2, arc(0.4, 0.5, 0.4, 0.62, 128, 232));
+  def(')', 0.2, arc(-0.2, 0.5, 0.4, 0.62, 52, -52));
+  def('+', 0.5, [0, 0.4, 0.5, 0.4], [0.25, 0.15, 0.25, 0.65]);
+  def('-', 0.36, [0, 0.4, 0.36, 0.4]);
+  def('·', 0, [0, 0.45, 0, 0.49]);
+  def('=', 0.5, [0, 0.3, 0.5, 0.3], [0, 0.52, 0.5, 0.52]);
+  def(' ', 0.36);
+  return g;
+})();
+
+const DIACRITICS = {
+  'ą': ['a', 'ogonek'], 'ę': ['e', 'ogonek'], 'ó': ['o', 'acute'], 'ś': ['s', 'acute'],
+  'ć': ['c', 'acute'], 'ń': ['n', 'acute'], 'ź': ['z', 'acute'], 'ż': ['z', 'dot'],
+  'ł': ['l', 'bar'],
+};
+
+function fontGlyph(ch) {
+  if (FONT[ch]) return FONT[ch];
+  const d = DIACRITICS[ch];
+  if (!d) return null;
+  const b = FONT[d[0]], w = b.w, m = w / 2;
+  const extra = d[1] === 'acute' ? [m - 0.06, 0.7, m + 0.1, 0.86]
+    : d[1] === 'dot' ? [m, 0.76, m, 0.8]
+    : d[1] === 'ogonek' ? [w - 0.02, 0, w - 0.12, -0.1, w - 0.08, -0.2, w + 0.02, -0.22]
+    : [-0.12, 0.36, 0.14, 0.58];
+  FONT[ch] = { w: d[1] === 'bar' ? 0.06 : w, s: b.s.concat([extra]) };
+  return FONT[ch];
+}
+
+// A string laid out in font units: its strokes, and how wide it runs.
+function textLayout(str, chem) {
+  const strokes = [];
+  let x = 0, prev = '', prevSub = false, sup = false, last = 0;
+  for (const ch of str) {
+    if (chem && ch === '^') { sup = true; continue; }
+    if (ch === ' ') sup = false;
+    let sc = 1, dy = 0, sub = false;
+    if (chem && sup) { sc = 0.62; dy = 0.55; }
+    else if (chem && /[0-9]/.test(ch) && (/[A-Za-z)]/.test(prev) || (prevSub && /[0-9]/.test(prev)))) {
+      sc = 0.62; dy = -0.24; sub = true;
+    }
+    const g = fontGlyph(ch) || FONT[' '];
+    for (const st of g.s) {
+      const q = [];
+      for (let i = 0; i < st.length; i += 2) q.push(x + st[i] * sc, dy + st[i + 1] * sc);
+      strokes.push(q);
+    }
+    x += (g.w + 0.17) * sc;
+    last = 0.17 * sc;
+    prev = ch; prevSub = sub;
+  }
+  return { strokes, w: Math.max(0, x - last) };
+}
+
+// Text with its middle at (x, y), turned by th, its capitals `cap` mm high.
+function drawText(str, chem, x, y, cap, th) {
+  const L = textLayout(str, chem);
+  const c = Math.cos(th), s = Math.sin(th);
+  for (const st of L.strokes) {
+    const xs = [], ys = [];
+    for (let i = 0; i < st.length; i += 2) {
+      const lx = (st[i] - L.w / 2) * cap, ly = -(st[i + 1] - 0.5) * cap;
+      xs.push(x + lx * c - ly * s); ys.push(y + lx * s + ly * c);
+    }
+    emit(xs, ys);
+  }
+  return L.w * cap;
+}
+
+// The way text should run at an angle so that it is never upside down.
+function readable(th) {
+  const a = wrapAngle(th);
+  return a > Math.PI / 2 ? a - Math.PI : a < -Math.PI / 2 ? a + Math.PI : a;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
 // Marks
 //
-// Small signs laid in a frame of their own: x along the line or the band, y across it,
-// one unit of the mark's size across. Beside a thread they sit off to one side of it and
-// turn with it; beside a glyph they stand clear of it, squared to the band or at any
-// angle. A mark that would land on a glyph tries elsewhere, and gives up after a few.
+// Small signs out of a chemist's notebook, laid in a frame of their own: x along the line
+// or the band, y across it, one unit of the mark's size across, and never upside down.
+// Beside a thread they sit off to one side of it and turn with it; beside a glyph they
+// stand clear of it, squared to the band or at any angle. A mark keeps off the glyphs and
+// off the marks already laid, and tries elsewhere a few times before it gives up.
 
 let MF = { ox: 0, oy: 0, c: 1, s: 0, k: 1 };
+let FOOT = [];               // the boxes the marks and labels stand in: { x, y, c, s, hw, hh }
 
 function mpt(lx, ly) {
   return [MF.ox + MF.k * (lx * MF.c - ly * MF.s), MF.oy + MF.k * (lx * MF.s + ly * MF.c)];
@@ -2169,132 +2417,231 @@ function mline(...p) {
 function mcirc(lx, ly, r) { const [x, y] = mpt(lx, ly); emitCirc(x, y, r * MF.k); }
 function mdot(lx, ly, r) { const [x, y] = mpt(lx, ly); discFill(x, y, Math.max(r * MF.k, PW * 0.5)); }
 
+function mellipse(cx, cy, rx, ry, a) {
+  const n = arcSteps(Math.max(rx, ry) * MF.k, 2 * Math.PI);
+  const p = [], c = Math.cos(a), s = Math.sin(a);
+  for (let i = 0; i <= n; i++) {
+    const t = 2 * Math.PI * i / n, ex = rx * Math.cos(t), ey = ry * Math.sin(t);
+    p.push(cx + ex * c - ey * s, cy + ex * s + ey * c);
+  }
+  mline(...p);
+}
+
+// Text at a point of the frame, `cap` of the frame's unit high, at the world angle th.
+function mtext(str, lx, ly, cap, th) {
+  const [x, y] = mpt(lx, ly);
+  drawText(str, true, x, y, cap * MF.k, th);
+}
+
+// The corners of a regular polygon, the first at angle a0.
+function ngon(k, R, a0) {
+  const p = [];
+  for (let j = 0; j < k; j++) {
+    const a = a0 + j * 2 * Math.PI / k;
+    p.push(R * Math.cos(a), R * Math.sin(a));
+  }
+  return p;
+}
+
+function mring(p) { mline(...p, p[0], p[1]); }
+
+// The second line of a double bond inside a ring, on the sides asked for: drawn towards
+// the middle by t of the way and a sixth short at either end.
+function mkekule(p, sides, t) {
+  const k = p.length / 2;
+  for (const j of sides) {
+    const a = j % k, b = (j + 1) % k;
+    const ax = p[a * 2] * (1 - t), ay = p[a * 2 + 1] * (1 - t);
+    const bx = p[b * 2] * (1 - t), by = p[b * 2 + 1] * (1 - t);
+    const dx = (bx - ax) / 6, dy = (by - ay) / 6;
+    mline(ax + dx, ay + dy, bx - dx, by - dy);
+  }
+}
+
 function drawMark(type, key) {
   const h = j => hash01(key, j, 601);
+  const th = Math.atan2(MF.s, MF.c);
   switch (type) {
-    case 'tally': case 'gate': {
-      const m = 3 + Math.floor(h(1) * 4), g = 0.26;
-      const x0 = -(m - 1) * g / 2;
-      for (let i = 0; i < m; i++) mline(x0 + i * g, -0.5, x0 + i * g, 0.5);
-      if (type === 'gate') mline(x0 - 0.18, 0.38, x0 + (m - 1) * g + 0.18, -0.38);
+    case 'benzene': {
+      const p = ngon(6, 0.5, h(1) < 0.5 ? 0 : Math.PI / 6);
+      mring(p);
+      if (h(2) < 0.5) mcirc(0, 0, 0.29);
+      else mkekule(p, h(3) < 0.5 ? [0, 2, 4] : [1, 3, 5], 0.24);
       break;
     }
-    case 'bars': {
-      const m = 2 + Math.floor(h(1) * 3), g = 0.24, w = 0.45 + h(2) * 0.35;
-      const y0 = -(m - 1) * g / 2;
-      for (let i = 0; i < m; i++) {
-        const ww = h(3) < 0.3 ? w * (1 - 0.3 * (i % 2)) : w;
-        mline(-ww, y0 + i * g, ww, y0 + i * g);
+    case 'ring of five': {
+      const p = ngon(5, 0.46, -Math.PI / 2);
+      if (h(1) < 0.55) {
+        // a heteroatom at the top corner, the bonds to it stopping short of its symbol
+        const el = ['O', 'N', 'S'][Math.floor(h(2) * 3)];
+        for (let j = 0; j < 5; j++) {
+          const a = j, b = (j + 1) % 5;
+          let ax = p[a * 2], ay = p[a * 2 + 1], bx = p[b * 2], by = p[b * 2 + 1];
+          if (a === 0) { ax += (bx - ax) * 0.4; ay += (by - ay) * 0.4; }
+          if (b === 0) { bx += (ax - bx) * 0.4; by += (ay - by) * 0.4; }
+          mline(ax, ay, bx, by);
+        }
+        mtext(el, p[0], p[1], 0.3, th);
+        if (h(3) < 0.6) mkekule(p, [1, 3], 0.24);
+      } else {
+        mring(p);
+        mkekule(p, [Math.floor(h(4) * 5)], 0.24);
       }
       break;
     }
-    case 'comb': {
-      const m = 3 + Math.floor(h(1) * 4), g = 0.24, x0 = -(m - 1) * g / 2;
-      mline(x0 - 0.1, -0.35, x0 + (m - 1) * g + 0.1, -0.35);
-      for (let i = 0; i < m; i++) mline(x0 + i * g, -0.35, x0 + i * g, 0.35);
-      break;
-    }
-    case 'ladder': {
-      const m = 5 + Math.floor(h(1) * 6), L = 0.5 + m * 0.12;
-      mline(0, -L, 0, L);
-      for (let i = 0; i < m; i++) {
-        const y = -L + 2 * L * (i + 0.5) / m;
-        mline(-0.2, y, 0.2, y);
-      }
-      break;
-    }
-    case 'H': {
-      mline(-0.3, -0.45, -0.3, 0.45); mline(0.3, -0.45, 0.3, 0.45); mline(-0.3, 0, 0.3, 0);
-      if (h(1) < 0.4) mline(0.6, -0.45, 0.6, 0.45);
-      break;
-    }
-    case 'bracket': {
-      const sg = h(1) < 0.5 ? 1 : -1;
-      if (h(2) < 0.5) mline(0.2 * sg, -0.5, -0.1 * sg, -0.5, -0.1 * sg, 0.5, 0.2 * sg, 0.5);
-      else mline(-0.4, 0.3, -0.4, -0.3, 0.4, -0.3, 0.4, 0.3);
-      break;
-    }
-    case 'coil': {
-      const m = 3 + Math.floor(h(1) * 3);
+    case 'chain': {
+      // a skeletal formula: bonds at 120° to one another, one of them double, and now and
+      // then a group written out at its end
+      const m = 3 + Math.floor(h(1) * 4), b = 0.34;
+      const dx = b * Math.cos(Math.PI / 6), dy = b * 0.5;
       const xs = [], ys = [];
-      const W = m * 0.3, a = 0.3 / (2 * Math.PI), r = 0.26;
-      for (let i = 0; i <= m * 18; i++) {
-        const ph = 2 * Math.PI * i / 18;
-        const lx = -W / 2 + a * ph - r * 0.8 * Math.sin(ph), ly = 0.25 - r * (1 - Math.cos(ph)) * 0.9;
-        const [x, y] = mpt(lx, ly);
-        xs.push(x); ys.push(y);
-      }
-      emit(xs, ys);
-      break;
-    }
-    case 'zigzag': {
-      const m = 4 + Math.floor(h(1) * 4), W = m * 0.2, p = [];
-      for (let i = 0; i <= m; i++) p.push(-W / 2 + W * i / m, i % 2 ? -0.25 : 0.25);
-      mline(...p);
-      break;
-    }
-    case 'letter': drawLetter(key); break;
-    case 'grid': {
-      mline(-0.18, -0.45, -0.18, 0.45); mline(0.18, -0.45, 0.18, 0.45);
-      mline(-0.45, -0.18, 0.45, -0.18); mline(-0.45, 0.18, 0.45, 0.18);
-      break;
-    }
-    case 'dots': {
-      const m = 3 + Math.floor(h(1) * 3);
-      if (h(2) < 0.4) { mdot(-0.2, 0.15, 0.07); mdot(0.2, 0.15, 0.07); mdot(0, -0.2, 0.07); }
-      else for (let i = 0; i < m; i++) mdot(-(m - 1) * 0.12 + i * 0.24, 0, 0.07);
-      break;
-    }
-    case 'wave': {
+      const flip = h(2) < 0.5 ? 1 : -1;
+      for (let i = 0; i <= m; i++) { xs.push(-m * dx / 2 + i * dx); ys.push(((i % 2) - 0.5) * dy * flip); }
+      const groups = ['OH', 'O', 'N', 'NH2', 'Cl', 'COOH', 'SH'];
+      const grp = h(3) < 0.45 ? groups[Math.floor(h(4) * groups.length)] : null;
       const p = [];
-      for (let i = 0; i <= 24; i++) p.push(-0.6 + 1.2 * i / 24, 0.18 * Math.sin(i / 24 * 3 * Math.PI));
+      for (let i = 0; i <= m; i++) p.push(xs[i], ys[i]);
+      if (grp) {
+        // the last bond stops short and the group is written past its end
+        const w = textLayout(grp, true).w * 0.3;
+        const lx = xs[m - 1], ly = ys[m - 1];
+        p[m * 2] = lx + (xs[m] - lx) * 0.55; p[m * 2 + 1] = ly + (ys[m] - ly) * 0.55;
+        mtext(grp, xs[m] + w / 2 - 0.05, ys[m], 0.3, th);
+      }
       mline(...p);
+      const j = Math.floor(h(5) * (grp ? m - 1 : m));
+      const ax = xs[j], ay = ys[j], bx = xs[j + 1], by = ys[j + 1];
+      const nx = -(by - ay) / b, ny = (bx - ax) / b, sg = (ay + by) / 2 * ny > 0 ? -1 : 1;
+      const o = 0.08 * sg;
+      mline(ax + (bx - ax) * 0.18 + nx * o, ay + (by - ay) * 0.18 + ny * o,
+            bx - (bx - ax) * 0.18 + nx * o, by - (by - ay) * 0.18 + ny * o);
       break;
     }
-    case 'star': {
-      for (let i = 0; i < 3; i++) {
-        const a = i * Math.PI / 3, c = Math.cos(a) * 0.4, s = Math.sin(a) * 0.4;
-        mline(-c, -s, c, s);
+    case 'reaction arrow': {
+      const v = Math.floor(h(1) * 4);
+      if (v === 1) {
+        // an equilibrium: two half arrows, one each way
+        mline(-0.6, -0.08, 0.6, -0.08, 0.42, -0.2);
+        mline(0.6, 0.08, -0.6, 0.08, -0.42, 0.2);
+      } else if (v === 3) {
+        // resonance: one line, a head at each end
+        mline(-0.6, 0, 0.6, 0);
+        mline(0.44, -0.12, 0.6, 0, 0.44, 0.12);
+        mline(-0.44, -0.12, -0.6, 0, -0.44, 0.12);
+      } else {
+        mline(-0.6, 0, 0.6, 0);
+        mline(0.44, -0.12, 0.6, 0, 0.44, 0.12);
+        if (v === 2) mline(-0.1, -0.12, 0, -0.3, 0.1, -0.12, -0.1, -0.12);   // Δ, heat
       }
       break;
     }
-    case 'arrow': {
-      mline(-0.55, 0, 0.55, 0);
-      mline(0.32, -0.18, 0.55, 0, 0.32, 0.18);
-      if (h(1) < 0.5) mline(-0.55, -0.2, -0.55, 0.2);
+    case 'atom':
+      for (let j = 0; j < 3; j++) mellipse(0, 0, 0.55, 0.18, j * Math.PI / 3);
+      mdot(0, 0, 0.06);
+      break;
+    case 'orbital': {
+      // a p orbital — two lobes — or a d orbital — four
+      const d = h(1) < 0.35, a = 0.55, n = 96, p = [];
+      for (let i = 0; i <= n; i++) {
+        const t = 2 * Math.PI * i / n;
+        const r = d ? a * Math.cos(2 * t) ** 2 : a * Math.cos(t) ** 2;
+        p.push(r * Math.cos(t), r * Math.sin(t) * (d ? 1 : 0.85));
+      }
+      mline(...p);
+      break;
+    }
+    case 'charge':
+      mcirc(0, 0, 0.24);
+      mline(-0.13, 0, 0.13, 0);
+      if (h(1) < 0.5) mline(0, -0.13, 0, 0.13);
+      break;
+    case 'lattice': {
+      // a salt's lattice: small ions and large ones in turn, bonds between neighbours
+      const g = 0.3, o = -g, rad2 = (i, j) => (i + j) % 2 ? 0.05 : 0.1;
+      for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+          for (const [di, dj] of [[1, 0], [0, 1]]) {
+            if (i + di > 2 || j + dj > 2) continue;
+            const ax = o + i * g, ay = o + j * g, bx = o + (i + di) * g, by = o + (j + dj) * g;
+            const ra = rad2(i, j), rb = rad2(i + di, j + dj);
+            mline(ax + (bx - ax) * ra / g, ay + (by - ay) * ra / g,
+                  bx - (bx - ax) * rb / g, by - (by - ay) * rb / g);
+          }
+          if ((i + j) % 2) mdot(o + i * g, o + j * g, 0.05);
+          else mcirc(o + i * g, o + j * g, 0.1);
+        }
+      }
+      break;
+    }
+    case 'wedge': {
+      if (h(1) < 0.5) {
+        // a bond coming out of the paper, solid
+        const [x0, y0] = mpt(-0.55, 0), [x1, y1] = mpt(0.55, -0.13), [x2, y2] = mpt(0.55, 0.13);
+        polyFill([x0, x1, x2], [y0, y1, y2]);
+      } else {
+        // one going in, hashed
+        for (let i = 0; i < 7; i++) {
+          const t = (i + 0.5) / 7, x = -0.55 + 1.1 * t, w = 0.02 + 0.12 * t;
+          mline(x, -w, x, w);
+        }
+      }
+      break;
+    }
+    case 'spectrum': {
+      // a stick spectrum: a baseline and peaks up from it, a multiplet now and then
+      mline(-0.7, 0.3, 0.7, 0.3);
+      const m = 3 + Math.floor(h(1) * 4);
+      for (let i = 0; i < m; i++) {
+        const x = -0.6 + 1.2 * h(10 + i), t = h(20 + i), H = 0.12 + 0.55 * t * t;
+        if (h(30 + i) < 0.3) {
+          for (const d of [-0.05, 0, 0.05]) mline(x + d, 0.3, x + d, 0.3 - H * (d ? 0.6 : 1));
+        } else {
+          mline(x, 0.3, x, 0.3 - H);
+        }
+      }
       break;
     }
   }
 }
 
-// A sign like a letter of no alphabet: two to four strokes over a small grid of points,
-// each running from one point to a neighbour and on, now and then a hook.
-function drawLetter(key) {
-  const h = j => hash01(key, j, 701);
-  const cols = 3, rows = 4;
-  const gx = c => -0.32 + 0.32 * c, gy = r => -0.5 + r * 0.333;
-  const m = 2 + Math.floor(h(0) * 3);
-  let q = 1;
-  for (let k = 0; k < m; k++) {
-    let c = Math.floor(h(q++) * cols), r = Math.floor(h(q++) * rows);
-    const len = 2 + Math.floor(h(q++) * 2);
-    const p = [gx(c), gy(r)];
-    for (let i = 1; i < len; i++) {
-      const dir = Math.floor(h(q++) * 8);
-      const dc = [1, 1, 0, -1, -1, -1, 0, 1][dir], dr = [0, 1, 1, 1, 0, -1, -1, -1][dir];
-      c = clamp(c + dc, 0, cols - 1); r = clamp(r + dr, 0, rows - 1);
-      p.push(gx(c), gy(r));
+// Whether a box — centred at (cx, cy), turned by (c, s), hw by hh either side — stands
+// clear of the glyphs, of the boxes already laid and, when asked, of the lines.
+function boxFree(cx, cy, c, s, hw, hh, lines) {
+  const pts = [];
+  for (let i = -2; i <= 2; i++) {
+    for (let j = -1; j <= 1; j++) {
+      const lx = hw * i / 2, ly = hh * j;
+      pts.push(cx + lx * c - ly * s, cy + lx * s + ly * c);
     }
-    if (h(q++) < 0.25) {
-      // a hook: a quarter circle off the last point
-      const lx = p[p.length - 2], ly = p[p.length - 1];
-      for (let i = 1; i <= 6; i++) {
-        const a = i / 6 * Math.PI / 2;
-        p.push(lx + 0.2 * Math.sin(a), ly + 0.2 * (1 - Math.cos(a)));
+  }
+  for (let q = 0; q < pts.length; q += 2) {
+    if (insideGlyph(pts[q], pts[q + 1], -1, -1)) return false;
+  }
+  for (const b of FOOT) {
+    if (Math.hypot(b.x - cx, b.y - cy) > Math.hypot(b.hw, b.hh) + Math.hypot(hw, hh)) continue;
+    for (let q = 0; q < pts.length; q += 2) {
+      const dx = pts[q] - b.x, dy = pts[q + 1] - b.y;
+      if (Math.abs(dx * b.c + dy * b.s) < b.hw && Math.abs(-dx * b.s + dy * b.c) < b.hh) return false;
+    }
+    const dx = b.x - cx, dy = b.y - cy;
+    if (Math.abs(dx * c + dy * s) < hw && Math.abs(-dx * s + dy * c) < hh) return false;
+  }
+  if (lines && LINE_GRID) {
+    const G = LINE_GRID, R = Math.hypot(hw, hh);
+    const g0 = Math.floor((cx - R) / G.cell), g1 = Math.floor((cx + R) / G.cell);
+    const h0 = Math.floor((cy - R) / G.cell), h1 = Math.floor((cy + R) / G.cell);
+    for (let gy = h0; gy <= h1; gy++) {
+      for (let gx = g0; gx <= g1; gx++) {
+        const l = G.map.get(gy * 100003 + gx);
+        if (!l) continue;
+        for (let q = 0; q < l.length; q += 2) {
+          const dx = l[q] - cx, dy = l[q + 1] - cy;
+          if (Math.abs(dx * c + dy * s) < hw && Math.abs(-dx * s + dy * c) < hh) return false;
+        }
       }
     }
-    mline(...p);
   }
+  return true;
 }
 
 function layMarks() {
@@ -2308,36 +2655,168 @@ function layMarks() {
   for (let m = 0; m < n; m++) {
     const type = pick(table, rnd());
     if (!type) break;
-    let ok = false;
-    for (let tries = 0; tries < 6 && !ok; tries++) {
+    const hw = (type === 'chain' || type === 'spectrum' || type === 'reaction arrow' ? 0.75 : 0.6) * k;
+    const hh = 0.5 * k;
+    for (let tries = 0; tries < 6; tries++) {
       let ox, oy, th;
       if (SEGS.length && rnd() < s.markAttach / 100) {
         const P = SEGS[Math.floor(rnd() * SEGS.length)];
         if (P.len < k) continue;
         pathAt(P, P.len * (0.2 + 0.6 * rnd()));
-        const side = rnd() < 0.5 ? 1 : -1, off = k * (0.75 + 0.5 * rnd());
+        const side = rnd() < 0.5 ? 1 : -1, off = hh + k * (0.25 + 0.4 * rnd());
         ox = AX - ATY * off * side; oy = AY + ATX * off * side;
         th = Math.atan2(ATY, ATX);
       } else if (N) {
         const A = NODES[Math.floor(rnd() * N)];
-        const a = rnd() * 2 * Math.PI, d = exitDist(A, 1, 0) + k * (0.8 + 0.9 * rnd());
+        const a = rnd() * 2 * Math.PI, d = exitDist(A, Math.cos(a), Math.sin(a)) + k * (0.8 + 0.9 * rnd());
         ox = A.x + Math.cos(a) * d; oy = A.y + Math.sin(a) * d;
         th = rnd() < s.snap / 100 ? axisAt(ox, oy) + (rnd() < 0.2 ? Math.PI / 2 : 0)
                                   : rnd() * 2 * Math.PI;
       } else continue;
-      // keep off the glyphs
-      let clear = true;
-      for (let a = 0; a < 5 && clear; a++) {
-        const ang = a * 2 * Math.PI / 5;
-        if (insideGlyph(ox + Math.cos(ang) * k * 0.45, oy + Math.sin(ang) * k * 0.45, -1, -1)) clear = false;
-      }
-      if (clear && insideGlyph(ox, oy, -1, -1)) clear = false;
-      if (!clear) continue;
-      MF = { ox, oy, c: Math.cos(th), s: Math.sin(th), k };
+      th = readable(th);
+      const c = Math.cos(th), sn = Math.sin(th);
+      if (!boxFree(ox, oy, c, sn, hw * 0.85, hh * 0.85, false)) continue;
+      FOOT.push({ x: ox, y: oy, c, s: sn, hw: hw * 0.85, hh: hh * 0.85 });
+      MF = { ox, oy, c, s: sn, k };
       usePen(L_MARKS, ox, oy, m);
       drawMark(type, m);
-      ok = true;
       laid++;
+      break;
+    }
+  }
+  return laid;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Labels
+//
+// Compounds named beside the score, by formula or by name, in Polish or in English. A
+// label beside a thread lies along it, off to one side; one beside a glyph stands square
+// to the band, and now and then a short leader points from it at the glyph, the way a
+// drawing is annotated. A label keeps clear of the glyphs, the lines, the marks and the
+// labels already laid, and tries elsewhere a few times before it gives up — so a crowded
+// sheet has its labels round its edges.
+
+const COMPOUNDS = [
+  // formula, English, Polish
+  ['H2O', 'water', 'woda'],
+  ['CO2', 'carbon dioxide', 'dwutlenek węgla'],
+  ['NaCl', 'sodium chloride', 'chlorek sodu'],
+  ['CH4', 'methane', 'metan'],
+  ['NH3', 'ammonia', 'amoniak'],
+  ['C6H12O6', 'glucose', 'glukoza'],
+  ['H2SO4', 'sulfuric acid', 'kwas siarkowy'],
+  ['HNO3', 'nitric acid', 'kwas azotowy'],
+  ['C2H5OH', 'ethanol', 'etanol'],
+  ['CaCO3', 'calcium carbonate', 'węglan wapnia'],
+  ['NaHCO3', 'baking soda', 'soda oczyszczona'],
+  ['C8H10N4O2', 'caffeine', 'kofeina'],
+  ['O3', 'ozone', 'ozon'],
+  ['H2O2', 'hydrogen peroxide', 'nadtlenek wodoru'],
+  ['Fe2O3', 'iron oxide', 'tlenek żelaza'],
+  ['CuSO4·5H2O', 'blue vitriol', 'siarczan miedzi'],
+  ['KMnO4', 'potassium permanganate', 'nadmanganian potasu'],
+  ['C9H8O4', 'aspirin', 'aspiryna'],
+  ['C12H22O11', 'sucrose', 'sacharoza'],
+  ['SiO2', 'silica', 'krzemionka'],
+  ['NaOH', 'caustic soda', 'wodorotlenek sodu'],
+  ['HCl', 'hydrochloric acid', 'kwas solny'],
+  ['CH3COOH', 'acetic acid', 'kwas octowy'],
+  ['C3H8', 'propane', 'propan'],
+  ['N2O', 'laughing gas', 'gaz rozweselający'],
+  ['SO2', 'sulfur dioxide', 'dwutlenek siarki'],
+  ['C10H8', 'naphthalene', 'naftalen'],
+  ['C6H6', 'benzene', 'benzen'],
+  ['C8H9NO2', 'paracetamol', 'paracetamol'],
+  ['AgNO3', 'silver nitrate', 'azotan srebra'],
+  ['MgSO4', 'epsom salt', 'sól gorzka'],
+  ['Ca(OH)2', 'slaked lime', 'wapno gaszone'],
+  ['NH4^+', 'ammonium', 'kation amonowy'],
+  ['SO4^2-', 'sulfate', 'anion siarczanowy'],
+  ['C6H8O7', 'citric acid', 'kwas cytrynowy'],
+  ['ZnO', 'zinc oxide', 'tlenek cynku'],
+  ['Al2O3', 'corundum', 'korund'],
+  ['PbS', 'galena', 'galena'],
+  ['HgS', 'cinnabar', 'cynober'],
+  ['NaClO', 'bleach', 'podchloryn sodu'],
+  ['C2H4', 'ethylene', 'etylen'],
+  ['C5H5N', 'pyridine', 'pirydyna'],
+  ['BaSO4', 'barite', 'baryt'],
+  ['C20H14O4', 'phenolphthalein', 'fenoloftaleina'],
+  ['C27H46O', 'cholesterol', 'cholesterol'],
+  ['C8H8', 'styrene', 'styren'],
+  ['CH2O', 'formaldehyde', 'formaldehyd'],
+  ['Na2B4O7', 'borax', 'boraks'],
+  ['KNO3', 'saltpetre', 'saletra potasowa'],
+];
+
+let LINE_GRID = null;
+
+// Every line drawn so far, as points a millimetre apart in a grid, for labels to keep off.
+function buildLineGrid() {
+  const cell = 4, map = new Map();
+  const add = (x, y) => {
+    const key = Math.floor(y / cell) * 100003 + Math.floor(x / cell);
+    const l = map.get(key);
+    if (l) l.push(x, y); else map.set(key, [x, y]);
+  };
+  for (const P of SEGS) {
+    const n = Math.max(1, Math.ceil(P.len / 1));
+    for (let i = 0; i <= n; i++) { pathAt(P, P.len * i / n); add(AX, AY); }
+  }
+  return { cell, map };
+}
+
+function layLabels() {
+  const s = settings, u = s.unit, N = NODES.length;
+  const n = clamp(Math.round(s.labels), 0, 2000);
+  if (!n || (!N && !SEGS.length)) return 0;
+  LINE_GRID = buildLineGrid();
+  const rnd = rng(83);
+  const cap = u * clamp(s.labelSize, 10, 500) / 100;
+  const pl = s.labelLang === 'polski';
+  let laid = 0;
+  for (let m = 0; m < n; m++) {
+    const cmp = COMPOUNDS[Math.floor(rnd() * COMPOUNDS.length)];
+    const formula = s.labelText === 'formulas' || (s.labelText === 'mixed' && rnd() < 0.6);
+    const text = formula ? cmp[0] : (pl ? cmp[2] : cmp[1]);
+    const hw = textLayout(text, formula).w * cap / 2 + 0.2 * cap, hh = 0.72 * cap;
+    for (let tries = 0; tries < 10; tries++) {
+      let cx, cy, th, lead = null;
+      if (SEGS.length && rnd() < s.labelAttach / 100) {
+        const P = SEGS[Math.floor(rnd() * SEGS.length)];
+        if (P.len < hw * 1.2) continue;
+        pathAt(P, P.len * (0.3 + 0.4 * rnd()));
+        th = readable(Math.atan2(ATY, ATX));
+        const side = rnd() < 0.5 ? 1 : -1, off = hh + 0.3 * cap;
+        cx = AX - Math.sin(th) * off * side; cy = AY + Math.cos(th) * off * side;
+      } else if (N) {
+        const A = NODES[Math.floor(rnd() * N)];
+        th = readable(axisAt(A.x, A.y));
+        const leader = rnd() < s.labelLeaders / 100;
+        // along the band either way, or off at an angle with a leader to the glyph
+        const phi = th + (rnd() < 0.5 ? 0 : Math.PI) +
+          (leader ? (rnd() < 0.5 ? 1 : -1) * rad(25 + 40 * rnd()) : 0);
+        const dphi = phi - th;
+        const ext = Math.abs(hw * Math.cos(dphi)) + Math.abs(hh * Math.sin(dphi));
+        const e = exitDist(A, Math.cos(phi), Math.sin(phi));
+        const gap = leader ? cap * (1.4 + 1.8 * rnd()) : 0.35 * cap;
+        const d = e + gap + ext;
+        cx = A.x + Math.cos(phi) * d; cy = A.y + Math.sin(phi) * d;
+        if (leader) {
+          const d0 = e + Math.max(0.1, s.lineGap) + 0.1 * cap, d1 = e + gap - 0.15 * cap;
+          lead = [A.x + Math.cos(phi) * d0, A.y + Math.sin(phi) * d0,
+                  A.x + Math.cos(phi) * d1, A.y + Math.sin(phi) * d1];
+        }
+      } else continue;
+      const c = Math.cos(th), sn = Math.sin(th);
+      if (!boxFree(cx, cy, c, sn, hw, hh, true)) continue;
+      FOOT.push({ x: cx, y: cy, c, s: sn, hw, hh });
+      usePen(L_LABELS, cx, cy, m);
+      drawText(text, formula, cx, cy, cap, th);
+      if (lead) emitSeg(lead[0], lead[1], lead[2], lead[3]);
+      laid++;
+      break;
     }
   }
   return laid;
@@ -2521,6 +3000,8 @@ function buildShapes() {
   NODE_GRID = buildNodeGrid(NODES);
   NEIGH = buildNeighbours(NODES);
   SEGS = [];
+  FOOT = [];
+  LINE_GRID = null;
 
   // the broad layers first, so the fine ones are laid over them in the sink's own order
   const notes = layNotes();
@@ -2534,6 +3015,7 @@ function buildShapes() {
   layRays();
   layVoices();
   const marks = layMarks();
+  const labels = layLabels();
 
   for (let i = 0; i < NODES.length; i++) {
     const n = NODES[i];
@@ -2544,6 +3026,7 @@ function buildShapes() {
 
   counts = {
     nodes: NODES.length, placed: placedCount, wanted: placedWanted, threads, stems, marks, notes,
+    labels, labelsWanted: Math.round(settings.labels),
     hubs: NODES.filter(n => n.hub).length,
   };
   const S = SINK;
@@ -2995,6 +3478,10 @@ function syncVisibility() {
   for (const k of ['barMin', 'barMax', 'barTilt', 'barsPen']) setVisible(k, s.bars > 0);
   for (const k of ['sweepLen', 'sweepBend', 'sweepsPen']) setVisible(k, s.sweeps > 0);
   for (const k of ['accentShare', 'accentPen', 'accentOn']) setVisible(k, s.accent !== 'none');
+  for (const k of ['labelText', 'labelSize', 'labelAttach', 'labelLeaders', 'labelsPen']) {
+    setVisible(k, s.labels > 0);
+  }
+  setVisible('labelLang', s.labels > 0 && s.labelText !== 'formulas');
   for (let i = 1; i <= SLOTS; i++) setVisible(`pen${i}Col`, true);
   refreshPenList();
 }
@@ -3240,22 +3727,24 @@ function buildControls() {
   addSlider(sec, 'Size (%)', 'glyphSize', 10, 400, 1);
   addSlider(sec, 'Variety of size (%)', 'sizeVariety', 0, 100, 1);
   addSlider(sec, 'Inked solid (%)', 'filled', 0, 100, 1,
-    'Of the circles, triangles, squares and halves, filled the way a pen fills — edge, ' +
+    'Of the circles and the rings of six and five, filled the way a pen fills — edge, ' +
     'then passes.');
   addSub(sec, 'How often each comes up');
-  addSlider(sec, 'Dots', 'gDot', 0, 100, 1);
+  addSlider(sec, 'Dots — atoms', 'gDot', 0, 100, 1);
   addSlider(sec, 'Circles', 'gCircle', 0, 100, 1);
-  addSlider(sec, 'Rings', 'gRing', 0, 100, 1);
-  addSlider(sec, 'Targets', 'gTarget', 0, 100, 1);
-  addSlider(sec, 'Triangles', 'gTriangle', 0, 100, 1);
-  addSlider(sec, 'Squares', 'gSquare', 0, 100, 1);
-  addSlider(sec, 'Crosses', 'gCross', 0, 100, 1);
-  addSlider(sec, 'Halves', 'gHalf', 0, 100, 1);
+  addSlider(sec, 'Elements in circles', 'gElement', 0, 100, 1,
+    'C, O, N, H, S, P, F, Cl, Br, Si or B in a circle, carbon the most often.');
+  addSlider(sec, 'Elements, bare', 'gLetter', 0, 100, 1,
+    'The symbol alone, the bonds stopping short of it, as in a skeletal formula.');
+  addSlider(sec, 'Rings of six', 'gHexagon', 0, 100, 1, 'Some with the circle of an aromatic ring.');
+  addSlider(sec, 'Rings of five', 'gPentagon', 0, 100, 1);
+  addSlider(sec, 'Charges', 'gCharge', 0, 100, 1);
   addSlider(sec, 'Nothing — a bare joint', 'gNone', 0, 100, 1);
   addSub(sec, 'Hubs');
   addSlider(sec, 'Hubs', 'hubs', 0, 40, 1,
-    'Large signs — circles ringed with ticks, rings in rings, an eye, a crosshair — one in ' +
-    'each cluster first. The glyphs under them are taken away.');
+    'Large signs — a benzene ring, a Bohr atom with its shells, three orbits round a ' +
+    'nucleus, a crystal\'s unit cell, a ring of five with an oxygen in it — one in each ' +
+    'cluster first. The glyphs under them are taken away.');
   addSlider(sec, 'Hub size (units)', 'hubSize', 1, 20, 0.1);
 
   // --- threads ---
@@ -3293,13 +3782,15 @@ function buildControls() {
   addSlider(sec, 'Dashed', 'lsDashed', 0, 100, 1);
   addSlider(sec, 'Dotted', 'lsDotted', 0, 100, 1);
   addSlider(sec, 'Dash-dot', 'lsDashDot', 0, 100, 1);
+  addSlider(sec, 'Double bond', 'lsDouble', 0, 100, 1);
+  addSlider(sec, 'Triple bond', 'lsTriple', 0, 100, 1);
+  addSlider(sec, 'Hashed — a bond going in', 'lsHashed', 0, 100, 1);
   addSlider(sec, 'Ticked', 'lsTicked', 0, 100, 1);
   addSlider(sec, 'Comb', 'lsComb', 0, 100, 1);
   addSlider(sec, 'Ladder', 'lsLadder', 0, 100, 1);
   addSlider(sec, 'Zigzag', 'lsZigzag', 0, 100, 1);
   addSlider(sec, 'Wave', 'lsWave', 0, 100, 1);
   addSlider(sec, 'Beaded', 'lsBeaded', 0, 100, 1);
-  addSlider(sec, 'Double', 'lsDouble', 0, 100, 1);
   addSlider(sec, 'Coil', 'lsCoil', 0, 100, 1);
 
   sec = addSection(root, 'End marks', true);
@@ -3321,7 +3812,8 @@ function buildControls() {
   sec = addSection(root, 'Marks');
   addPenSelect(sec, 'Pen', 'marksPen');
   addSlider(sec, 'Marks', 'marks', 0, 3000, 1,
-    'Small signs beside the threads and the glyphs: tallies, bars, combs, coils, letters.');
+    'Small signs out of a chemist\'s notebook beside the threads and the glyphs. A mark ' +
+    'keeps clear of the glyphs and the other marks, so in a crowded sheet fewer find room.');
   addSlider(sec, 'Size (%)', 'markSize', 10, 400, 1);
   addSlider(sec, 'Beside a thread (%)', 'markAttach', 0, 100, 1,
     'The rest stand beside a glyph.');
@@ -3329,21 +3821,33 @@ function buildControls() {
     'Of the marks by a glyph, the stems and the glyphs\' own turn: square to the band, or at ' +
     'any angle.');
   addSub(sec, 'How often each comes up');
-  addSlider(sec, 'Tally', 'mkTally', 0, 100, 1);
-  addSlider(sec, 'Tally, crossed', 'mkGate', 0, 100, 1);
-  addSlider(sec, 'Bars', 'mkBars', 0, 100, 1);
-  addSlider(sec, 'Comb', 'mkComb', 0, 100, 1);
-  addSlider(sec, 'Ladder', 'mkLadder', 0, 100, 1);
-  addSlider(sec, 'H', 'mkH', 0, 100, 1);
-  addSlider(sec, 'Bracket', 'mkBracket', 0, 100, 1);
-  addSlider(sec, 'Coil', 'mkCoil', 0, 100, 1);
-  addSlider(sec, 'Zigzag', 'mkZigzag', 0, 100, 1);
-  addSlider(sec, 'Letter', 'mkLetter', 0, 100, 1);
-  addSlider(sec, 'Grid', 'mkGrid', 0, 100, 1);
-  addSlider(sec, 'Dots', 'mkDots', 0, 100, 1);
-  addSlider(sec, 'Wave', 'mkWave', 0, 100, 1);
-  addSlider(sec, 'Asterisk', 'mkStar', 0, 100, 1);
-  addSlider(sec, 'Arrow', 'mkArrow', 0, 100, 1);
+  addSlider(sec, 'Benzene ring', 'mkBenzene', 0, 100, 1);
+  addSlider(sec, 'Ring of five', 'mkRing5', 0, 100, 1, 'Now and then with an O, N or S in it.');
+  addSlider(sec, 'Chain — a skeletal formula', 'mkChain', 0, 100, 1);
+  addSlider(sec, 'Reaction arrow', 'mkArrow', 0, 100, 1, '→, ⇌, ↔, and → with Δ over it.');
+  addSlider(sec, 'Atom — three orbits', 'mkAtom', 0, 100, 1);
+  addSlider(sec, 'Orbital — p or d', 'mkOrbital', 0, 100, 1);
+  addSlider(sec, 'Charge', 'mkCharge', 0, 100, 1);
+  addSlider(sec, 'Ionic lattice', 'mkLattice', 0, 100, 1);
+  addSlider(sec, 'Wedge bond', 'mkWedge', 0, 100, 1);
+  addSlider(sec, 'Spectrum', 'mkSpectrum', 0, 100, 1);
+
+  // --- labels ---
+  sec = addSection(root, 'Labels');
+  addSlider(sec, 'Labels', 'labels', 0, 500, 1,
+    'Compounds named beside the score, in a stroke font of its own. A label keeps clear of ' +
+    'the glyphs, the lines, the marks and the other labels, so a crowded sheet has its ' +
+    'labels round its edges.');
+  addPenSelect(sec, 'Pen', 'labelsPen');
+  addSelect(sec, 'Written as', 'labelText', LABEL_TEXTS, resync,
+    '<b>formulas</b> — H₂O, C₆H₁₂O₆, CuSO₄·5H₂O, SO₄²⁻; <b>names</b>; <b>mixed</b> — both.');
+  addSelect(sec, 'Names in', 'labelLang', LABEL_LANGS, update);
+  addSlider(sec, 'Size (% of the unit)', 'labelSize', 20, 400, 1,
+    'The height of a capital; small letters and subscripts are 0.6 of it.');
+  addSlider(sec, 'Beside a thread (%)', 'labelAttach', 0, 100, 1,
+    'Along a thread, off to one side of it; the rest beside a glyph, square to the band.');
+  addSlider(sec, 'Leaders (%)', 'labelLeaders', 0, 100, 1,
+    'Of those beside a glyph, how many stand off and point at it with a short line.');
 
   // --- long lines ---
   sec = addSection(root, 'Arcs, rays and voices');
@@ -3528,7 +4032,8 @@ function updateStats() {
     `<b>${(plan.ink / 1000).toFixed(1)}</b> m of line</div>` +
     `<div>${groupNum(counts.nodes)} glyphs${counts.hubs ? `, ${counts.hubs} of them hubs` : ''}` +
     ` · ${groupNum(counts.threads)} threads · ${groupNum(counts.stems)} stems · ` +
-    `${groupNum(counts.marks)} marks${counts.notes ? ` · ${counts.notes} notes` : ''}</div>` +
+    `${groupNum(counts.marks)} marks · ${groupNum(counts.labels)} labels` +
+    `${counts.notes ? ` · ${counts.notes} notes` : ''}</div>` +
     `<div>Pen up for ${(plan.travel / 1000).toFixed(1)} m between strokes</div>` +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot, every pass together · ` +
     `${lastMs.toFixed(0)} ms to build</div>`;
@@ -3546,7 +4051,7 @@ function updateStats() {
     }
   }
   // broad pens drawing small things
-  const smallLayers = [L_GLYPHS, L_THREADS, L_STEMS, L_MARKS];
+  const smallLayers = [L_GLYPHS, L_THREADS, L_STEMS, L_MARKS, L_LABELS];
   const feature = s.unit * 0.5 * s.glyphSize / 100;
   for (const i of used) {
     if (penW(i) < feature * 0.9) continue;
@@ -3556,6 +4061,18 @@ function updateStats() {
       `${ls.map(li => LAYERS[li].label).join(', ')}, whose glyphs are about ` +
       `${(feature * 2).toFixed(1)} mm across — they will close up into blots. A larger unit ` +
       `fixes it.</div>`;
+  }
+  if (counts.labels < counts.labelsWanted * 0.8) {
+    html += `<div class="note">${counts.labelsWanted - counts.labels} labels found no clear room ` +
+      `— smaller ones, or a sparser sheet, fit more.</div>`;
+  }
+  const capMm = s.unit * s.labelSize / 100;
+  if (counts.labels && perLayer[L_LABELS].pens.size) {
+    const w = Math.max(...[...perLayer[L_LABELS].pens].map(penW));
+    if (capMm * 0.6 * 0.6 < w * 2.2) {
+      html += `<div class="warn">A subscript is ${(capMm * 0.36).toFixed(1)} mm high and the label ` +
+        `pen ${w} mm wide — small letters will fill in. A larger label size fixes it.</div>`;
+    }
   }
   if (strokes > BUSY_STROKES) {
     html += `<div class="warn">${groupNum(strokes)} strokes is a long sitting at the plotter.</div>`;
@@ -3577,7 +4094,8 @@ function metaComment() {
   const pens = [];
   for (let i = 0; i < SLOTS; i++) if (perPen && perPen[i].strokes) pens.push(penLabel(i));
   return `graphic score — ${s.layout} glyphs=${counts ? counts.nodes : 0} unit=${s.unit}mm ` +
-    `threads=${s.threads} marks=${s.marks} arcs=${s.arcs} rays=${s.rays} voices=${s.voices} ` +
+    `threads=${s.threads} marks=${s.marks} labels=${s.labels}/${s.labelText}/${s.labelLang} ` +
+    `arcs=${s.arcs} rays=${s.rays} voices=${s.voices} ` +
     `notes=${s.notes} staves=${s.staves} bars=${s.bars} sweeps=${s.sweeps} ` +
     `accent=${s.accent}${s.accent !== 'none' ? '/' + s.accentShare + '%' : ''} seed=${s.seed} ` +
     `pens=[${pens.join('; ')}] strokes=${strokes}`;

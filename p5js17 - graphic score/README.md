@@ -1,12 +1,15 @@
 # Graphic score
 
-A pen-plotter generator: a swarm of small signs — circles, rings, dots, targets,
-triangles — scattered along a band across the sheet, crowded into a few knots, and strung
-together by lines that are each drawn differently: plain, dashed, dotted, ticked,
-zigzagged, beaded, coiled, ending in a tick, an arrow, a dot or a ring. Tallies, bars,
-combs and signs like letters sit beside them, long arcs sweep through, a few rays run far
-out of the band, and a voice winds through the whole of it. It started from a white-on-black
-drawing that reads like a score for an instrument nobody has.
+A pen-plotter generator: a swarm of small signs scattered along a band across the sheet,
+crowded into a few knots, and strung together by lines that are each drawn differently —
+plain, dashed, dotted, as double and triple bonds, hashed — ending in a tick, an arrow, a
+dot or a ring. The signs are a chemist's: atoms, element symbols, rings of six and five,
+charges, Bohr atoms and benzene rings; skeletal chains, reaction arrows, orbitals and
+spectra beside them; and compounds named by formula or by name, in Polish or English, in
+a stroke font of its own. Long arcs sweep through, a few rays run far out of the band, and
+a voice winds through the whole of it. It started from a white-on-black drawing that reads
+like a score for an instrument nobody has; the composition is that drawing's, the signs
+deliberately are not.
 
 Two technical pens draw the fine work — black, and red for an accent and the voice — and
 three ink markers, 3 to 15 mm, the broad strokes under it: notes, staves, bars and sweeps.
@@ -72,15 +75,19 @@ with a 0.35 mm nib, 15 mm and more with a 3 mm marker.
 
 ### The glyphs
 
-**Dots**, **circles**, **rings** (a circle in a circle), **targets** (a circle and its
-middle), **triangles**, **squares**, **crosses**, **halves** and **nothing** — a bare
-joint where lines simply meet — each as often as its weight says. Their kind, size and
-turn come from hashes of their own index, so changing a weight repaints the glyphs and
-moves none of them. **Inked solid** fills a share of the closed ones.
+**Dots** (atoms), **circles**, **elements in circles** (C, O, N, H, S, P, F, Cl, Br, Si
+or B, carbon the most often), **elements, bare** — the symbol alone, the bonds stopping
+short of it as in a skeletal formula — **rings of six** (some with the circle of an
+aromatic ring), **rings of five**, **charges** and **nothing**, a bare joint where lines
+simply meet, each as often as its weight says. Their kind, size, turn and element come
+from hashes of their own index, so changing a weight repaints the glyphs and moves none of
+them. **Inked solid** fills a share of the circles and rings. A symbol never comes out
+smaller than an ordinary glyph, so it stays legible.
 
-**Hubs** are glyphs grown several times over — a circle ringed with ticks, rings in rings,
-a circle cut by its diameter, an eye, a crosshair — one in each cluster first, the rest
-anywhere. The glyphs under a hub are taken away.
+**Hubs** are glyphs grown several times over — a benzene ring, a Bohr atom with two or
+three shells and its electrons on them, three orbits round a nucleus, a crystal's unit
+cell with an atom at every corner, a ring of five with an O, N or S in it — one in each
+cluster first, the rest anywhere. The glyphs under a hub are taken away.
 
 ### Threads, stems and the way lines meet the glyphs
 
@@ -95,16 +102,18 @@ reached to their nearest neighbour. **Stems** are short sticks off a glyph into 
 squared to the band — along it more often than across — or at any angle.
 
 Every line stops at the edge of a glyph it reaches, **Gap at a glyph** short of it, worked
-out exactly for a circle and for the side of a triangle or square it meets. With **Lines
+out exactly for a circle and for the side of a ring of six or five it meets. With **Lines
 stop at the glyphs they cross** a line is also cut wherever it passes over another glyph:
-the path is looked along every 0.3 mm and each crossing pinned down by bisection. Dots,
-crosses and bare joints let lines through.
+the path is looked along every 0.3 mm and each crossing pinned down by bisection. Dots and
+bare joints let lines through.
 
 ### Line styles and end marks
 
-**solid**, **dashed**, **dotted**, **dash-dot**, **ticked** (a ruler), **comb** (ticks on
-one side), **ladder**, **zigzag**, **wave**, **beaded** (small circles strung along, the line
-broken round each), **double** and **coil** (loops like a spring, a prolate trochoid). A
+**solid**, **dashed**, **dotted**, **dash-dot**, **double** and **triple** (bonds),
+**hashed** (a bond going into the paper: strokes across, growing along it), **ticked** (a
+ruler), **comb** (ticks on one side), **ladder**, **zigzag**, **wave**, **beaded** (small
+circles strung along, the line broken round each) and **coil** (loops like a spring, a
+prolate trochoid); the comb, the ladder and the coil are off unless asked for. A
 style lays itself along the path by distance and stretches a little to fit it a whole
 number of times — a dashed line starts and ends on a dash, a zigzag on the line, a wave at
 its middle. **Pattern size** scales them all against the unit.
@@ -115,12 +124,33 @@ The ones with an inside stand beyond the end, so the line just reaches them.
 
 ### Marks
 
-Small signs in a frame of their own — tallies, crossed tallies, bars, combs, ladders, H,
-brackets, coils, zigzags, dots, waves, asterisks, arrows, grids and **letters**: two to four
-strokes over a small grid of points, now and then with a hook, a letter of no alphabet.
+Small signs out of a chemist's notebook, in a frame of their own and never upside down:
+a **benzene ring**, aromatic or with its double bonds drawn in; a **ring of five**, now
+and then with an O, N or S at a corner and the bonds stopping short of it; a **chain** — a
+skeletal formula, bonds at 120°, one of them double, now and then ending in OH, NH₂, COOH,
+Cl or SH written out; a **reaction arrow** — →, ⇌, ↔, or → with Δ over it; an **atom** of
+three orbits; a **p or d orbital**; a **charge**; an **ionic lattice**, small ions and large
+in turn; a **wedge bond**, solid or hashed; a stick **spectrum** with its multiplets.
 **Beside a thread** sets how many sit off to one side of a thread and turn with it; the
 rest stand clear of a glyph, squared to the band by **Squared to the band** or at any
-angle. A mark that would land on a glyph tries elsewhere.
+angle. A mark keeps off the glyphs and the marks already laid, and tries elsewhere.
+
+### Labels
+
+Compounds named beside the score — water, glucose, caffeine, blue vitriol, cinnabar and
+some fifty more — **written as** formulas (H₂O, C₆H₁₂O₆, CuSO₄·5H₂O, SO₄²⁻), names, or a
+mix, the names **in** Polish or English. A label beside a thread lies along it, off to one
+side; one beside a glyph stands square to the band, and **Leaders** of them stand off and
+point at it with a short line. A label keeps clear of the glyphs, the lines, the marks and
+the other labels, so a crowded sheet has its labels round its edges; the stats say how many
+found no room. **Size** is the height of a capital in units.
+
+The lettering is a stroke font of its own: capitals a unit high, small letters 0.6,
+descenders to −0.32, each letter a few polylines with its curves cut every 15°; the Polish
+letters are the Latin ones with an accent, a dot, an ogonek or a bar added. A formula is
+set the way a chemist sets it: digits after a symbol or a bracket small and dropped, a
+charge after `^` small and raised, a number at the start or after the dot of a hydrate full
+size. The stats warn when a subscript would come out too small for the pen that writes it.
 
 ### Arcs, rays and voices
 
@@ -159,13 +189,14 @@ the nib is a single dab. The same rule fills a solid arrowhead with a 0.35 mm pe
 Five pens, a pass of the plotter each. Each has a **Kind** — black or red rapidograph, red,
 silver or white marker, or another — a **Width** and a preview **Colour**; changing the kind
 sets the colour and a usual width. Every layer picks a pen by number: glyphs, threads,
-stems, marks, arcs, rays and voices; notes, staves, bars and sweeps. Every pen draws inside
+stems, marks, labels, arcs, rays and voices; notes, staves, bars and sweeps. Every pen draws inside
 the margin less half its own width, so a 15 mm marker stops 7.5 mm further in than a fine
 pen.
 
 The **Accent** moves part of the fine layers to another pen: a **random** share, whole
 **clusters** (the share is how many of them), a **region** along the band, its
-**outskirts** or its **core** — on everything, or only the glyphs, the lines or the marks.
+**outskirts** or its **core** — on everything, or only the glyphs, the lines, the marks or
+the labels.
 
 **Passes go down** orders the passes: broad first puts the markers under the fine lines,
 which is how the preview paints them and the order the groups take in the file with
@@ -186,8 +217,9 @@ file: the settings in one line, and the URL that rebuilds the sheet.
 
 ## Watching the cost
 
-The default A3 is about 2 800 strokes and 11 m of line, some 18 minutes at the plotter, and
-most of that is pen lifts: every glyph, every mark, every dash and every dot is one.
+The default A3 is about 2 700 strokes and 11 m of line, some 18 minutes at the plotter, and
+most of that is pen lifts: every glyph, every mark, every dash and every dot is one, and
+every letter of a label two or three.
 Dotted and beaded lines and the marks cost the most for the least ink; solid threads and
 arcs the least. The broad layers are a handful of strokes each. A sheet builds in 10–20 ms,
 so the sliders and the drag follow live.
