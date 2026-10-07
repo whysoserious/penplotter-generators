@@ -6,9 +6,16 @@ i bez serwera.
 
 ## Git
 
-**Możesz commitować i pushować z własnej inicjatywy, bez pytania o zgodę.**
-Nie czekaj na potwierdzenie przed `git commit` ani `git push` — to świadome
-odstępstwo od domyślnej zasady "commituj tylko na wyraźną prośbę".
+**Commituj i pushuj sam, z własnej inicjatywy, bez pytania o zgodę — i często.**
+Nie czekaj na potwierdzenie ani na prośbę przed `git commit` i `git push` — to
+świadome odstępstwo od domyślnej zasady "commituj tylko na wyraźną prośbę".
+
+- Każdy skończony i sprawdzony krok (działa, konsola czysta) to od razu commit
+  i od razu `git push` — nie zbieraj zmian na później.
+- Nie kończ odpowiedzi z niezacommitowaną albo niewypchniętą pracą: na koniec
+  każdego zadania `git status` ma być czysty, a `main` równy `origin/main`.
+- Dotyczy to też poprawek po uwagach i drobnych zmian (README, CLAUDE.md,
+  sceny, wartości domyślne).
 
 Praca idzie bezpośrednio na `main` (upstream: `origin/main`,
 `git@github.com:whysoserious/penplotter-generators.git`). Nie zakładaj gałęzi
