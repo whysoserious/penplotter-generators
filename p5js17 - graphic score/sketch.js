@@ -26,7 +26,7 @@
 // element symbols in circles or standing bare, rings of six and five, charges; hubs that
 // are benzene rings, Bohr atoms, orbits, unit cells; marks that are skeletal chains,
 // reaction arrows, orbitals, wedge bonds, ionic lattices and spectra; and labels naming
-// compounds by formula or by name, in Polish or in English, in a stroke font of its own.
+// compounds by formula or by their English name, in a stroke font of its own.
 //
 // Two pens draw all of that finely: black, and red for an accent — a share of it at
 // random, whole clusters, a stretch of the band, its edges or its core — and for the
@@ -101,7 +101,6 @@ const MARKS = [
   ['spectrum', 'mkSpectrum'],
 ];
 const LABEL_TEXTS = ['mixed', 'formulas', 'names'];
-const LABEL_LANGS = ['polski', 'English'];
 const NOTE_SHAPES = ['disc', 'ring', 'beside'];
 const NOTE_PICKS  = ['hubs first', 'largest', 'random', 'clusters'];
 const ACCENTS     = ['none', 'random', 'clusters', 'region', 'outskirts', 'core'];
@@ -246,7 +245,6 @@ const settings = {
   // labels — compounds, by formula or by name
   labels: 26,
   labelText: 'mixed',
-  labelLang: 'polski',
   labelSize: 100,       // % of the unit — the height of a capital
   labelAttach: 40,      // % beside a thread, the rest beside a glyph
   labelLeaders: 45,     // % of those beside a glyph that point at it
@@ -2226,8 +2224,7 @@ function layVoices() {
 //
 // A stroke font of its own, for the labels and the symbols in the glyphs: capitals one
 // unit high, small letters 0.6, descenders to −0.32, every letter a few polylines and
-// every curve cut every 15°. Polish letters are their Latin ones with an accent, a dot,
-// an ogonek or a bar added. A formula is set the way a chemist sets it: the digits after
+// every curve cut every 15°. A formula is set the way a chemist sets it: the digits after
 // a symbol or a bracket small and dropped, a charge after ^ small and raised, a number at
 // the start or after the dot of a hydrate full size.
 
@@ -2324,25 +2321,6 @@ const FONT = (() => {
   return g;
 })();
 
-const DIACRITICS = {
-  'ą': ['a', 'ogonek'], 'ę': ['e', 'ogonek'], 'ó': ['o', 'acute'], 'ś': ['s', 'acute'],
-  'ć': ['c', 'acute'], 'ń': ['n', 'acute'], 'ź': ['z', 'acute'], 'ż': ['z', 'dot'],
-  'ł': ['l', 'bar'],
-};
-
-function fontGlyph(ch) {
-  if (FONT[ch]) return FONT[ch];
-  const d = DIACRITICS[ch];
-  if (!d) return null;
-  const b = FONT[d[0]], w = b.w, m = w / 2;
-  const extra = d[1] === 'acute' ? [m - 0.06, 0.7, m + 0.1, 0.86]
-    : d[1] === 'dot' ? [m, 0.76, m, 0.8]
-    : d[1] === 'ogonek' ? [w - 0.02, 0, w - 0.12, -0.1, w - 0.08, -0.2, w + 0.02, -0.22]
-    : [-0.12, 0.36, 0.14, 0.58];
-  FONT[ch] = { w: d[1] === 'bar' ? 0.06 : w, s: b.s.concat([extra]) };
-  return FONT[ch];
-}
-
 // A string laid out in font units: its strokes, and how wide it runs.
 function textLayout(str, chem) {
   const strokes = [];
@@ -2355,7 +2333,7 @@ function textLayout(str, chem) {
     else if (chem && /[0-9]/.test(ch) && (/[A-Za-z)]/.test(prev) || (prevSub && /[0-9]/.test(prev)))) {
       sc = 0.62; dy = -0.24; sub = true;
     }
-    const g = fontGlyph(ch) || FONT[' '];
+    const g = FONT[ch] || FONT[' '];
     for (const st of g.s) {
       const q = [];
       for (let i = 0; i < st.length; i += 2) q.push(x + st[i] * sc, dy + st[i + 1] * sc);
@@ -2690,7 +2668,7 @@ function layMarks() {
 ////////////////////////////////////////////////////////////////////////////////////////
 // Labels
 //
-// Compounds named beside the score, by formula or by name, in Polish or in English. A
+// Compounds named beside the score, by formula or by their English name. A
 // label beside a thread lies along it, off to one side; one beside a glyph stands square
 // to the band, and now and then a short leader points from it at the glyph, the way a
 // drawing is annotated. A label keeps clear of the glyphs, the lines, the marks and the
@@ -2698,56 +2676,56 @@ function layMarks() {
 // sheet has its labels round its edges.
 
 const COMPOUNDS = [
-  // formula, English, Polish
-  ['H2O', 'water', 'woda'],
-  ['CO2', 'carbon dioxide', 'dwutlenek węgla'],
-  ['NaCl', 'sodium chloride', 'chlorek sodu'],
-  ['CH4', 'methane', 'metan'],
-  ['NH3', 'ammonia', 'amoniak'],
-  ['C6H12O6', 'glucose', 'glukoza'],
-  ['H2SO4', 'sulfuric acid', 'kwas siarkowy'],
-  ['HNO3', 'nitric acid', 'kwas azotowy'],
-  ['C2H5OH', 'ethanol', 'etanol'],
-  ['CaCO3', 'calcium carbonate', 'węglan wapnia'],
-  ['NaHCO3', 'baking soda', 'soda oczyszczona'],
-  ['C8H10N4O2', 'caffeine', 'kofeina'],
-  ['O3', 'ozone', 'ozon'],
-  ['H2O2', 'hydrogen peroxide', 'nadtlenek wodoru'],
-  ['Fe2O3', 'iron oxide', 'tlenek żelaza'],
-  ['CuSO4·5H2O', 'blue vitriol', 'siarczan miedzi'],
-  ['KMnO4', 'potassium permanganate', 'nadmanganian potasu'],
-  ['C9H8O4', 'aspirin', 'aspiryna'],
-  ['C12H22O11', 'sucrose', 'sacharoza'],
-  ['SiO2', 'silica', 'krzemionka'],
-  ['NaOH', 'caustic soda', 'wodorotlenek sodu'],
-  ['HCl', 'hydrochloric acid', 'kwas solny'],
-  ['CH3COOH', 'acetic acid', 'kwas octowy'],
-  ['C3H8', 'propane', 'propan'],
-  ['N2O', 'laughing gas', 'gaz rozweselający'],
-  ['SO2', 'sulfur dioxide', 'dwutlenek siarki'],
-  ['C10H8', 'naphthalene', 'naftalen'],
-  ['C6H6', 'benzene', 'benzen'],
-  ['C8H9NO2', 'paracetamol', 'paracetamol'],
-  ['AgNO3', 'silver nitrate', 'azotan srebra'],
-  ['MgSO4', 'epsom salt', 'sól gorzka'],
-  ['Ca(OH)2', 'slaked lime', 'wapno gaszone'],
-  ['NH4^+', 'ammonium', 'kation amonowy'],
-  ['SO4^2-', 'sulfate', 'anion siarczanowy'],
-  ['C6H8O7', 'citric acid', 'kwas cytrynowy'],
-  ['ZnO', 'zinc oxide', 'tlenek cynku'],
-  ['Al2O3', 'corundum', 'korund'],
-  ['PbS', 'galena', 'galena'],
-  ['HgS', 'cinnabar', 'cynober'],
-  ['NaClO', 'bleach', 'podchloryn sodu'],
-  ['C2H4', 'ethylene', 'etylen'],
-  ['C5H5N', 'pyridine', 'pirydyna'],
-  ['BaSO4', 'barite', 'baryt'],
-  ['C20H14O4', 'phenolphthalein', 'fenoloftaleina'],
-  ['C27H46O', 'cholesterol', 'cholesterol'],
-  ['C8H8', 'styrene', 'styren'],
-  ['CH2O', 'formaldehyde', 'formaldehyd'],
-  ['Na2B4O7', 'borax', 'boraks'],
-  ['KNO3', 'saltpetre', 'saletra potasowa'],
+  // formula, name
+  ['H2O', 'water'],
+  ['CO2', 'carbon dioxide'],
+  ['NaCl', 'sodium chloride'],
+  ['CH4', 'methane'],
+  ['NH3', 'ammonia'],
+  ['C6H12O6', 'glucose'],
+  ['H2SO4', 'sulfuric acid'],
+  ['HNO3', 'nitric acid'],
+  ['C2H5OH', 'ethanol'],
+  ['CaCO3', 'calcium carbonate'],
+  ['NaHCO3', 'baking soda'],
+  ['C8H10N4O2', 'caffeine'],
+  ['O3', 'ozone'],
+  ['H2O2', 'hydrogen peroxide'],
+  ['Fe2O3', 'iron oxide'],
+  ['CuSO4·5H2O', 'blue vitriol'],
+  ['KMnO4', 'potassium permanganate'],
+  ['C9H8O4', 'aspirin'],
+  ['C12H22O11', 'sucrose'],
+  ['SiO2', 'silica'],
+  ['NaOH', 'caustic soda'],
+  ['HCl', 'hydrochloric acid'],
+  ['CH3COOH', 'acetic acid'],
+  ['C3H8', 'propane'],
+  ['N2O', 'laughing gas'],
+  ['SO2', 'sulfur dioxide'],
+  ['C10H8', 'naphthalene'],
+  ['C6H6', 'benzene'],
+  ['C8H9NO2', 'paracetamol'],
+  ['AgNO3', 'silver nitrate'],
+  ['MgSO4', 'epsom salt'],
+  ['Ca(OH)2', 'slaked lime'],
+  ['NH4^+', 'ammonium'],
+  ['SO4^2-', 'sulfate'],
+  ['C6H8O7', 'citric acid'],
+  ['ZnO', 'zinc oxide'],
+  ['Al2O3', 'corundum'],
+  ['PbS', 'galena'],
+  ['HgS', 'cinnabar'],
+  ['NaClO', 'bleach'],
+  ['C2H4', 'ethylene'],
+  ['C5H5N', 'pyridine'],
+  ['BaSO4', 'barite'],
+  ['C20H14O4', 'phenolphthalein'],
+  ['C27H46O', 'cholesterol'],
+  ['C8H8', 'styrene'],
+  ['CH2O', 'formaldehyde'],
+  ['Na2B4O7', 'borax'],
+  ['KNO3', 'saltpetre'],
 ];
 
 let LINE_GRID = null;
@@ -2774,12 +2752,11 @@ function layLabels() {
   LINE_GRID = buildLineGrid();
   const rnd = rng(83);
   const cap = u * clamp(s.labelSize, 10, 500) / 100;
-  const pl = s.labelLang === 'polski';
   let laid = 0;
   for (let m = 0; m < n; m++) {
     const cmp = COMPOUNDS[Math.floor(rnd() * COMPOUNDS.length)];
     const formula = s.labelText === 'formulas' || (s.labelText === 'mixed' && rnd() < 0.6);
-    const text = formula ? cmp[0] : (pl ? cmp[2] : cmp[1]);
+    const text = formula ? cmp[0] : cmp[1];
     const hw = textLayout(text, formula).w * cap / 2 + 0.2 * cap, hh = 0.72 * cap;
     for (let tries = 0; tries < 10; tries++) {
       let cx, cy, th, lead = null;
@@ -3481,7 +3458,6 @@ function syncVisibility() {
   for (const k of ['labelText', 'labelSize', 'labelAttach', 'labelLeaders', 'labelsPen']) {
     setVisible(k, s.labels > 0);
   }
-  setVisible('labelLang', s.labels > 0 && s.labelText !== 'formulas');
   for (let i = 1; i <= SLOTS; i++) setVisible(`pen${i}Col`, true);
   refreshPenList();
 }
@@ -3840,8 +3816,8 @@ function buildControls() {
     'labels round its edges.');
   addPenSelect(sec, 'Pen', 'labelsPen');
   addSelect(sec, 'Written as', 'labelText', LABEL_TEXTS, resync,
-    '<b>formulas</b> — H₂O, C₆H₁₂O₆, CuSO₄·5H₂O, SO₄²⁻; <b>names</b>; <b>mixed</b> — both.');
-  addSelect(sec, 'Names in', 'labelLang', LABEL_LANGS, update);
+    '<b>formulas</b> — H₂O, C₆H₁₂O₆, CuSO₄·5H₂O, SO₄²⁻; <b>names</b> — water, glucose, ' +
+    'blue vitriol, in English; <b>mixed</b> — both.');
   addSlider(sec, 'Size (% of the unit)', 'labelSize', 20, 400, 1,
     'The height of a capital; small letters and subscripts are 0.6 of it.');
   addSlider(sec, 'Beside a thread (%)', 'labelAttach', 0, 100, 1,
@@ -4094,7 +4070,7 @@ function metaComment() {
   const pens = [];
   for (let i = 0; i < SLOTS; i++) if (perPen && perPen[i].strokes) pens.push(penLabel(i));
   return `graphic score — ${s.layout} glyphs=${counts ? counts.nodes : 0} unit=${s.unit}mm ` +
-    `threads=${s.threads} marks=${s.marks} labels=${s.labels}/${s.labelText}/${s.labelLang} ` +
+    `threads=${s.threads} marks=${s.marks} labels=${s.labels}/${s.labelText} ` +
     `arcs=${s.arcs} rays=${s.rays} voices=${s.voices} ` +
     `notes=${s.notes} staves=${s.staves} bars=${s.bars} sweeps=${s.sweeps} ` +
     `accent=${s.accent}${s.accent !== 'none' ? '/' + s.accentShare + '%' : ''} seed=${s.seed} ` +

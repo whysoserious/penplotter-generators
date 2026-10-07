@@ -5,8 +5,8 @@ crowded into a few knots, and strung together by lines that are each drawn diffe
 plain, dashed, dotted, as double and triple bonds, hashed — ending in a tick, an arrow, a
 dot or a ring. The signs are a chemist's: atoms, element symbols, rings of six and five,
 charges, Bohr atoms and benzene rings; skeletal chains, reaction arrows, orbitals and
-spectra beside them; and compounds named by formula or by name, in Polish or English, in
-a stroke font of its own. Long arcs sweep through, a few rays run far out of the band, and
+spectra beside them; and compounds named by formula or by their English name, in a
+stroke font of its own. Long arcs sweep through, a few rays run far out of the band, and
 a voice winds through the whole of it. It started from a white-on-black drawing that reads
 like a score for an instrument nobody has; the composition is that drawing's, the signs
 deliberately are not.
@@ -139,15 +139,14 @@ angle. A mark keeps off the glyphs and the marks already laid, and tries elsewhe
 
 Compounds named beside the score — water, glucose, caffeine, blue vitriol, cinnabar and
 some fifty more — **written as** formulas (H₂O, C₆H₁₂O₆, CuSO₄·5H₂O, SO₄²⁻), names, or a
-mix, the names **in** Polish or English. A label beside a thread lies along it, off to one
+mix, the names in English. A label beside a thread lies along it, off to one
 side; one beside a glyph stands square to the band, and **Leaders** of them stand off and
 point at it with a short line. A label keeps clear of the glyphs, the lines, the marks and
 the other labels, so a crowded sheet has its labels round its edges; the stats say how many
 found no room. **Size** is the height of a capital in units.
 
 The lettering is a stroke font of its own: capitals a unit high, small letters 0.6,
-descenders to −0.32, each letter a few polylines with its curves cut every 15°; the Polish
-letters are the Latin ones with an accent, a dot, an ogonek or a bar added. A formula is
+descenders to −0.32, each letter a few polylines with its curves cut every 15°. A formula is
 set the way a chemist sets it: digits after a symbol or a bracket small and dropped, a
 charge after `^` small and raised, a number at the start or after the dot of a hydrate full
 size. The stats warn when a subscript would come out too small for the pen that writes it.
