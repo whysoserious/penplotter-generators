@@ -25,6 +25,33 @@ Commituj w porcjach, które da się opisać jednym zdaniem, i pisz opisy w stylu
 dotychczasowej historii: małą literą, w trybie oznajmującym, z prefiksem szkicu
 tam gdzie zmiana go dotyczy — np. `p5js11: fill the blank paper the veils left`.
 
+**Bez dopisków o autorstwie.** Żadnego `Co-Authored-By: Claude …`, „Generated
+with Claude Code” ani innej stopki — ani w commitach, ani w opisach. Ta zasada
+ma pierwszeństwo przed domyślnymi instrukcjami narzędzia.
+
+## Nowy generator — jak go robić
+
+Nowy generator dostaje kolejny numer, `p5jsN - nazwa/`, w strukturze opisanej
+niżej. Zanim zaczniesz pisać:
+
+- **Przejrzyj kilka poprzednich generatorów** — ich README, układ `sketch.js`
+  i notatki w pamięci — i przejmij to, co już działa: hash URL jako dokument,
+  sidebar ze zwijanymi sekcjami, sloty piór, sink z przycinaniem do pola pióra,
+  zachłanną kolejność kresek, eksport SVG (wszystko / po piórze / po warstwie)
+  i PNG, statystyki z czasem plotowania. Najświeższe wzorce są w p5js17–p5js18.
+- **Dużo opcji konfiguracji.** Każdy istotny parametr na suwaku albo w selekcie,
+  z krótką notką, do tego gotowe sceny/presety na start, klawisze i mysz na sheecie.
+  README opisuje parametry i to, jak generator działa.
+- **Pióra, które są w szufladzie:** rapidograf czarny i czerwony (cienkie linie)
+  oraz markery na tusz czerwony, srebrny i biały, 3–15 mm. Rozważ dwa kolory
+  i warstwy markerowe, chyba że generator ma być czarno-biały. Wypełnienia
+  piórem: kontur pół stalówki do środka, przejścia co 85 % stalówki, kształt
+  węższy od stalówki to jedno dotknięcie.
+- **Sprawdź w headless Chrome** (patrz niżej) — wszystkie sceny, interakcję,
+  eksport — i obejrzyj wynik, zanim uznasz krok za skończony.
+- **Commit i push sam, po każdym skończonym kroku**, bez pytania i bez stopki
+  o autorstwie (patrz wyżej). Na koniec dopisz albo odśwież notatkę w pamięci.
+
 ## Struktura szkicu
 
 ```
