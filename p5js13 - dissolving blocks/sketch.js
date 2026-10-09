@@ -142,6 +142,7 @@ const settings = {
   zoom: 100,            // % — 100 fits every box that is left inside the margin
   panX: 0,              // mm at 100 % — the point brought to the middle of the sheet
   panY: 0,
+  wholeBoxes: false,    // leave out a box the margin would cut, rather than cut it
 
   // hatching
   topHatch: 'none',
@@ -278,6 +279,7 @@ let counts  = null;          // what the hidden-line pass found, for the stats
 let lastMs  = 0;
 let drag    = null;          // while the mouse is down: where it went down, and from what
 let frameBox = null;         // { x0, y0, x1, y1 } — what the boxes cover on paper, in mm
+let reachBox = null;         // the same, the boxes left out at the margin included
 let inkMid  = null;          // { x, y } — where the weight of the ink sits, in mm
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -480,7 +482,7 @@ function update() {
   const t0 = performance.now();
   area = drawArea();
   strokes = 0;
-  shapes = plan = perPen = counts = frameBox = inkMid = null;
+  shapes = plan = perPen = counts = frameBox = reachBox = inkMid = null;
   const st = ensureStructure();
 
   if (area.w > 0 && area.h > 0 && st.n > 0) {
@@ -1500,7 +1502,12 @@ let BX = new Float64Array(0);        // x0 y0 z0 x1 y1 z1, in cells
 let BS = new Float64Array(0);        // x0 y0 x1 y1 of the outline on paper, in mm
 let BD = new Float64Array(0);        // how far along c it reaches, least and most
 let BL = new Uint8Array(0);          // far enough through the front to count as loose
+let NCUT = 0;                        // boxes left out because the margin would cut them
 
+// Each box shrunk by half the gap, and its outline on paper — the outline of a box seen
+// in parallel is the hull of its corners, so this box round them is exact. With
+// `wholeBoxes`, a box whose outline reaches past the margin is left out here, before
+// anything is drawn: it hides nothing, and what stood behind it shows in its place.
 function placeBoxes(st) {
   const n = st.n, src = st.boxes;
   if (BL.length < n) {
@@ -1512,7 +1519,10 @@ function placeBoxes(st) {
   const g = Math.max(0, settings.gap) / S / 2;
   const least = MIN_BOX_MM / S;
   const looseAt = settings.looseAt / 100;
+  const whole = !!settings.wholeBoxes, tol = 1e-6;
+  let rx0 = Infinity, ry0 = Infinity, rx1 = -Infinity, ry1 = -Infinity;
   let m = 0;
+  NCUT = 0;
 
   for (let i = 0; i < n; i++) {
     const o = i * 6;
@@ -1533,13 +1543,21 @@ function placeBoxes(st) {
       a = lo * CVV[k]; b = hi * CVV[k];
       if (a < b) { dl += a; dh += b; } else { dl += b; dh += a; }
     }
-    BS[m * 4] = S * xl + OX; BS[m * 4 + 1] = S * yl + OY;
-    BS[m * 4 + 2] = S * xh + OX; BS[m * 4 + 3] = S * yh + OY;
+    const sx0 = S * xl + OX, sy0 = S * yl + OY, sx1 = S * xh + OX, sy1 = S * yh + OY;
+    if (sx0 < rx0) rx0 = sx0;
+    if (sy0 < ry0) ry0 = sy0;
+    if (sx1 > rx1) rx1 = sx1;
+    if (sy1 > ry1) ry1 = sy1;
+    if (whole && (sx0 < area.x0 - tol || sx1 > area.x1 + tol ||
+                  sy0 < area.y0 - tol || sy1 > area.y1 + tol)) { NCUT++; continue; }
+    BS[m * 4] = sx0; BS[m * 4 + 1] = sy0;
+    BS[m * 4 + 2] = sx1; BS[m * 4 + 3] = sy1;
     BD[m * 2] = dl; BD[m * 2 + 1] = dh;
     BL[m] = st.front[i] > looseAt ? 1 : 0;
     m++;
   }
   NB = m;
+  reachBox = rx0 <= rx1 ? { x0: rx0, y0: ry0, x1: rx1, y1: ry1 } : null;
 }
 
 // A grid of bins over the sheet, each listing the boxes whose outline reaches into it,
@@ -3026,7 +3044,7 @@ function centreOn(what) {
   const [W, H] = paperDims(), cx = W / 2, cy = H / 2;
   const fits = fb => fb && fb.x0 >= area.x0 - 0.05 && fb.x1 <= area.x1 + 0.05 &&
                            fb.y0 >= area.y0 - 0.05 && fb.y1 <= area.y1 + 0.05;
-  const whole = fits(frameBox);
+  const whole = fits(reachBox);
   for (let round = 0; round < 8; round++) {
     const p = what === 'ink' ? inkMid
       : frameBox && { x: (frameBox.x0 + frameBox.x1) / 2, y: (frameBox.y0 + frameBox.y1) / 2 };
@@ -3039,7 +3057,7 @@ function centreOn(what) {
       settings.panY = +(settings.panY + dy / z).toFixed(2);
       update();
     }
-    const fb = frameBox;
+    const fb = reachBox;
     if (whole && fb && !fits(fb)) {
       const room = (edge, reach) => reach > 1e-9 ? edge / reach : Infinity;
       const k = Math.min(room(cx - area.x0, cx - fb.x0), room(area.x1 - cx, fb.x1 - cx),
@@ -3101,6 +3119,11 @@ function attachKeys() {
       case '+': case '=': zoomAbout(1.25); break;
       case '-': case '_': zoomAbout(1 / 1.25); break;
       case '0': resetZoom(); break;
+      case 'w': case 'W':
+        s.wholeBoxes = !s.wholeBoxes;
+        if (setters.wholeBoxes) setters.wholeBoxes(s.wholeBoxes);
+        update();
+        break;
       case 'p': case 'P':
         s.projection = PROJECTIONS[(PROJECTIONS.indexOf(s.projection) + 1) % PROJECTIONS.length];
         refreshControls();
@@ -3400,6 +3423,11 @@ function buildControls() {
     'Past that the drawing is cut at the margin. The wheel zooms about the point under ' +
     'the cursor.');
   createButton('Reset zoom and pan').parent(root).mousePressed(resetZoom);
+  addCheckbox(root, 'Leave out the boxes the margin cuts', 'wholeBoxes');
+  createDiv('Zoomed in or panned, the margin cuts through the boxes at the edge of the ' +
+    'drawing. With this on, a box that would be cut is left out whole instead, and what ' +
+    'stood behind it shows in its place — the drawing ends on whole boxes, not on a ruled ' +
+    'line. <b>W</b> turns it on and off.').parent(root).class('note');
 
   // --- Composition ---
   addSection(root, 'Composition');
@@ -3602,6 +3630,7 @@ function buildControls() {
   keys.html(
     '<div><kbd>drag</kbd> turn the camera · <kbd>shift</kbd>+<kbd>drag</kbd> pan</div>' +
     '<div><kbd>wheel</kbd> zoom · <kbd>+</kbd> <kbd>−</kbd> too · <kbd>0</kbd> reset</div>' +
+    '<div><kbd>W</kbd> leave out the boxes the margin cuts</div>' +
     '<div><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> turn by 1°, with ' +
     '<kbd>shift</kbd> by 10°</div>' +
     '<div><kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it · <kbd>P</kbd> ' +
@@ -3688,7 +3717,8 @@ function updateStats() {
     `<div class="big"><b>${groupNum(strokes)}</b> strokes, ` +
     `<b>${(plan.ink / 1000).toFixed(1)}</b> m of line</div>` +
     `<div>${groupNum(NB)} boxes drawn, ${groupNum(struct.nLoose)} of them in the front, ` +
-    `cut from ${groupNum(struct.cut)}</div>` +
+    `cut from ${groupNum(struct.cut)}` +
+    `${NCUT ? ` · ${groupNum(NCUT)} left out at the margin` : ''}</div>` +
     `<div>${groupNum(counts.faces)} faces showing, ${groupNum(counts.hidden)} hidden ` +
     `whole · ${groupNum(counts.hatch)} hatch lines</div>` +
     `<div>Pen up for ${(plan.travel / 1000).toFixed(1)} m between strokes</div>` +
@@ -3778,7 +3808,7 @@ function metaComment() {
     `${shapeTag ? shapeTag + ' ' : ''}seed=${s.seed} ` +
     `boxes=${s.minBox}..${s.maxBox}/${s.maxTall} variety=${s.variety} holes=${s.porosity}% ` +
     `uneven=${s.unevenTops}% gap=${s.gap}mm ${front} ` +
-    `${s.projection} ${cam} zoom=${s.zoom}% ` +
+    `${s.projection} ${cam} zoom=${s.zoom}% ${s.wholeBoxes ? 'whole-boxes ' : ''}` +
     `top=${s.topHatch}/${s.topSpacing} left=${s.leftHatch}/${s.leftSpacing} ` +
     `right=${s.rightHatch}/${s.rightSpacing} ${s.hatchPhase}${s.hatchJoin ? ' zigzag' : ''} ` +
     `${[s.topHatch, s.leftHatch, s.rightHatch].includes('solid') ? 'solid=' + s.solidGap + '% ' : ''}` +

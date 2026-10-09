@@ -34,11 +34,12 @@ and open <http://localhost:8000/p5js13%20-%20dissolving%20blocks/>.
 2. **Drag** on the sheet to turn the camera: across is the azimuth, up and down the
    elevation. **Shift-drag** (or a right-drag) pans, the **wheel** zooms about the point
    under the cursor. The arrow keys turn the camera by 1°, or by 10° with <kbd>shift</kbd>;
-   <kbd>+</kbd> and <kbd>−</kbd> zoom, <kbd>0</kbd> resets zoom and pan, <kbd>P</kbd> steps
-   through the projections. <kbd>R</kbd> rolls a new seed, <kbd>[</kbd> and <kbd>]</kbd>
-   step through seeds, <kbd>G</kbd> hides the guides. <kbd>C</kbd> steps through the
-   lines to compose the sheet by and <kbd>F</kbd> shows the frame round the drawing (see
-   *Composing the sheet*).
+   <kbd>+</kbd> and <kbd>−</kbd> zoom, <kbd>0</kbd> resets zoom and pan, <kbd>W</kbd> leaves
+   out the boxes the margin cuts (see *Camera*), <kbd>P</kbd> steps through the
+   projections. <kbd>R</kbd> rolls a new seed, <kbd>[</kbd> and <kbd>]</kbd> step through
+   seeds, <kbd>G</kbd> hides the guides. <kbd>C</kbd> steps through the lines to compose
+   the sheet by and <kbd>F</kbd> shows the frame round the drawing (see *Composing the
+   sheet*).
 3. **Export SVG** writes the file. **Copy link** puts the whole sheet in the clipboard as
    a URL — every setting that is not a default is in the hash, so pasting it anywhere
    rebuilds exactly this drawing.
@@ -204,6 +205,15 @@ hatching. At 100 % **Zoom** every box that is left, loose ones included, just fi
 the margin; a new seed can move the fit a little, since it follows wherever the loosest
 boxes happened to fly.
 
+Zoomed in, or panned, the margin cuts through the boxes at the edge of the drawing, and
+the drawing ends on a straight line, where every edge and hatch line stops. **Leave out
+the boxes the margin cuts** (<kbd>W</kbd>) leaves every such box out whole instead: a box
+whose outline on paper reaches past the margin is not drawn at all, it hides nothing, and
+the boxes that stood behind it show in its place. The drawing then ends on a ragged edge
+of whole boxes, the way it ends where it comes apart. Nothing is cut at the margin any
+more, so nothing in the file is either; the stats say how many boxes were left out. At
+100 % and no pan it changes nothing, since every box already fits.
+
 ## Composing the sheet
 
 Placing the drawing is the zoom and the pan; the **Composition** part of the panel is
@@ -221,12 +231,12 @@ with the other guides, and <kbd>G</kbd> hides all of them at once.
 - **cross + golden section** — both.
 
 <kbd>C</kbd> steps through them. **Frame round the drawing** (<kbd>F</kbd>) adds, dashed,
-the box round everything the boxes cover — cut by the margin or not — with a small cross
-at its middle, a ring where the weight of the ink sits, and on each side how far the
-frame is from that edge of the sheet, in millimetres. The same number left and right,
-and top and bottom, is a drawing centred by its frame; a negative one is a frame that runs
-off the sheet. The stats say the same in a line: how large the drawing is and how far its
-middle is off the middle of the sheet.
+the box round everything the boxes cover — cut by the margin or not, but not the ones
+left out at it — with a small cross at its middle, a ring where the weight of the ink
+sits, and on each side how far the frame is from that edge of the sheet, in millimetres.
+The same number left and right, and top and bottom, is a drawing centred by its frame; a
+negative one is a frame that runs off the sheet. The stats say the same in a line: how
+large the drawing is and how far its middle is off the middle of the sheet.
 
 Two buttons do the centring:
 
@@ -239,7 +249,8 @@ Two buttons do the centring:
   thin of the spray. Centring the ink puts the solid in the middle and balances the sheet
   the way the eye reads it. If that pushes a drawing that was whole off the sheet, the
   zoom comes down just far enough to bring it back; a drawing already cut by the margin
-  keeps its zoom, since the crop was meant.
+  keeps its zoom, since the crop was meant. With the boxes the margin cuts left out, the
+  same holds: a drawing that was whole stays whole, rather than losing boxes at the edge.
 
 ## Hatching
 
