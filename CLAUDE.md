@@ -47,6 +47,15 @@ niżej. Zanim zaczniesz pisać:
   i warstwy markerowe, chyba że generator ma być czarno-biały. Wypełnienia
   piórem: kontur pół stalówki do środka, przejścia co 85 % stalówki, kształt
   węższy od stalówki to jedno dotknięcie.
+- **Kropki do cięcia — w każdym generatorze.** Każdy plot ma mieć opcję
+  narysowania kropek na krawędziach obrazu, żeby dało się go potem równo wyciąć
+  gilotyną: checkbox `cropMarks` w sekcji papieru, do tego `cropMarkGap`
+  (największy odstęp między kropkami) i wybór, czy kropki stoją na krawędzi
+  arkusza, czy ramki rysunku. Kropka w każdym rogu, boki podzielone równo —
+  przykłada się ostrze do dwóch kropek i tnie. Kropka to jedno dotknięcie pióra,
+  nie podlega przycinaniu do pola pióra, idzie pierwszym piórem w użyciu i jest
+  osobną warstwą: trafia do SVG „wszystko” i do pliku tego jednego pióra, więc
+  plotuje się raz. Wzorzec: p5js21 (wcześniej, tylko arkusz: p5js13–p5js15).
 - **Sprawdź w headless Chrome** (patrz niżej) — wszystkie sceny, interakcję,
   eksport — i obejrzyj wynik, zanim uznasz krok za skończony.
 - **Commit i push sam, po każdym skończonym kroku**, bez pytania i bez stopki
