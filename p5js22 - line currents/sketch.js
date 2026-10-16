@@ -1205,7 +1205,8 @@ function paintWord(F) {
   F.shaped = true;
 }
 
-// The photograph at most 900 px along its longer side: its greys, and how red it is.
+// The photograph at most 900 px along its longer side: its colours, its greys, and how red
+// it is.
 function photoData() {
   if (!PHOTO) return null;
   if (PHOTO_DATA && photoDataVer === PHOTO.ver) return PHOTO_DATA;
@@ -1218,8 +1219,10 @@ function photoData() {
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0, w, h);
   const d = ctx.getImageData(0, 0, w, h).data, L = new Float32Array(w * h), R = new Float32Array(w * h);
+  const C = [new Float32Array(w * h), new Float32Array(w * h), new Float32Array(w * h)];
   for (let i = 0; i < L.length; i++) {
     const r = d[4 * i] / 255, g = d[4 * i + 1] / 255, b = d[4 * i + 2] / 255;
+    C[0][i] = r; C[1][i] = g; C[2][i] = b;
     L[i] = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     // red: strong in colour and near the red of the hue circle
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
@@ -1230,29 +1233,45 @@ function photoData() {
       R[i] = (mx - mn) / mx * mx * Math.max(0, 1 - off / 35);
     }
   }
-  PHOTO_DATA = { w, h, L, R };
+  PHOTO_DATA = { w, h, L, R, C };
   photoDataVer = PHOTO.ver;
   return PHOTO_DATA;
 }
 
-// A photograph's ground is what can be reached from its border without crossing anything
-// unlike the border: its greys blurred a little, the border's middle tone taken, and every
-// pixel within the tolerance of that tone flooded from the edge in. What is left — holes
-// in it too — is the figure.
+// A photograph's figure and its ground, told apart from the border in. The colours are
+// blurred a little and the border's middle colour taken; how unlike it a place is is the
+// distance between the two colours — a body and the wall behind it differ in hue even where
+// they are as light. Ground for certain is what can be reached from the border over colours
+// within half the tolerance of it, and any large patch of them the figure closes in — the
+// wall seen between an arm and the body; figure for certain is every colour more than twice
+// the tolerance away. Between the two the photograph's own edges decide: both are grown
+// outwards together, the flattest places first (a watershed), so they meet where the
+// photograph changes most.
 function photoFigure(P, tol) {
   const key = `${PHOTO.ver}|${tol}`;
   if (PHOTO_MASK && photoMaskKey === key) return PHOTO_MASK;
-  const { w, h } = P;
-  const G = blurGrid(P.L, w, h, Math.max(1, Math.round(Math.max(w, h) / 450)));
-  const rim = [];
-  for (let x = 0; x < w; x++) rim.push(G[x], G[(h - 1) * w + x]);
-  for (let y = 1; y < h - 1; y++) rim.push(G[y * w], G[y * w + w - 1]);
-  rim.sort((a, b) => a - b);
-  const mid = rim[rim.length >> 1], t = clamp(tol, 0, 100) / 100;
-  const ground = new Uint8Array(w * h), stack = new Int32Array(w * h);
+  const { w, h } = P, n = w * h, r0 = Math.max(1, Math.round(Math.max(w, h) / 450));
+  // the ground's colour is read off the top and the upper sides: a portrait, a bust, a body
+  // whose legs run off the sheet all stand on the foot of the photograph
+  const Cb = P.C.map(ch => blurGrid(ch, w, h, r0)), mid = [0, 0, 0];
+  for (let c = 0; c < 3; c++) {
+    const rim = [], G = Cb[c];
+    for (let x = 0; x < w; x++) rim.push(G[x]);
+    for (let y = 1; y < h * 2 / 3; y++) rim.push(G[y * w], G[y * w + w - 1]);
+    rim.sort((a, b) => a - b);
+    mid[c] = rim[rim.length >> 1];
+  }
+  const D = new Float32Array(n);
+  for (let o = 0; o < n; o++) {
+    const a = Cb[0][o] - mid[0], b = Cb[1][o] - mid[1], c = Cb[2][o] - mid[2];
+    D[o] = Math.sqrt((a * a + b * b + c * c) / 3);
+  }
+  const t = clamp(tol, 0, 100) / 100;
+  // 1 ground, 2 figure, 0 not yet known
+  const lab = new Uint8Array(n), stack = new Int32Array(n);
   let sp = 0;
   const reach = o => {
-    if (!ground[o] && Math.abs(G[o] - mid) <= t) { ground[o] = 1; stack[sp++] = o; }
+    if (!lab[o] && D[o] <= t / 2) { lab[o] = 1; stack[sp++] = o; }
   };
   for (let x = 0; x < w; x++) { reach(x); reach((h - 1) * w + x); }
   for (let y = 0; y < h; y++) { reach(y * w); reach(y * w + w - 1); }
@@ -1261,26 +1280,78 @@ function photoFigure(P, tol) {
     if (x > 0) reach(o - 1);
     if (x < w - 1) reach(o + 1);
     if (o >= w) reach(o - w);
-    if (o < w * (h - 1)) reach(o + w);
+    if (o < n - w) reach(o + w);
+  }
+  // the large patches closed in
+  const seen = new Uint8Array(n), big = n / 300;
+  for (let o0 = 0; o0 < n; o0++) {
+    if (lab[o0] || seen[o0] || D[o0] > t / 2) continue;
+    const members = [o0];
+    seen[o0] = 1;
+    for (let k = 0; k < members.length; k++) {
+      const o = members[k], x = o % w;
+      const nb = [x > 0 ? o - 1 : -1, x < w - 1 ? o + 1 : -1, o >= w ? o - w : -1, o < n - w ? o + w : -1];
+      for (const q of nb) if (q >= 0 && !lab[q] && !seen[q] && D[q] <= t / 2) { seen[q] = 1; members.push(q); }
+    }
+    if (members.length >= big) for (const o of members) lab[o] = 1;
+  }
+  let figs = 0;
+  for (let o = 0; o < n; o++) if (!lab[o] && D[o] > 2 * t) { lab[o] = 2; figs++; }
+  if (figs) {
+    // the steepness of the photograph's colours, in 256 steps, and both grown by it
+    const grad = new Uint8Array(n);
+    for (let y = 0; y < h; y++) {
+      const ya = Math.max(0, y - 1) * w, yb = Math.min(h - 1, y + 1) * w;
+      for (let x = 0; x < w; x++) {
+        const o = y * w + x, xa = Math.max(0, x - 1), xb = Math.min(w - 1, x + 1);
+        let g2 = 0;
+        for (let c = 0; c < 3; c++) {
+          const G = Cb[c], gx = G[y * w + xb] - G[y * w + xa], gy = G[yb + x] - G[ya + x];
+          g2 += gx * gx + gy * gy;
+        }
+        grad[o] = Math.min(255, Math.round(Math.sqrt(g2 / 3) * 1200));
+      }
+    }
+    const head = new Int32Array(256).fill(-1), next = new Int32Array(n), queued = new Uint8Array(n);
+    let low = 0;
+    const push = o => { const b = grad[o]; next[o] = head[b]; head[b] = o; queued[o] = 1; if (b < low) low = b; };
+    const around = (o, fn) => {
+      const x = o % w;
+      if (x > 0) fn(o - 1);
+      if (x < w - 1) fn(o + 1);
+      if (o >= w) fn(o - w);
+      if (o < n - w) fn(o + w);
+    };
+    for (let o = 0; o < n; o++) if (lab[o]) around(o, q => { if (!lab[q] && !queued[q]) push(q); });
+    for (;;) {
+      while (low < 256 && head[low] < 0) low++;
+      if (low >= 256) break;
+      const o = head[low];
+      head[low] = next[o];
+      let got = 0;
+      around(o, q => { if (lab[q] && !got) got = lab[q]; });
+      lab[o] = got || 1;
+      around(o, q => { if (!lab[q] && !queued[q]) push(q); });
+    }
   }
   // its edge smoothed, and specks of figure left out in the ground given back to it
-  let M = new Float32Array(w * h);
-  for (let i = 0; i < M.length; i++) M[i] = ground[i] ? 0 : 1;
+  let M = new Float32Array(n);
+  for (let o = 0; o < n; o++) M[o] = lab[o] === 2 ? 1 : 0;
   M = blurGrid(M, w, h, Math.max(1, Math.round(Math.max(w, h) / 300)));
-  for (let i = 0; i < M.length; i++) M[i] = M[i] >= 0.5 ? 1 : 0;
-  const lab = new Int32Array(w * h).fill(-1), least = w * h / 400;
-  for (let o0 = 0; o0 < M.length; o0++) {
-    if (!M[o0] || lab[o0] >= 0) continue;
-    let top = 0, n = 0;
-    lab[o0] = o0; stack[top++] = o0;
+  for (let o = 0; o < n; o++) M[o] = M[o] >= 0.5 ? 1 : 0;
+  const comp = new Int32Array(n).fill(-1), least = n / 400;
+  for (let o0 = 0; o0 < n; o0++) {
+    if (!M[o0] || comp[o0] >= 0) continue;
+    let top = 0;
+    comp[o0] = o0; stack[top++] = o0;
     const members = [];
     while (top) {
       const o = stack[--top], x = o % w;
-      members.push(o); n++;
-      const nb = [x > 0 ? o - 1 : -1, x < w - 1 ? o + 1 : -1, o >= w ? o - w : -1, o < w * (h - 1) ? o + w : -1];
-      for (const q of nb) if (q >= 0 && M[q] && lab[q] < 0) { lab[q] = o0; stack[top++] = q; }
+      members.push(o);
+      const nb = [x > 0 ? o - 1 : -1, x < w - 1 ? o + 1 : -1, o >= w ? o - w : -1, o < n - w ? o + w : -1];
+      for (const q of nb) if (q >= 0 && M[q] && comp[q] < 0) { comp[q] = o0; stack[top++] = q; }
     }
-    if (n < least) for (const o of members) M[o] = 0;
+    if (members.length < least) for (const o of members) M[o] = 0;
   }
   PHOTO_MASK = M;
   photoMaskKey = key;
@@ -2571,7 +2642,7 @@ function streakShadow() {
       u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
     }
   }
-  const dv = 0.25, nv = Math.ceil((v1 - v0) / dv) + 1, du = 1, P = new Float32Array(nv);
+  const dv = 0.25, nv = Math.ceil((v1 - v0) / dv) + 1, du = 1.5, P = new Float32Array(nv);
   if (s.subject !== 'everything') {
     for (let j = 0; j < nv; j++) {
       const v = v0 + j * dv - s.streakShift;
@@ -2716,7 +2787,8 @@ function drawMarker() {
     }
   }
   if (!any) return;
-  const D = signedDistance(R, w, h, c), half = nib / 2;
+  // the distance to the region's edge, its stairs of cells smoothed away
+  const D = blurGrid(signedDistance(R, w, h, c), w, h, 1), half = nib / 2;
   PEN = pen; LAY = L_MARKER;
   NO_WARP = true;
   // the outline, half a nib in
@@ -3551,9 +3623,10 @@ function buildControls() {
     'letters, and of a photograph whatever is unlike its border; <b>darker than</b> or ' +
     '<b>lighter than</b> a tone.');
   addSlider(sec, 'Tone (%)', 'subjectLevel', 0, 100, 1);
-  addSlider(sec, 'Unlike the border by (%)', 'subjectTol', 1, 80, 1,
-    'The ground is flooded in from the photograph\'s border over every tone this close to the ' +
-    'border\'s. Raise it if the ground leaks into the figure as figure; lower it if the figure is eaten.');
+  addSlider(sec, 'Unlike the border by (%)', 'subjectTol', 1, 60, 1,
+    'Tones within half of this of the border\'s are ground for certain, those more than twice ' +
+    'it away figure for certain; between them the photograph\'s edges decide. Raise it if ' +
+    'ground is taken for figure, lower it if the figure is eaten.');
   addSlider(sec, 'Grown (mm)', 'subjectGrow', -30, 30, 0.5);
   addSlider(sec, 'Soft edge (mm)', 'subjectSoft', 0, 10, 0.1);
   addSelect(sec, 'Its ground', 'backdrop', BACKDROPS, resync,

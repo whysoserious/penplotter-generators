@@ -94,10 +94,18 @@ overdoes every edge, as far as **Rims reach**; **Bands** cuts the tones into ste
 
 - **everything** — no figure, no ground;
 - **its shape** — the lay figure, the balls or the letters; of a photograph, whatever is
-  *unlike its border*: the ground is flooded in from the border over every tone within the
-  tolerance of the border's middle tone, its edge smoothed and specks given back to it.
-  Made for a figure on a plain background; raise **Unlike the border by** if the ground is
-  taken for figure, lower it if the figure is eaten;
+  *unlike its border*. The ground's colour is read off the top and the upper sides of the
+  photograph — a portrait, a bust or a body whose legs run off the frame all stand on its
+  foot — and every place is measured by how far its colour is from that one: a body and the
+  wall behind it differ in hue even where they are as light. Ground for certain is what can
+  be reached from the border over colours within half the tolerance, and any large patch of
+  them the figure closes in (the wall seen between an arm and the body); figure for certain
+  is every colour more than twice the tolerance away. Between the two the photograph's own
+  edges decide: both are grown outwards together, the flattest places first — a watershed —
+  so they meet where the photograph changes most. The edge is then smoothed and specks given
+  back. Made for a figure on a plain background; raise **Unlike the border by** if ground is
+  taken for figure, lower it if the figure is eaten. The panel says how much of the picture
+  the figure is;
 - **darker than** or **lighter than** a tone.
 
 It can be **grown** or shrunk and its edge **softened**. **Its ground** is:
