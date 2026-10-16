@@ -116,8 +116,16 @@ const FX = {
   'spin':    { amt: ['Strength (%) — below 0 light', -100, 100, 1, 85], size: ['Arc (mm)', 2, 800, 1, 60],
                at: ['Middle', 0, 0], note: 'Streaks running round the middle.' },
   'tile':    { amt: ['Tiles across', 1, 12, 1, 3], angle: ['Turned (°)', 0], at: ['Tiles slid', 0, 0] },
+  'smudge':  { amt: ['Dragged (mm)', -400, 400, 0.5, 70], size: ['Reach (mm)', 5, 800, 1, 90],
+               angle: ['Towards (°)', 60], at: ['Grabbed at', 0, 25],
+               note: 'Grabbed at a place and dragged, as a thumb drags wet ink: what is at the place goes all the way, what is at the reach stays.' },
 };
 const FX_NAMES = Object.keys(FX);
+
+// The transformations that only move places can bend the finished drawing instead of the
+// picture: its lines are then found on the picture as it is, and twisted with the sheet.
+const DRAWABLE = new Set(['stretch', 'twirl', 'bulge', 'ripple', 'wave', 'liquid', 'smudge']);
+const FX_TARGETS = ['picture', 'drawing'];
 
 // What goes on the sheet: a marker under it all, the streaks behind the figure, the lines
 // and their second colour, the outline, the border round the picture and the cut guides.
@@ -217,9 +225,9 @@ const settings = {
   outline: true,
 
   // transformations
-  fx1: 'none', fx1Amt: 0, fx1Size: 100, fx1Angle: 0, fx1X: 0, fx1Y: 0,
-  fx2: 'none', fx2Amt: 0, fx2Size: 100, fx2Angle: 0, fx2X: 0, fx2Y: 0,
-  fx3: 'none', fx3Amt: 0, fx3Size: 100, fx3Angle: 0, fx3X: 0, fx3Y: 0,
+  fx1: 'none', fx1Amt: 0, fx1Size: 100, fx1Angle: 0, fx1X: 0, fx1Y: 0, fx1To: 'picture',
+  fx2: 'none', fx2Amt: 0, fx2Size: 100, fx2Angle: 0, fx2X: 0, fx2Y: 0, fx2To: 'picture',
+  fx3: 'none', fx3Amt: 0, fx3Size: 100, fx3Angle: 0, fx3X: 0, fx3Y: 0, fx3To: 'picture',
 
   // the lines
   mode: 'fronts',
@@ -718,7 +726,7 @@ let PHOTO_MASK = null, photoMaskKey = '';
 
 const FX_KEYS = [];
 for (let n = 1; n <= FX_SLOTS; n++) {
-  for (const k of ['', 'Amt', 'Size', 'Angle', 'X', 'Y']) FX_KEYS.push(`fx${n}${k}`);
+  for (const k of ['', 'Amt', 'Size', 'Angle', 'X', 'Y', 'To']) FX_KEYS.push(`fx${n}${k}`);
 }
 
 const FIELD_KEYS = ['paper', 'orientation', 'customW', 'customH', 'margin', 'seed', 'source',
@@ -1327,17 +1335,15 @@ function fxParams(n) {
 
 function applyFx(F, n) {
   const P = fxParams(n);
+  if (DRAWABLE.has(P.type)) {
+    if (settings[`fx${n}To`] !== 'drawing') warpField(F, fxMaps(P, false).inv);
+    return;
+  }
   switch (P.type) {
     case 'smear':        fxSmear(F, P); break;
-    case 'stretch':      fxStretch(F, P); break;
     case 'sort':         fxSort(F, P); break;
     case 'slices':       fxSlices(F, P); break;
     case 'push':         fxPush(F, P); break;
-    case 'twirl':        fxTwirl(F, P); break;
-    case 'bulge':        fxBulge(F, P); break;
-    case 'ripple':       fxRipple(F, P); break;
-    case 'wave':         fxWave(F, P); break;
-    case 'liquid':       fxLiquid(F, P); break;
     case 'melt':         fxMelt(F, P); break;
     case 'kaleidoscope': fxKaleidoscope(F, P); break;
     case 'mirror':       fxMirror(F, P); break;
@@ -1456,17 +1462,6 @@ function fxSmear(F, P) {
   putBack(F, G);
 }
 
-// Past a line square to the angle, every place looks back towards the line.
-function fxStretch(F, P) {
-  const a = rad(P.angle), dx = Math.cos(a), dy = Math.sin(a), [cx, cy] = P.at;
-  const k = clamp(P.amt, 0, 100) / 100;
-  warpField(F, (x, y) => {
-    const s = (x - cx) * dx + (y - cy) * dy;
-    if (s > 0) { WX = x - dx * s * k; WY = y - dy * s * k; WS = k * sstep(0, 3, s); }
-    else { WX = x; WY = y; }
-  });
-}
-
 // Pixel sorting: along every row, each run of cells darker than the threshold — or lighter,
 // below 0 — no longer than the longest run, put in order of tone; the other grids follow.
 let SORT_KEY = new Float64Array(0);
@@ -1524,50 +1519,117 @@ function fxPush(F, P) {
   });
 }
 
-function fxTwirl(F, P) {
-  const [cx, cy] = P.at, R = P.size, turn = rad(P.amt);
-  warpField(F, (x, y) => {
-    const dx = x - cx, dy = y - cy, r = Math.hypot(dx, dy);
-    if (r >= R) { WX = x; WY = y; return; }
-    const f = -turn * (1 - r / R) * (1 - r / R), co = Math.cos(f), si = Math.sin(f);
-    WX = cx + dx * co - dy * si; WY = cy + dx * si + dy * co;
-  });
-}
-
-function fxBulge(F, P) {
-  const [cx, cy] = P.at, R = P.size, s = P.amt / 100 * (P.amt < 0 ? 0.85 : 1);
-  warpField(F, (x, y) => {
-    const dx = x - cx, dy = y - cy, r = Math.hypot(dx, dy);
-    if (r >= R || r < 1e-9) { WX = x; WY = y; return; }
-    const k = Math.pow(r / R, s);
-    WX = cx + dx * k; WY = cy + dy * k;
-  });
-}
-
-function fxRipple(F, P) {
-  const [cx, cy] = P.at, K = 2 * Math.PI / P.size;
-  warpField(F, (x, y) => {
-    const dx = x - cx, dy = y - cy, r = Math.hypot(dx, dy);
-    if (r < 1e-9) { WX = x; WY = y; return; }
-    const k = (r + P.amt * Math.sin(r * K)) / r;
-    WX = cx + dx * k; WY = cy + dy * k;
-  });
-}
-
-function fxWave(F, P) {
-  const a = rad(P.angle), dx = Math.cos(a), dy = Math.sin(a), K = 2 * Math.PI / P.size;
-  warpField(F, (x, y) => {
-    const off = P.amt * Math.sin((x * dx + y * dy) * K);
-    WX = x - dy * off; WY = y + dx * off;
-  });
-}
-
-function fxLiquid(F, P) {
-  const k = 1 / P.size, A = P.amt * 1.6, z = 7.7 + P.salt * 0.013;
-  warpField(F, (x, y) => {
-    WX = x + A * fbm(NZW, x * k, y * k, z, 2);
-    WY = y + A * fbm(NZW, x * k + 31.4, y * k - 17.1, z + 2.2, 2);
-  });
+// The moves that can bend the drawing as well: each is a pair of maps leaving their answer in
+// WX, WY — inv, where in the picture before it a place's value comes from, and fwd, where a
+// place of the drawing goes. Bending the drawing, a stretch stops short of the line itself.
+function fxMaps(P, drawing) {
+  const a = rad(P.angle), dx = Math.cos(a), dy = Math.sin(a), [cx, cy] = P.at, R = P.size;
+  const same = (x, y) => { WX = x; WY = y; };
+  switch (P.type) {
+    case 'stretch': {
+      // past a line square to the angle every place looks back towards the line
+      const k = clamp(P.amt, 0, 100) / 100 * (drawing ? 0.95 : 1);
+      return {
+        inv: (x, y) => {
+          const t = (x - cx) * dx + (y - cy) * dy;
+          if (t > 0) { WX = x - dx * t * k; WY = y - dy * t * k; WS = k * sstep(0, 3, t); } else same(x, y);
+        },
+        fwd: (x, y) => {
+          const t = (x - cx) * dx + (y - cy) * dy, e = t * k / Math.max(0.05, 1 - k);
+          if (t > 0) { WX = x + dx * e; WY = y + dy * e; } else same(x, y);
+        },
+      };
+    }
+    case 'twirl': {
+      // turned about the middle, the most there and none at the radius
+      const turn = rad(P.amt);
+      const by = (x, y, sg) => {
+        const ex = x - cx, ey = y - cy, r = Math.hypot(ex, ey);
+        if (r >= R) { same(x, y); return; }
+        const f = sg * turn * (1 - r / R) * (1 - r / R), co = Math.cos(f), si = Math.sin(f);
+        WX = cx + ex * co - ey * si; WY = cy + ex * si + ey * co;
+      };
+      return { inv: (x, y) => by(x, y, -1), fwd: (x, y) => by(x, y, 1) };
+    }
+    case 'bulge': {
+      // within the radius a place at r looks at R (r / R)^(1 + s)
+      const sb = P.amt / 100 * (P.amt < 0 ? 0.85 : 1);
+      const by = (x, y, pw) => {
+        const ex = x - cx, ey = y - cy, r = Math.hypot(ex, ey);
+        if (r >= R || r < 1e-9) { same(x, y); return; }
+        const k = Math.pow(r / R, pw);
+        WX = cx + ex * k; WY = cy + ey * k;
+      };
+      return { inv: (x, y) => by(x, y, sb), fwd: (x, y) => by(x, y, 1 / (1 + sb) - 1) };
+    }
+    case 'ripple': {
+      const K = 2 * Math.PI / R, A = P.amt;
+      return {
+        inv: (x, y) => {
+          const ex = x - cx, ey = y - cy, r = Math.hypot(ex, ey);
+          if (r < 1e-9) { same(x, y); return; }
+          const k = (r + A * Math.sin(r * K)) / r;
+          WX = cx + ex * k; WY = cy + ey * k;
+        },
+        fwd: (x, y) => {
+          // the radius that the inverse takes to this one, by Newton's steps
+          const ex = x - cx, ey = y - cy, r = Math.hypot(ex, ey);
+          if (r < 1e-9) { same(x, y); return; }
+          let t = r;
+          for (let i = 0; i < 8; i++) {
+            const d = 1 + A * K * Math.cos(K * t);
+            t -= (t + A * Math.sin(K * t) - r) / (Math.abs(d) < 0.2 ? Math.sign(d || 1) * 0.2 : d);
+          }
+          const k = Math.max(0, t) / r;
+          WX = cx + ex * k; WY = cy + ey * k;
+        },
+      };
+    }
+    case 'wave': {
+      const K = 2 * Math.PI / R, A = P.amt;
+      const by = (x, y, sg) => {
+        const off = sg * A * Math.sin((x * dx + y * dy) * K);
+        WX = x - dy * off; WY = y + dx * off;
+      };
+      return { inv: (x, y) => by(x, y, 1), fwd: (x, y) => by(x, y, -1) };
+    }
+    case 'liquid': {
+      const k = 1 / R, A = P.amt * 1.6, z = 7.7 + P.salt * 0.013;
+      const fx = (x, y) => A * fbm(NZW, x * k, y * k, z, 2);
+      const fy = (x, y) => A * fbm(NZW, x * k + 31.4, y * k - 17.1, z + 2.2, 2);
+      return {
+        inv: (x, y) => { WX = x + fx(x, y); WY = y + fy(x, y); },
+        fwd: (x, y) => {
+          let px = x, py = y;
+          for (let i = 0; i < 3; i++) { const qx = x - fx(px, py), qy = y - fy(px, py); px = qx; py = qy; }
+          WX = px; WY = py;
+        },
+      };
+    }
+    case 'smudge': {
+      // what is at the place goes all the way, what is at the reach stays: a push of
+      // (1 - t^2)^2 of the drag at t of the reach
+      const Vx = dx * P.amt, Vy = dy * P.amt;
+      const w = (x, y) => {
+        const t2 = ((x - cx) * (x - cx) + (y - cy) * (y - cy)) / (R * R);
+        return t2 < 1 ? (1 - t2) * (1 - t2) : 0;
+      };
+      return {
+        fwd: (x, y) => { const f = w(x, y); WX = x + Vx * f; WY = y + Vy * f; },
+        inv: (x, y) => {
+          // the place the push brings here: half steps towards it, so a long drag settles
+          let qx = x, qy = y;
+          for (let i = 0; i < 24; i++) {
+            const f = w(qx, qy);
+            qx += 0.5 * (x - Vx * f - qx); qy += 0.5 * (y - Vy * f - qy);
+          }
+          WX = qx; WY = qy; WS = Math.min(1, w(qx, qy) * 1.5);
+        },
+      };
+    }
+    default:
+      return { inv: same, fwd: same };
+  }
 }
 
 // The far side of the picture runs: every column along the angle slides its own way
@@ -2252,8 +2314,46 @@ function pushPoly(xs, ys, n) {
   S2.lay.push(LAY);
 }
 
+// The bends of the drawing, in order: forward for the lines, backward for what is filled.
+let WARPS = [], NO_WARP = false;
+let BW_X = new Float64Array(4096), BW_Y = new Float64Array(4096);
+
+function drawingWarps() {
+  WARPS = [];
+  for (let n = 1; n <= FX_SLOTS; n++) {
+    if (settings[`fx${n}To`] === 'drawing' && DRAWABLE.has(settings[`fx${n}`])) WARPS.push(fxMaps(fxParams(n), true));
+  }
+}
+
+function warpFwd(x, y) { WX = x; WY = y; for (const m of WARPS) m.fwd(WX, WY); }
+
+function warpInv(x, y) { WX = x; WY = y; for (let i = WARPS.length - 1; i >= 0; i--) WARPS[i].inv(WX, WY); }
+
+// A polyline bent: cut into steps of half a millimetre at most, every point sent forward.
+function bend(xs, ys, n) {
+  let m = 0;
+  const put = (x, y) => {
+    if (m >= BW_X.length) {
+      const gx = new Float64Array(BW_X.length * 2), gy = new Float64Array(BW_Y.length * 2);
+      gx.set(BW_X); gy.set(BW_Y); BW_X = gx; BW_Y = gy;
+    }
+    warpFwd(x, y);
+    BW_X[m] = WX; BW_Y[m] = WY; m++;
+  };
+  put(xs[0], ys[0]);
+  for (let i = 1; i < n; i++) {
+    const ax = xs[i - 1], ay = ys[i - 1], k = Math.max(1, Math.ceil(Math.hypot(xs[i] - ax, ys[i] - ay) / 0.5));
+    for (let t = 1; t <= k; t++) put(ax + (xs[i] - ax) * t / k, ay + (ys[i] - ay) * t / k);
+  }
+  return m;
+}
+
 function emit(xs, ys, n) {
   if (n < 2 || SINK.ink.length > MAX_STROKES) return;
+  if (WARPS.length && !NO_WARP) {
+    n = bend(xs, ys, n);
+    xs = BW_X; ys = BW_Y;
+  }
   const A = AREAS[PEN];
   if (A.w <= 0 || A.h <= 0) return;
   let allIn = true;
@@ -2591,7 +2691,7 @@ function drawMarker() {
   const pen = penIdx(s.markerPen), nib = penW(pen), lv = clamp(s.markerLevel, 0, 100) / 100;
   const gap = Math.max(0, s.markerGap), shaped = s.subject !== 'everything';
   const SD = shaped ? fieldSD() : null, S = s.marker === 'shadow band' ? streakShadow() : null;
-  const R = new Float32Array(n);
+  const R = new Float32Array(n), bent = WARPS.length > 0;
   let any = false;
   for (let j = 0; j < h; j++) {
     const y = F.y0 + (j + 0.5) * c;
@@ -2599,12 +2699,16 @@ function drawMarker() {
     for (let i = 0; i < w; i++) {
       const x = F.x0 + (i + 0.5) * c, o = j * w + i;
       if (x < A.x0 || x > A.x1) continue;
-      const d = SD ? SD[o] : 1e9;
+      // with the drawing bent, what lies here came from elsewhere in the picture
+      let qx = x, qy = y;
+      if (bent) { warpInv(x, y); qx = WX; qy = WY; }
+      const d = SD ? (bent ? sampleF(F, SD, qx, qy) : SD[o]) : 1e9;
+      const t = bent ? sampleF(F, F.T, qx, qy) : F.T[o];
       let on;
       switch (s.marker) {
-        case 'shadow band': on = shadowAt(S, x, y) >= lv && d < -gap; break;
-        case 'dark tones':  on = F.T[o] >= lv && d > gap; break;
-        case 'light tones': on = F.T[o] <= lv && d > gap; break;
+        case 'shadow band': on = shadowAt(S, qx, qy) >= lv && d < -gap; break;
+        case 'dark tones':  on = t >= lv && d > gap; break;
+        case 'light tones': on = t <= lv && d > gap; break;
         case 'background':  on = shaped && d < -gap; break;
         default:            on = d > gap;
       }
@@ -2614,6 +2718,7 @@ function drawMarker() {
   if (!any) return;
   const D = signedDistance(R, w, h, c), half = nib / 2;
   PEN = pen; LAY = L_MARKER;
+  NO_WARP = true;
   // the outline, half a nib in
   isoLines(D, w, h, half, 1, 0, 0, (k, px, py, m) => {
     QN = 0;
@@ -2667,6 +2772,7 @@ function drawMarker() {
     emit([x, x + EPS], [y, y], 2);
     dots++;
   }
+  NO_WARP = false;
   COUNTS.dots = dots;
 }
 
@@ -2683,8 +2789,10 @@ function borderLines() {
     emit([A.x0 + d, A.x1 - d, A.x1 - d, A.x0 + d, A.x0 + d],
          [A.y0 + d, A.y0 + d, A.y1 - d, A.y1 - d, A.y0 + d], 5);
   };
+  NO_WARP = true;
   box(0);
   if (settings.border === 'double') box(Math.max(1.5, 3 * nib));
+  NO_WARP = false;
 }
 
 // Where the cut guides stand: a dot in every corner of the sheet — or of the picture — and
@@ -2735,6 +2843,7 @@ function buildShapes() {
   for (let i = 0; i < SLOTS; i++) AREAS.push(penArea(i));
   MIN_PIECE = Math.max(0, s.minPiece);
   COUNTS = { lines: 0, levels: LINESET.levels, streaks: 0, dots: 0 };
+  drawingWarps();
 
   drawMarker();
   drawStreaks();
@@ -3245,6 +3354,7 @@ function syncVisibility() {
     setVisible(`fx${n}Angle`, !!sp.angle);
     setVisible(`fx${n}X`, !!sp.at);
     setVisible(`fx${n}Y`, !!sp.at);
+    setVisible(`fx${n}To`, DRAWABLE.has(s[`fx${n}`]));
   }
 
   const m = s.mode, wave = m === 'fronts' || m === 'curtain', rows = m === 'ridges' || m === 'squiggle';
@@ -3363,6 +3473,8 @@ function addFxSlot(parent, n) {
     update();
   });
   fxNotes[n] = addNote(parent, '');
+  addSelect(parent, 'Bends', `fx${n}To`, FX_TARGETS, () => { syncVisibility(); update(); },
+    'The <b>picture</b>, before its lines are found — or the <b>drawing</b>, its lines and all, after.');
   addSlider(parent, 'Amount', `fx${n}Amt`, -100, 100, 1);
   addSlider(parent, 'Size (mm)', `fx${n}Size`, 1, 1000, 1);
   addSlider(parent, 'Angle (°)', `fx${n}Angle`, -180, 180, 0.5);
@@ -3641,7 +3753,9 @@ function updateStats() {
   const seconds = plan.downs * PEN_CYCLE_S + plan.ink / DRAW_SPEED + plan.travel / TRAVEL_SPEED;
   const nib = penW(penIdx(s.linePen));
   const fxs = [];
-  for (let n = 1; n <= FX_SLOTS; n++) if (s[`fx${n}`] !== 'none') fxs.push(s[`fx${n}`]);
+  for (let n = 1; n <= FX_SLOTS; n++) {
+    if (s[`fx${n}`] !== 'none') fxs.push(s[`fx${n}`] + (s[`fx${n}To`] === 'drawing' && DRAWABLE.has(s[`fx${n}`]) ? ' (the drawing)' : ''));
+  }
   const what = s.mode === 'fronts' ? `fronts from ${s.origin === 'edge' ? 'an edge' : s.origin === 'point' ? 'a point' : 'the ' + s.origin}`
     : s.mode;
   let html =

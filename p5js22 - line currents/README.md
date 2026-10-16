@@ -11,8 +11,9 @@ front to the next is the pitch of the light where the picture is paper and the p
 dark where it is ink, so the fronts crowd into the shadows, lie apart in the light and bend
 round every dark place the way a wave bends round a stone — the lines wrap the forms by
 themselves. Before a line is drawn the picture can go through a chain of up to three
-**transformations** out of twenty — smears, stretches, pixel sorting, slices, twirls,
-kaleidoscopes, a polar wrap, shards, echoes, zoom streaks and more. The figure can be cut
+**transformations** out of twenty-one — smears, stretches, pixel sorting, slices, twirls,
+kaleidoscopes, a polar wrap, shards, echoes, zoom streaks, a thumb's smudge and more — and
+the ones that only move places can bend the finished drawing instead, its lines and all. The figure can be cut
 out of its ground and outlined, red can be put among the black, streaks raked behind it in
 a second pen and a marker laid under it all.
 
@@ -136,9 +137,19 @@ to where it starts from. Angles run clockwise from pointing right: 90 is down.
 - **mosaic** — tiles of a turned grid, each the tone of its middle, slid if asked;
 - **echo** — fainter copies of the dark, one after another along the angle;
 - **zoom**, **spin** — streaks out of the middle, or round it;
-- **tile** — the whole picture shrunk into so many tiles across.
+- **tile** — the whole picture shrunk into so many tiles across;
+- **smudge** — grabbed at a place and dragged, as a thumb drags wet ink: what is at the
+  place goes all the way, what is at the reach stays.
 
 The seed decides the strips, shards, drips and stirring.
+
+**Bends** — the stretch, twirl, bulge, ripple, wave, liquid and smudge can bend the
+**picture**, before its lines are found, or the **drawing**, after: the lines are found on
+the picture as it is and then twisted with the sheet — the fronts, the streaks and the
+outline alike, cut into half-millimetre steps and each step sent where the bend takes it. A
+marker fill is not bent, it is found through the bend: every place of the sheet looks back
+to where in the picture it came from, and is filled as a shape wants it there. The border and
+the cut guides stay where they are.
 
 ### The lines
 
