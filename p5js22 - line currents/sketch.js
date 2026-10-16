@@ -1090,10 +1090,11 @@ function shadeHeights(F, Z, perMm, onlyWhere) {
 }
 
 function paintFigure(F) {
-  const s = settings, E = F.env, P = figureParts(), sc = 1 / E.hh;
+  // as tall as the picture, unless that makes it wider than a narrow one
+  const s = settings, E = F.env, P = figureParts(), unit = Math.min(E.hh, E.hw / 0.36), sc = 1 / unit;
   const Z = new Float32Array(F.T.length);
   eachCell(F, (o, qx, qy) => { Z[o] = figureHeight(P, qx * sc, qy * sc); });
-  const L = shadeHeights(F, Z, E.hh, true), g = clamp(s.groundTone, 0, 100) / 100;
+  const L = shadeHeights(F, Z, unit, true), g = clamp(s.groundTone, 0, 100) / 100;
   for (let o = 0; o < Z.length; o++) {
     const m = sstep(0, 0.01, Z[o]);
     F.M[o] = m;
