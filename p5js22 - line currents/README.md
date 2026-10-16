@@ -33,13 +33,13 @@ repository root run `python3 -m http.server 8000` and open
    <kbd>P</kbd>. It is drawn as the scene asks: with a photo loaded every scene of the lay
    figure draws the photo instead, and the scenes that start *Your photo* are made for it.
    Without one the sheet draws a lay figure, a cloth, balls or a word.
-2. Pick a **Scene** — the figure in its shadows, red among the black, stretched past a line
-   like the nude's legs, smeared down the streaks, echoes of its outline, rings from its
-   heart, raindrops, a curtain, twirled, a kaleidoscope of arms, pixel-sorted, sliced,
-   melting, shattered, echoes, zoom streaks, a planet, tiles, liquid and twirled, ridges,
-   squiggles, contours, drapery, balls, a word, a red marker in the shadow, markers on black
-   paper, and seven for your photo — or set it up in the panel. Each section folds away
-   under its heading.
+2. Pick a **Scene** — the figure in its shadows, red among the black, a leg dragged into a
+   spike like the nude's, stretched past a line, smeared down the streaks, echoes of its
+   outline, rings from its heart, raindrops, a curtain, twirled, a kaleidoscope of arms,
+   pixel-sorted, sliced, melting, shattered, echoes, zoom streaks, a ring of figures, tiles,
+   liquid and twirled, ridges, squiggles, contours, drapery, balls, a word, a red marker in
+   the shadow, markers on black paper, and seven for your photo — or set it up in the
+   panel. Each section folds away under its heading.
 3. **Drag** on the sheet to slide the picture; the **wheel** enlarges it about the cursor
    and <kbd>0</kbd> puts it back. **Shift-drag** (or a right-drag) turns the lines,
    **alt-drag** moves the middle the wave sets off from. The arrow keys slide the picture by
@@ -146,8 +146,12 @@ to where it starts from. Angles run clockwise from pointing right: 90 is down.
 - **echo** — fainter copies of the dark, one after another along the angle;
 - **zoom**, **spin** — streaks out of the middle, or round it;
 - **tile** — the whole picture shrunk into so many tiles across;
-- **smudge** — grabbed at a place and dragged, as a thumb drags wet ink: what is at the
-  place goes all the way, what is at the reach stays.
+- **smudge** — grabbed at a place and dragged along the angle, as a thumb drags wet ink:
+  what lies behind the place, within the reach either side of the line it is dragged along,
+  is drawn out after it into a spike — narrower the further it goes — and what lies ahead
+  gives way. Every place moves along the angle only and keeps its order along it, so nothing
+  folds over. On the drawing it pulls a leg out into the spike the nude ends in, the streaks
+  bending with it.
 
 The seed decides the strips, shards, drips and stirring.
 

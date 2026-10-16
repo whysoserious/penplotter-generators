@@ -116,9 +116,9 @@ const FX = {
   'spin':    { amt: ['Strength (%) — below 0 light', -100, 100, 1, 85], size: ['Arc (mm)', 2, 800, 1, 60],
                at: ['Middle', 0, 0], note: 'Streaks running round the middle.' },
   'tile':    { amt: ['Tiles across', 1, 12, 1, 3], angle: ['Turned (°)', 0], at: ['Tiles slid', 0, 0] },
-  'smudge':  { amt: ['Dragged (mm)', -400, 400, 0.5, 70], size: ['Reach (mm)', 5, 800, 1, 90],
-               angle: ['Towards (°)', 60], at: ['Grabbed at', 0, 25],
-               note: 'Grabbed at a place and dragged, as a thumb drags wet ink: what is at the place goes all the way, what is at the reach stays.' },
+  'smudge':  { amt: ['Dragged (mm)', -600, 600, 0.5, 150], size: ['Reach (mm)', 3, 600, 0.5, 40],
+               angle: ['Towards (°)', 60], at: ['Grabbed at', 20, 55],
+               note: 'Grabbed at a place and dragged, as a thumb drags wet ink: what lies behind the place is drawn out after it into a spike, narrower the further it goes. Nothing folds over.' },
 };
 const FX_NAMES = Object.keys(FX);
 
@@ -295,14 +295,15 @@ const SCENES = [
   { label: '— select a scene —' },
   { label: 'The figure — lines crowd into its shadows', s: {} },
   { label: 'The figure, red among the black', s: { split: 'tone band', splitFrom: 12, splitTo: 30 } },
-  { label: 'Stretched past a line, like the nude\'s legs', s: {
-      fx1: 'stretch', fx1Angle: 72, fx1Y: 12, streakShift: 30 } },
+  { label: 'A leg dragged into a spike, like the nude\'s', s: { fx1: 'smudge', fx1To: 'drawing' } },
+  { label: 'Stretched past a line', s: { fx1: 'stretch', fx1Angle: 72, fx1Y: 30, streakShift: 30 } },
   { label: 'Smeared down along the streaks', s: { fx1: 'smear', fx1Angle: 120, fx1Size: 170 } },
   { label: 'Echoes of its outline', s: { origin: 'outline', backdrop: 'blank', streaks: 'none', pitchLight: 2.6 } },
   { label: 'Rings from its heart', s: { origin: 'point', centreY: -22, streaks: 'bands' } },
   { label: 'Raindrops — fronts from strewn points', s: {
       origin: 'points', points: 7, backdrop: 'blank', streaks: 'none', pitchLight: 3.6 } },
-  { label: 'A curtain hanging from it', s: { mode: 'curtain', backdrop: 'blank', pitchLight: 3, streaks: 'none' } },
+  { label: 'A curtain hanging from it', s: {
+      mode: 'curtain', backdrop: 'blank', pitchLight: 3.6, pitchDark: 1.1, curve: 160, streaks: 'none' } },
   { label: 'Twirled', s: { fx1: 'twirl', fx1Amt: 240, fx1Size: 190, fx1Y: -15 } },
   { label: 'A kaleidoscope of arms', s: { fx1: 'kaleidoscope', streaks: 'bands', origin: 'point', centreY: -10 } },
   { label: 'Pixel-sorted down', s: { fx1: 'sort', fx1Amt: 22, fx1Size: 300 } },
@@ -310,8 +311,9 @@ const SCENES = [
   { label: 'Melting', s: { fx1: 'melt', fx1Amt: 200, fx1Size: 26 } },
   { label: 'Shattered', s: { fx1: 'shatter', fx1Amt: 11, fx1Size: 36, fx1Angle: 14 } },
   { label: 'Echoes stepping aside', s: { fx1: 'echo', fx1Amt: 5, fx1Size: 14, fx1Angle: 20 } },
-  { label: 'Zoom streaks out of its middle', s: { fx1: 'zoom', fx1Y: -18, fx1Size: 170, streaks: 'none' } },
-  { label: 'A planet of it', s: { fx1: 'polar', fx1Y: 8, origin: 'point', centreY: 8, streaks: 'none', backdrop: 'blank' } },
+  { label: 'Zoom streaks out of its middle', s: { fx1: 'zoom', fx1Y: -18, fx1Size: 90, fx1Amt: 70 } },
+  { label: 'A ring of figures', s: {
+      fx1: 'tile', fx1Amt: 5, fx2: 'polar', fx2Size: 170, origin: 'point', streaks: 'bands' } },
   { label: 'Tiles', s: { fx1: 'tile', streaks: 'none', pitchLight: 2.4, pitchDark: 0.4 } },
   { label: 'Liquid, then twirled', s: { fx1: 'liquid', fx1Amt: 24, fx2: 'twirl', fx2Amt: -160, fx2Size: 220 } },
   { label: 'Ridges — the dark lifts the rows', s: {
@@ -1678,23 +1680,32 @@ function fxMaps(P, drawing) {
       };
     }
     case 'smudge': {
-      // what is at the place goes all the way, what is at the reach stays: a push of
-      // (1 - t^2)^2 of the drag at t of the reach
-      const Vx = dx * P.amt, Vy = dy * P.amt;
-      const w = (x, y) => {
-        const t2 = ((x - cx) * (x - cx) + (y - cy) * (y - cy)) / (R * R);
-        return t2 < 1 ? (1 - t2) * (1 - t2) : 0;
-      };
+      // every place moves along the angle only, by the drag weighed by how near it is to
+      // the line dragged along — (1 - (v/R)^2)^2 at v across — and by where it is along: from
+      // nothing a reach behind the place to all of it at the place, then less again over the
+      // drag and a reach ahead. Along every line the order of places is kept, so nothing
+      // folds over: what is behind the place is drawn out after it into a spike.
+      const V = Math.abs(P.amt), sg = P.amt < 0 ? -1 : 1, ex = dx * sg, ey = dy * sg;
+      const ahead = V + R;
+      const g = v => { const t = v / R; return t * t < 1 ? (1 - t * t) * (1 - t * t) : 0; };
+      const hh = u => (u < 0 ? (u > -R ? (1 + u / R) * (1 + u / R) : 0) : Math.max(0, 1 - u / ahead));
       return {
-        fwd: (x, y) => { const f = w(x, y); WX = x + Vx * f; WY = y + Vy * f; },
+        fwd: (x, y) => {
+          const u = (x - cx) * ex + (y - cy) * ey, v = -(x - cx) * ey + (y - cy) * ex;
+          const d = V * g(v) * hh(u);
+          WX = x + ex * d; WY = y + ey * d;
+        },
         inv: (x, y) => {
-          // the place the push brings here: half steps towards it, so a long drag settles
-          let qx = x, qy = y;
-          for (let i = 0; i < 24; i++) {
-            const f = w(qx, qy);
-            qx += 0.5 * (x - Vx * f - qx); qy += 0.5 * (y - Vy * f - qy);
+          // the place along the line that the drag brings here, by halving
+          const u1 = (x - cx) * ex + (y - cy) * ey, v = -(x - cx) * ey + (y - cy) * ex, k = V * g(v);
+          if (k <= 0) { same(x, y); return; }
+          let lo = u1 - V - 1, hi = u1 + 1;
+          for (let i = 0; i < 30; i++) {
+            const m = 0.5 * (lo + hi);
+            if (m + k * hh(m) < u1) lo = m; else hi = m;
           }
-          WX = qx; WY = qy; WS = Math.min(1, w(qx, qy) * 1.5);
+          const u = 0.5 * (lo + hi), d = u1 - u;
+          WX = x - ex * d; WY = y - ey * d; WS = Math.min(1, d / 10);
         },
       };
     }
