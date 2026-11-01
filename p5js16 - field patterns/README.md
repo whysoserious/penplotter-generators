@@ -28,7 +28,8 @@ repository root run `python3 -m http.server 8000` and open
    <kbd>shift</kbd>; <kbd>X</kbd> steps through the patterns, <kbd>H</kbd> through the
    fields, <kbd>S</kbd> through the surfaces, <kbd>C</kbd> switches one colour and two,
    <kbd>R</kbd> rolls a seed, <kbd>[</kbd> <kbd>]</kbd> step it, <kbd>P</kbd> switches the
-   projection, <kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd> zoom.
+   projection, <kbd>G</kbd> switches the cut guides, <kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd>
+   zoom.
 3. **Download SVG [everything]** writes the sheet, a group per pen; **[one per pen]** a
    file for black and a file for red, each a pass of the plotter. **Copy link** puts every
    setting in the clipboard as a URL — except a picture loaded as the height map, which
@@ -36,6 +37,12 @@ repository root run `python3 -m http.server 8000` and open
 
 The paper is any of A0–A5 and B0–B5, either way round, or **custom** at any width and
 height in millimetres. Everything is in millimetres, and the SVG is the sheet at 1:1.
+
+**Cut guide dots** (under **Paper**) are for trimming the plot on a guillotine: a dot in
+every corner, and each side split evenly so that no two dots are further apart than **Most
+between two dots** — lay the blade through two of them and cut. **Dots round** the
+**sheet** is for a plot made on a larger piece of paper and trimmed back to size; round the
+**picture** cuts the margin off. A dot is one touch of the pen, and no margin clips it.
 
 ## How it is made
 
@@ -151,7 +158,9 @@ height inverted, the same or the second field: the moiré of the picture in two 
 No fills and no background rectangle. `stroke-width` is the nib and the caps are round.
 **everything** is one `<g>` per pen, `id="black"` and `id="red"`; a pen's file is one
 group. Every file is the same sheet — the same `width`, `height` and `viewBox` in
-millimetres — so the two passes land on one another. Strokes come out ordered greedily, one
+millimetres — so the two passes land on one another. The cut guides go with the first pen
+the sheet uses, black if there is any: they are in **everything** and in that one pen's
+file, so they are plotted once. Strokes come out ordered greedily, one
 pen at a time, black first; `vpype-process.sh` is the usual next step. Two comments ride at
 the top of every file: the settings in one line, and the URL that rebuilds the sheet.
 
