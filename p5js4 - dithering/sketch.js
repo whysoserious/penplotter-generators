@@ -58,6 +58,7 @@ const MERGE_MODES = [
 
 const SVG_CONTENTS = ['everything', 'the dither only', 'the circle outlines only'];
 const SVG_OUTPUTS  = ['one file', 'one file per pen', 'both'];
+const MARK_AT      = ['sheet', 'picture'];
 
 const MAX_PREVIEW_W  = 900;       // on-screen size of the preview, in CSS pixels
 const MAX_PREVIEW_H  = 700;
@@ -91,6 +92,9 @@ const settings = {
   paper: 'A4',
   orientation: 'portrait',
   margin: 15,
+  cropMarks: false,               // cut guides — dots to lay the guillotine's blade through
+  cropMarkAt: 'sheet',
+  cropMarkGap: 400,               // mm — the most that is ever left between two dots
 
   // the ramp
   algorithm: 'Floyd-Steinberg',
@@ -325,6 +329,28 @@ function tintOn() {
 function paperDims() {
   const [a, b] = PAPER_SIZES[settings.paper];
   return settings.orientation === 'portrait' ? [a, b] : [b, a];
+}
+
+// Where the cut guides stand: a dot in every corner of the sheet — or of the picture, the
+// sheet less the margin — and each side split evenly, so no two dots are further apart
+// than asked. Lay the blade of the guillotine through two of them and cut.
+function cropMarkPlaces() {
+  if (!settings.cropMarks) return [];
+  const [W, H] = paperDims();
+  const m = settings.cropMarkAt === 'picture' ? Math.min(settings.margin, W / 2, H / 2) : 0;
+  const B = { x0: m, y0: m, w: W - 2 * m, h: H - 2 * m };
+  const step = Math.max(1, settings.cropMarkGap);
+  const nx = Math.max(1, Math.ceil(B.w / step)), ny = Math.max(1, Math.ceil(B.h / step));
+  const out = [];
+  for (let i = 0; i <= nx; i++) {             // top and bottom, corners included
+    const x = B.x0 + B.w * i / nx;
+    out.push([x, B.y0], [x, B.y0 + B.h]);
+  }
+  for (let j = 1; j < ny; j++) {              // the sides, the corners already placed
+    const y = B.y0 + B.h * j / ny;
+    out.push([B.x0, y], [B.x0 + B.w, y]);
+  }
+  return out;
 }
 
 function previewScale() {
@@ -975,6 +1001,7 @@ function drawPreview() {
   ctx.save();
   ctx.scale(previewScale(), previewScale());
   if (settings.drawCircles) drawCircleInk(ctx);
+  drawCropMarks(ctx);
   if (settings.showGuides) drawGuides(ctx);
   ctx.restore();
 }
@@ -986,6 +1013,18 @@ function drawCircleInk(ctx) {
     ctx.beginPath();
     ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
     ctx.stroke();
+  }
+}
+
+// The cut guides are ink: dots of the first pass's nib, in its colour.
+function drawCropMarks(ctx) {
+  const first = passList()[0];
+  if (!first || !first.guides) return;
+  ctx.fillStyle = first.colour;
+  for (const [x, y] of first.guides) {
+    ctx.beginPath();
+    ctx.arc(x, y, first.width / 2, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -1131,6 +1170,11 @@ function attachKeys() {
       refreshCircleList();
       drawPreview();
       e.preventDefault();
+    } else if (e.key === 'x' || e.key === 'X') {
+      settings.cropMarks = !settings.cropMarks;
+      if (setters.cropMarks) setters.cropMarks(settings.cropMarks);
+      regenerate();
+      e.preventDefault();
     } else if (e.key === 'g' || e.key === 'G') {
       settings.showGuides = !settings.showGuides;
       if (setters.showGuides) setters.showGuides(settings.showGuides);
@@ -1171,6 +1215,8 @@ function syncVisibility() {
   setVisible('minRun', settings.mergeMode !== 'off');
   setVisible('circlePen', settings.drawCircles);
   setVisible('tintDots', circles.length > 0);
+  setVisible('cropMarkAt', settings.cropMarks);
+  setVisible('cropMarkGap', settings.cropMarks);
 }
 
 function addSlider(parent, labelText, key, min, max, step, hint, onChange) {
@@ -1317,6 +1363,13 @@ function buildControls() {
     clampCircles(); resizeForPaper();
   });
   addSlider(root, 'Margin (mm)', 'margin', 0, 100, 1);
+  addCheckbox(root, 'Cut guide dots', 'cropMarks');
+  addSelect(root, 'Dots round', 'cropMarkAt', MARK_AT, regenerate,
+    '<b>sheet</b> — plot on a larger piece of paper and trim it back to size; ' +
+    '<b>picture</b> — cut the margin off and keep the dither to its very edge.');
+  addSlider(root, 'Most between two dots (mm)', 'cropMarkGap', 20, 600, 5,
+    'A dot in every corner, and each side split evenly so no gap is wider than this — lay ' +
+    'the blade through two dots and cut. They go with the first pass. <b>X</b> switches them.');
 
   // --- The ramp ---
   addSection(root, 'Gradient');
@@ -1480,7 +1533,9 @@ function updateStats() {
 
   const d = dotDiameter();
   const cInk = circleInk();
-  const strokes = strokeCount() + (settings.drawCircles ? circles.length : 0);
+  const first = passList()[0];
+  const guides = first && first.guides ? first.guides.length : 0;
+  const strokes = strokeCount() + (settings.drawCircles ? circles.length : 0) + guides;
   const seconds = strokes * PEN_CYCLE_S +
     (inkLen + cInk) / DRAW_SPEED + travelLen / TRAVEL_SPEED;
   const cover = clamp01((nDots * Math.PI * d * d / 4 + inkLen * d +
@@ -1497,7 +1552,9 @@ function updateStats() {
       `solid areas</div>` : '') +
     `<div>Ink covers <b>${(100 * cover).toFixed(0)} %</b> of the sheet</div>` +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ` +
-    `${lastMs.toFixed(0)} ms to build</div>`;
+    `${lastMs.toFixed(0)} ms to build</div>` +
+    (guides ? `<div>${guides} cut guide dots round the ${settings.cropMarkAt}, with the ` +
+      `${first.tag} pen</div>` : '');
 
   if (nRuns) {
     const saved = swallowed - nRuns;
@@ -1555,7 +1612,7 @@ function refreshPenList() {
 
   let html = '';
   for (const p of list) {
-    let st = p.circles.length;
+    let st = p.circles.length + (p.guides ? p.guides.length : 0);
     let ink = p.circles.reduce((a, c) => a + 2 * Math.PI * c.r, 0);
     for (const id of p.inks) {
       const e = perInk[id + 1];
@@ -1610,6 +1667,9 @@ function passList() {
   for (const p of out) {
     if (p.inks.length && p.circles.length) p.tag = 'dither + circles';
   }
+  // The cut guides go with the first pass, so they are plotted once and before anything.
+  const guides = cropMarkPlaces();
+  if (out.length && guides.length) out[0].guides = guides;
   const seen = new Map();
   for (const p of out) seen.set(p.tag, (seen.get(p.tag) || 0) + 1);
   const used = new Map();
@@ -1628,6 +1688,7 @@ function metaComment() {
     `angle=${s.angle}° tone=${s.colorFrom}-${s.colorTo}${s.invert ? ' inverted' : ''} ` +
     `pen=${s.penWidth}mm pitch=${cellPitch().toFixed(3)}mm (${s.solidFillSpacing}%) ` +
     `margin=${s.margin}mm ` +
+    `${s.cropMarks ? `cutguides=${s.cropMarkAt}<=${s.cropMarkGap}mm ` : ''}` +
     `${usesSeed() ? 'seed=' + s.seed + ' ' : ''}` +
     `merge=${s.mergeMode}${s.mergeMode === 'off' ? '' : '/min' + s.minRun} ` +
     `dots=${nDots} lines=${nRuns} ` +
@@ -1676,6 +1737,12 @@ function svgFile(pass) {
   ];
   let drew = false;
   for (const p of list) {
+    if (p.guides) {                    // a group of their own, in the pass's own pen
+      let d = '';
+      for (const [x, y] of p.guides) d += `M${fmt(x)},${fmt(y)}h0`;
+      out.push(`<g fill="none" stroke="${p.colour}" stroke-width="${fmt(p.width)}" ` +
+        `stroke-linecap="round" stroke-linejoin="round">\n<path d="${d}"/>\n</g>\n`);
+    }
     const body = [];
     if (p.inks.length) ditherBody(body, p.inks);
     if (p.circles.length) circleBody(body, p.circles);
