@@ -43,6 +43,12 @@ let marginXMm = 10;
 let marginYMm = 10;
 let pathOverhangMm = 5;   // how far the path sticks out past the frame
 
+// Cut guides — dots to lay the guillotine's blade through, round the sheet or round the
+// picture (the sheet less the margins). They go with the walls, the first pen.
+let cropMarks = false;
+let cropMarkAt = 'sheet';
+let cropMarkGap = 400;    // the most that is ever left between two dots
+
 // Labyrinth algorithm options.
 // straightness: 0 = uniformly random neighbour, 1 = always continue in the
 //   previous direction when possible (produces long straight corridors).
@@ -103,6 +109,18 @@ function buildUI() {
   // Algorithm options (recursive backtracker).
   addSliderRow(panel, 'Straightness (0–1)',    0,    1,    straightness,    0.05, v => straightness    = v);
   addSliderRow(panel, 'Braiding (0–1)',        0,    1,    braiding,        0.05, v => braiding        = v);
+
+  // Cut guides — they change no maze, so they only redraw.
+  const cropRow = createDiv().parent(panel).class('row');
+  createElement('label', 'Cut guide dots:').parent(cropRow);
+  const cropCb = createCheckbox('', cropMarks).parent(cropRow);
+  cropCb.changed(() => { cropMarks = cropCb.checked(); redrawAll(); });
+  createSpan('').parent(cropRow);
+  createSpan('').parent(cropRow);
+  addSelectRow(panel, 'Dots round', ['sheet', 'picture'], cropMarkAt, v => {
+    cropMarkAt = v; redrawAll();
+  });
+  addSliderRow(panel, 'Most between dots (mm)', 20, 600, cropMarkGap, 5, v => cropMarkGap = v);
 
   const buttons = createDiv().parent(panel).class('buttons');
   createButton('Regenerate').parent(buttons).mousePressed(regenerate);
@@ -388,7 +406,43 @@ function mazeOffsets() {
   return { ox, oy, mazeWmm, mazeHmm };
 }
 
+// Where the cut guides stand: a dot in every corner of the sheet — or of the picture — and
+// each side split evenly, so no two dots are further apart than asked. Lay the blade of
+// the guillotine through two of them and cut.
+function cropMarkPlaces() {
+  if (!cropMarks) return [];
+  const pic = cropMarkAt === 'picture';
+  const mx = pic ? Math.min(marginXMm, paperWmm / 2) : 0;
+  const my = pic ? Math.min(marginYMm, paperHmm / 2) : 0;
+  const w = paperWmm - 2 * mx, h = paperHmm - 2 * my;
+  const step = Math.max(1, cropMarkGap);
+  const nx = Math.max(1, Math.ceil(w / step)), ny = Math.max(1, Math.ceil(h / step));
+  const out = [];
+  for (let i = 0; i <= nx; i++) {             // top and bottom, corners included
+    const x = mx + w * i / nx;
+    out.push([x, my], [x, my + h]);
+  }
+  for (let j = 1; j < ny; j++) {              // the sides, the corners already placed
+    const y = my + h * j / ny;
+    out.push([mx, y], [mx + w, y]);
+  }
+  return out;
+}
+
+// A dot is one touch of the pen: a stub too short to see, which the toolchains keep.
+function drawCropMarks() {
+  const places = cropMarkPlaces();
+  if (!places.length) return;
+  beginSvgGroup('cut-guides');
+  stroke(0);
+  strokeWeight(wallStrokeMm * mmToPx);
+  strokeCap(ROUND);
+  for (const [x, y] of places) line(x * mmToPx, y * mmToPx, (x + 0.01) * mmToPx, y * mmToPx);
+  endSvgGroup();
+}
+
 function drawMazeLayer() {
+  drawCropMarks();
   beginSvgGroup('maze');
   stroke(0);
   strokeWeight(wallStrokeMm * mmToPx);
