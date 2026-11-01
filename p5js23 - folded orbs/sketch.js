@@ -75,7 +75,8 @@ const MAX_CELLS      = 1400;       // the grid of rays is never finer than this 
 const DRAG_COARSE    = 3;          // while the hand turns the orb, rays this much sparser
 const SIMPLIFY       = 0.03;
 const HYSTERESIS     = 0.08;       // of the tone — how much lighter a begun hatch line may run on
-const MIN_DASH       = 0.8;        // mm — a shorter piece of hatching is left out       // mm — how far an outline may be straightened
+const MIN_DASH       = 0.8;        // mm — a shorter piece of hatching is left out
+const MIN_FLOW       = 1.5;        // mm — and a shorter piece of a flow line       // mm — how far an outline may be straightened
 const EPS            = 0.01;       // mm — the stub that stands in for a dot
 const PREVIEW_MAX_PX = 1500;
 const PEN_CYCLE_S    = 0.3;
@@ -168,7 +169,7 @@ const settings = {
   skyTone: 0,              // % of ink in the sky
   capShift: 0,             // % — the caps the ball cut, lighter or darker
   mirrorDim: 18,           // % darker for every mirror on the way
-  flat: 65,                // % — every region shaded with its own mean tone
+  flat: 85,                // % — every region shaded with its own mean tone
   levels: 0,               // tones cut into so many steps
   invert: false,
   contrast: 0,             // %
@@ -191,7 +192,7 @@ const settings = {
   dotOrder: 'bayer',
   hatchPitch: 0.7,         // mm
   hatchAngle: 45,          // °
-  hatchBy: 'per region',
+  hatchBy: 'surface',
   flowField: 'depth',
   flowLines: 90,
   edgeGap: 0.5,            // mm of paper left along every outline
@@ -233,7 +234,7 @@ const SCENES = [
       offZ: 0.6, twistA: 30, twistB: 6, enclose: 'inside' } },
   { label: 'Menger sponge, the ball its cut', s: {
       object: 'kifs', folds: 'cube', kScale: 3, iters: 3, objSize: 1.1, twistA: 0, twistB: 0,
-      enclose: 'inside', hatchBy: 'surface' } },
+      enclose: 'inside' } },
   { label: '24-cell — its edges on the three-sphere', s: {
       object: 'polytope', polytope: '24-cell', objSize: 0.55, tube: 0.06, node: 0.1,
       enclose: 'inside' } },
@@ -245,14 +246,15 @@ const SCENES = [
       mirrorDim: 0, despeckle: 60, minLine: 2 } },
   { label: 'A kaleidoscope reflected in a mirror room', s: {
       view: 'mirror room', room: 1.2, camDist: 0.9, fov: 160, enclose: 'none', object: 'kifs',
-      iters: 4, core: 1.5, objSize: 0.5, bounces: 4 } },
+      iters: 4, core: 1.5, objSize: 0.5, bounces: 4, mirrorDim: 6, ambient: 40 } },
   { label: 'Dome of the 24-cell, looking up', s: {
       view: 'dome', fov: 200, camDist: 0, camPitch: -90, enclose: 'none', object: 'polytope',
       polytope: '24-cell', objSize: 0.6, symmetry: 'dihedral', symN: 3 } },
   { label: 'Quaternion Julia, cut in w, in rings', s: {
-      object: 'julia', iters: 10, objSize: 1, jc0: -0.291, jc1: -0.399, jc2: 0.339, jc3: 0.437,
-      partDepth: 0, enclose: 'none', panels: 8, aoK: 25, pattern: 'flow', flowField: 'light',
-      flowLines: 60, despeckle: 40 } },
+      object: 'julia', iters: 10, objSize: 1.1, jc0: -0.291, jc1: -0.399, jc2: 0.339,
+      jc3: 0.437, partDepth: 0, enclose: 'none', camDist: 2.2, panels: 8, crease: 0,
+      depthEdge: 0, despeckle: 60, aoK: 0, ambient: 35, pattern: 'flow', flowField: 'depth',
+      flowLines: 60 } },
   { label: 'Hyperfold — a four-dimensional sponge, sliced', s: {
       object: 'hyperfold', iters: 3, objSize: 1.2, core: 0.7, kScale: 2.2, twistA: 20, xw: 35 } },
   { label: 'Six mirrors round a Menger', s: {
@@ -266,8 +268,8 @@ const SCENES = [
       object: 'hopf', objSize: 0.7, pattern: 'flow', flowField: 'radius', flowLines: 140,
       edgeGap: 0.4 } },
   { label: 'What the mirror shows, in red', s: {
-      view: 'orb', mirrorBall: 0.42, enclose: 'none', object: 'hopf', objSize: 0.8, hollow: 0.5,
-      mirrorOwnPen: true, ring: 'halo' } },
+      mirrorBall: 0.5, enclose: 'none', object: 'polytope', polytope: '24-cell', objSize: 0.7,
+      tube: 0.05, node: 0.08, hollow: 0.6, camDist: 2.4, mirrorOwnPen: true, ring: 'halo' } },
   { label: 'White marker on black paper', s: {
       paper: 'A3', paperTone: 'black', paperColor: PAPER_TONES.black, linePen: 5, fillPen: 5,
       ringPen: 5, pen5W: 0.8, invert: true, dotPitch: 1.6, hatchPitch: 1.4, edgeGap: 0.9,
@@ -1535,7 +1537,7 @@ function flowLines(pat, gap, low, isSolid) {
     }
   }
   for (const c of chainSegs(segs)) {
-    if (polyLength(c.xs, c.ys, c.xs.length) < 0.6) continue;
+    if (polyLength(c.xs, c.ys, c.xs.length) < MIN_FLOW) continue;
     [PEN, LAY] = shadePen(segs[c.first][3]);
     const n = simplify(c.xs, c.ys, c.xs.length, 0.02);
     keep(c.xs, c.ys, n);
