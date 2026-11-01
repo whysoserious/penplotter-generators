@@ -279,6 +279,9 @@ const SCENES = [
   { label: 'Beats — the echo a little wider apart', s: {
       echo: 'everywhere', echoReplace: false, echoPitch: 106, echoInk: 'hairline',
       pitch: 3, wide: 70 } },
+  { label: 'Your photo, through upright bars — black runs together', s: {
+      source: 'photo', pitch: 2.2, thin: 8, wide: 102, curve: 125, echo: 'none', contrast: 15,
+      soften: 0.6, minPiece: 1.2 } },
   { label: 'Your photo, in level lines', s: {
       source: 'photo', angle: 90, pitch: 2.4, wide: 92, echo: 'none', gamma: 120, soften: 1.2,
       minPiece: 1.2 } },
@@ -523,6 +526,7 @@ function setup() {
   buildControls();
   attachPointer();
   attachKeys();
+  attachPhotoInput();
   update();
   noLoop();
 }
@@ -2365,7 +2369,9 @@ function buildControls() {
   const fileIn = createFileInput(() => {}).parent(pf);
   fileIn.elt.accept = 'image/*';
   fileIn.elt.onchange = ev => loadPhotoFile(ev.target.files && ev.target.files[0]);
-  photoNote = createDiv(PHOTO ? PHOTO.name : 'Not part of the link — load it again to rebuild the sheet.')
+  photoNote = createDiv(PHOTO ? PHOTO.name :
+    'Or paste one (<b>ctrl+V</b>) or drop it on the page. Not part of the link — load it ' +
+    'again to rebuild the sheet.')
     .parent(pf).class('note');
   addSlider(sec, 'Tone (%)', 'evenTone', 0, 100, 1);
   addSub(sec, 'Where it lies');
@@ -2478,19 +2484,63 @@ function buildControls() {
   syncVisibility();
 }
 
-function loadPhotoFile(file) {
+// The sheet turned the way the photograph is, so as little of it as possible is cut off.
+function turnToPhoto() {
+  if (!PHOTO || settings.source !== 'photo' || settings.paper === 'custom') return false;
+  const turn = PHOTO.img.height > PHOTO.img.width ? 'portrait' : 'landscape';
+  if (settings.orientation === turn) return false;
+  settings.orientation = turn;
+  return true;
+}
+
+function loadPhotoFile(file, name) {
   if (!file) return;
+  name = name || file.name || 'photo';
   const url = URL.createObjectURL(file);
   const img = new Image();
   img.onload = () => {
-    PHOTO = { img, name: file.name, ver: ++photoVer };
+    URL.revokeObjectURL(url);
+    PHOTO = { img, name, ver: ++photoVer };
     settings.source = 'photo';
+    if (turnToPhoto()) {
+      refreshControls();
+      resizeForPaper();
+    }
     if (setters.source) setters.source('photo');
-    if (photoNote) photoNote.html(file.name + ' — not part of the link; load it again to rebuild the sheet.');
+    if (photoNote) photoNote.html(name + ' — not part of the link; load it again to rebuild the sheet.');
     syncVisibility();
     update();
   };
   img.src = url;
+}
+
+// A photograph can also be pasted (ctrl+V — a screenshot, an image copied in a browser) or
+// dropped onto the page; either way it becomes the picture.
+function firstImage(items) {
+  for (const it of items || []) {
+    const f = it.getAsFile ? (it.kind === 'file' ? it.getAsFile() : null) : it;
+    if (f && /^image\//.test(f.type)) return f;
+  }
+  return null;
+}
+
+function attachPhotoInput() {
+  window.addEventListener('paste', e => {
+    const cd = e.clipboardData;
+    const f = cd && (firstImage(cd.items) || firstImage(cd.files));
+    if (!f) return;
+    e.preventDefault();
+    loadPhotoFile(f, f.name && f.name !== 'image.png' ? f.name : 'pasted image');
+  });
+  window.addEventListener('dragover', e => {
+    if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault();
+  });
+  window.addEventListener('drop', e => {
+    const f = firstImage(e.dataTransfer && e.dataTransfer.files);
+    if (!f) return;
+    e.preventDefault();
+    loadPhotoFile(f);
+  });
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -2539,7 +2589,7 @@ function updateStats() {
       `in the pen of the lines</div>`;
   }
   if (s.source === 'photo' && !PHOTO) {
-    html += '<div class="warn">No photo loaded — load one under <b>The picture</b>. Until then: a ball of shade.</div>';
+    html += '<div class="warn">No photo loaded — load one under <b>The picture</b>, paste it (ctrl+V) or drop it on the page. Until then: a ball of shade.</div>';
   }
   if (FIELD && FIELD.note) html += `<div class="warn">The picture: ${FIELD.note}.</div>`;
   if (s.pitch < nib * 1.5) {
@@ -2632,6 +2682,7 @@ function applyScene(sc) {
   const kept = {};
   for (const k of SCENE_KEEPS) kept[k] = settings[k];
   Object.assign(settings, DEFAULTS, sc.s || {}, kept);
+  if (!('orientation' in (sc.s || {}))) turnToPhoto();
   lastScene = sc.label;
   refreshControls();
   resizeForPaper();

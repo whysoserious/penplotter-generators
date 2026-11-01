@@ -30,9 +30,10 @@ repository root run `python3 -m http.server 8000` and open
    red between the black, hollow ribbons, onions and fans with their passes left open,
    zigzag, ladders, a lens of hairlines, pillows in relief, lines leaning into the dark,
    level lines over terraces of noise, rings over blobs, a sunburst over ripples, one
-   spiral, an egg crate, a pinwheel in rings, a word, a curtain, two kinds of moiré, two
-   photo scenes and markers on black paper — or set it up in the panel. Each section folds
-   away under its heading.
+   spiral, an egg crate, a pinwheel in rings, a word, a curtain, two kinds of moiré, three
+   photo scenes — upright bars whose black runs together, as in the picture this came from,
+   level lines and one spiral — and markers on black paper — or set it up in the panel.
+   Each section folds away under its heading.
 2. **Drag** on the sheet to slide the picture under the lines; the **wheel** enlarges it
    about the cursor and <kbd>0</kbd> puts it back. **Shift-drag** (or a right-drag) turns
    the lines, **alt-drag** moves the middle the rings, rays and spiral go round. The arrow
@@ -137,7 +138,9 @@ Whatever the lines swell with is painted first into a grid of greys over the mar
   Perlin noise, `^` is a power. Only numbers, those names and the functions of `Math` are
   let through. Whatever range the formula has is stretched from paper to ink;
 - **word** — set large in a bold face; a bar `|` starts a new line;
-- **photo** — laid over the frame and cut to cover it. It is not part of the link;
+- **photo** — chosen under **Photo**, pasted with <kbd>ctrl</kbd>+<kbd>V</kbd> (a screenshot,
+  an image copied in a browser) or dropped anywhere on the page; laid over the frame and cut
+  to cover it, and the sheet is turned the way the photograph is. It is not part of the link;
 - **even** — one tone all over, for the bending and the echo to work on.
 
 **Where it lies** slides, enlarges and turns the picture under the lines — the same as
