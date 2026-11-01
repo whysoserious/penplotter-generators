@@ -35,7 +35,8 @@ repository root run `python3 -m http.server 8000` and open
    the **wheel** to make it wider or narrower; while the mouse is down its outline and the
    clusters show, and <kbd>G</kbd> keeps them on. The arrow keys nudge the band by 1 %,
    by 10 % with <kbd>shift</kbd>. <kbd>L</kbd> steps through the layouts, <kbd>A</kbd>
-   through the accents, <kbd>R</kbd> rolls a seed, <kbd>[</kbd> <kbd>]</kbd> step it.
+   through the accents, <kbd>X</kbd> switches the cut guides, <kbd>R</kbd> rolls a seed,
+   <kbd>[</kbd> <kbd>]</kbd> step it.
 3. **Download SVG [everything]** writes the sheet, a group per pen at its own width;
    **[one per pen]** a file per pass; under them a button per layer writes that layer
    alone. **Download PNG** saves the preview. **Copy link** puts every setting in the
@@ -43,6 +44,12 @@ repository root run `python3 -m http.server 8000` and open
 
 The paper is any of A0–A5 and B0–B5, either way round, or **custom** in millimetres.
 Everything is in millimetres, and the SVG is the sheet at 1:1.
+
+**Cut guide dots** (under **Paper**) are for trimming the plot on a guillotine: a dot in
+every corner, and each side split evenly so that no two dots are further apart than **Most
+between two dots** — lay the blade through two of them and cut. **Dots round** the
+**sheet** is for a plot made on a larger piece of paper and trimmed back to size; round the
+**picture** cuts the margin off. A dot is one touch of the pen, and no margin clips it.
 
 ## How it is made
 
@@ -210,7 +217,9 @@ No fills and no background rectangle. `stroke-width` is each pen's own nib and t
 round. **everything** is one `<g>` per pen, `id="pen1-black"`, `id="pen4-red-marker"` …,
 in the order the passes go down; a pen's file is one group, and a layer's file a group per
 pen it uses. Every file is the same sheet — the same `width`, `height` and `viewBox` in
-millimetres — so the passes land on one another. Strokes come out ordered greedily, one pen
+millimetres — so the passes land on one another. The cut guides are a layer of their own in
+the first pass the sheet has: they are in **everything** and in that one pen's file, so they
+are plotted once. Strokes come out ordered greedily, one pen
 at a time; `vpype-process.sh` is the usual next step. Two comments ride at the top of every
 file: the settings in one line, and the URL that rebuilds the sheet.
 
