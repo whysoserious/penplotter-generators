@@ -31,13 +31,20 @@ repository root run `python3 -m http.server 8000` and open
    <kbd>→</kbd> turn it. <kbd>T</kbd> steps through the trips, <kbd>C</kbd> through the
    hearts, <kbd>B</kbd> through the backgrounds; <kbd>R</kbd> rolls a seed, <kbd>[</kbd>
    <kbd>]</kbd> step it, <kbd>M</kbd> leaves every ring to chance and rolls; <kbd>G</kbd>
-   shows the rings as they were laid out before the warp.
+   shows the rings as they were laid out before the warp, and where the cut guides stand;
+   <kbd>X</kbd> switches the cut guides.
 3. **Download SVG [everything]** writes the sheet, a group per pen at its own width;
    **[one per pen]** a file per pass; under them a button per layer. **Download PNG** saves
    the preview. **Copy link** puts every setting in the clipboard as a URL.
 
 The paper is any of A0–A5 and B0–B5, either way round, or **custom** in millimetres.
 Everything is in millimetres, and the SVG is the sheet at 1:1.
+
+**Cut guide dots** (under **Paper**) are for trimming the plot on a guillotine: a dot in
+every corner, and each side split evenly so that no two dots are further apart than **Most
+between two dots** — lay the blade through two of them and cut. **Dots round** the
+**sheet** is for a plot made on a larger piece of paper and trimmed back to size; round the
+**picture** cuts the margin off. A dot is one touch of the pen, and no margin clips it.
 
 ## How it is made
 
@@ -153,7 +160,9 @@ No fills and no background rectangle. `stroke-width` is each pen's own nib and t
 round. **everything** is one `<g>` per pen, `id="pen1-black"` …, in the order the passes go
 down; a pen's file is one group, a layer's file a group per pen it uses. Every file is the
 same sheet — the same `width`, `height` and `viewBox` in millimetres — so the passes land on
-one another. Strokes come out ordered greedily, one pen at a time; `vpype-process.sh` is the
+one another. The cut guides are a layer of their own in the first pass the sheet has:
+they are in **everything** and in that one pen's file, so they are plotted once. Strokes
+come out ordered greedily, one pen at a time; `vpype-process.sh` is the
 usual next step. Two comments ride at the top of every file: the settings in one line, and
 the URL that rebuilds the sheet.
 

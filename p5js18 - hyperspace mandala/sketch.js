@@ -113,9 +113,11 @@ const LAYERS = [
   { id: 'bands',      label: 'marker bands', pen: 'bandsPen' },
   { id: 'bindus',     label: 'bindus',      pen: 'bindusPen' },
   { id: 'mrays',      label: 'marker rays', pen: 'mraysPen' },
+  { id: 'guides',     label: 'cut guides',  pen: 'centrePen' },
 ];
 const L_CENTRE = 0, L_RINGS = 1, L_BORDERS = 2, L_AURA = 3, L_BACK = 4, L_BANDS = 5,
-      L_BINDUS = 6, L_MRAYS = 7;
+      L_BINDUS = 6, L_MRAYS = 7, L_GUIDES = 8;
+const MARK_AT = ['sheet', 'picture'];
 
 const MAX_STROKES   = 400_000;   // past this nothing is ordered, drawn or exported
 const BUSY_STROKES  = 40_000;    // above this, warn about the plot time
@@ -136,6 +138,9 @@ const settings = {
   customW: 600,         // mm, when the size is custom
   customH: 600,
   margin: 12,
+  cropMarks: false,        // cut guides — dots to lay the guillotine's blade through
+  cropMarkAt: 'sheet',
+  cropMarkGap: 400,        // mm — the most that is ever left between two dots
   paperTone: 'white',
   paperColor: '#fbfaf5',   // the preview only — the files have no background
 
@@ -2374,6 +2379,38 @@ function drawBroad() {
 ////////////////////////////////////////////////////////////////////////////////////////
 // Everything, in order
 
+// Where the cut guides stand: a dot in every corner of the sheet — or of the picture, the
+// sheet less the margin — and each side split evenly, so no two dots are further apart
+// than asked. Lay the blade of the guillotine through two of them and cut.
+function cropMarkPlaces() {
+  const [W, H] = paperDims();
+  const m = settings.cropMarkAt === 'picture' ? Math.min(settings.margin, W / 2, H / 2) : 0;
+  const B = { x0: m, y0: m, x1: W - m, y1: H - m, w: W - 2 * m, h: H - 2 * m };
+  const step = Math.max(1, settings.cropMarkGap);
+  const nx = Math.max(1, Math.ceil(B.w / step)), ny = Math.max(1, Math.ceil(B.h / step));
+  const out = [];
+  for (let i = 0; i <= nx; i++) {             // top and bottom, corners included
+    const x = B.x0 + B.w * i / nx;
+    out.push([x, B.y0], [x, B.y1]);
+  }
+  for (let j = 1; j < ny; j++) {              // the sides, the corners already placed
+    const y = B.y0 + B.h * j / ny;
+    out.push([B.x0, y], [B.x1, y]);
+  }
+  return out;
+}
+
+// A dot is one touch of the pen, and no pen's box clips it: it stands on the very edge. It
+// goes with the first pass the sheet has, so it is plotted once and before anything else.
+function cropMarkDots() {
+  if (!settings.cropMarks) return;
+  const [W] = paperDims();
+  const used = new Set(SINK.ink);
+  LAY = L_GUIDES;
+  setPen(penOrder().find(i => used.has(i)) ?? layerPen(L_CENTRE));
+  for (const [x, y] of cropMarkPlaces()) pushRun([x, x + (x > W / 2 ? -EPS : EPS)], [y, y]);
+}
+
 function buildShapes() {
   ensureNoise();
   makeFrame();
@@ -2391,6 +2428,7 @@ function buildShapes() {
   drawCentre();
   for (const ring of RINGS) drawRing(ring, 1, ringOffset(ring), L_RINGS);
   drawBorders(1, 0, L_BORDERS);
+  cropMarkDots();
 
   counts = { rings: RINGS.length, cells: RINGS.reduce((a, r) => a + r.cells, 0), walked: WALKED };
   const S = SINK;
@@ -2633,6 +2671,13 @@ function drawGuides(ctx) {
   ctx.moveTo(FRAME.cx - 3, FRAME.cy); ctx.lineTo(FRAME.cx + 3, FRAME.cy);
   ctx.moveTo(FRAME.cx, FRAME.cy - 3); ctx.lineTo(FRAME.cx, FRAME.cy + 3);
   ctx.stroke();
+  if (settings.cropMarks) {
+    for (const [x, y] of cropMarkPlaces()) {
+      ctx.beginPath();
+      ctx.arc(x, y, 1.6, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -2738,6 +2783,7 @@ function attachKeys() {
         applyScene(SCENES[k]);
         break;
       }
+      case 'x': case 'X': s.cropMarks = !s.cropMarks; refreshControls(); update(); break;
       case 'g': case 'G': s.showGuides = !s.showGuides; refreshControls(); drawPreview(); syncUrl(); break;
       default: return;
     }
@@ -2791,6 +2837,8 @@ function syncVisibility() {
   setVisible('orientation', s.paper !== 'custom');
   setVisible('customW', s.paper === 'custom');
   setVisible('customH', s.paper === 'custom');
+  setVisible('cropMarkAt', s.cropMarks);
+  setVisible('cropMarkGap', s.cropMarks);
   const K = clamp(Math.round(s.rings), 0, MAX_RINGS);
   for (let i = 1; i <= MAX_RINGS; i++) setVisible(`ring${i}`, i <= K);
   const c = s.centre;
@@ -2819,8 +2867,14 @@ function syncVisibility() {
   refreshPenList();
 }
 
+// What a scene leaves as it was: how the sheet is cut and how the files come out.
+const SCENE_KEEPS = ['cropMarks', 'cropMarkAt', 'cropMarkGap', 'optimiseOrder', 'liveUpdate',
+  'showGuides', 'pngDpi'];
+
 function applyScene(sc) {
-  Object.assign(settings, DEFAULTS, sc.s || {});
+  const kept = {};
+  for (const k of SCENE_KEEPS) kept[k] = settings[k];
+  Object.assign(settings, DEFAULTS, sc.s || {}, kept);
   lastScene = sc.label;
   refreshControls();
   resizeForPaper();
@@ -3155,12 +3209,19 @@ function buildControls() {
   }, 'The preview only — the files have no background. On dark paper only the markers ' +
      'and light inks show.');
   addColor(sec, 'Paper colour', 'paperColor');
+  addCheckbox(sec, 'Cut guide dots', 'cropMarks', () => { syncVisibility(); update(); });
+  addSelect(sec, 'Dots round', 'cropMarkAt', MARK_AT, update,
+    'The <b>sheet</b> — plot on a larger piece of paper and trim it back to size; the ' +
+    '<b>picture</b> — cut the margin off and keep the picture to its very edge.');
+  addSlider(sec, 'Most between two dots (mm)', 'cropMarkGap', 20, 600, 5,
+    'A dot in every corner, and each side split evenly so no gap is wider than this — lay ' +
+    'the blade through two dots and cut. <b>X</b> switches them.');
 
   // --- output ---
   sec = addSection(root, 'Output');
   addCheckbox(sec, 'Order the strokes for the plotter', 'optimiseOrder');
   addCheckbox(sec, 'Follow the sliders live', 'liveUpdate', () => syncUrl());
-  addCheckbox(sec, 'Show the rings before the warp', 'showGuides', () => { drawPreview(); syncUrl(); });
+  addCheckbox(sec, 'Show the rings before the warp and the cut guides', 'showGuides', () => { drawPreview(); syncUrl(); });
   createButton('Download SVG [everything]').parent(sec).class('primary')
     .mousePressed(() => exportSvg({ all: true }));
   createButton('Download SVG [one per pen]').parent(sec).mousePressed(() => exportSvg({ perPen: true }));
@@ -3183,7 +3244,7 @@ function buildControls() {
   createDiv('').parent(sec).class('note keys').html(
     '<div><kbd>drag</kbd> turn it · <kbd>shift</kbd>+<kbd>drag</kbd> move it</div>' +
     '<div><kbd>wheel</kbd> <kbd>↑</kbd> <kbd>↓</kbd> the vortex · <kbd>←</kbd> <kbd>→</kbd> turn</div>' +
-    '<div><kbd>T</kbd> trip · <kbd>C</kbd> heart · <kbd>B</kbd> background · <kbd>G</kbd> guides</div>' +
+    '<div><kbd>T</kbd> trip · <kbd>C</kbd> heart · <kbd>B</kbd> background · <kbd>G</kbd> guides · <kbd>X</kbd> cut guides</div>' +
     '<div><kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it · <kbd>M</kbd> rings to chance</div>');
   linkDiv = createDiv('').parent(sec).class('link');
   refreshPenSelects();
@@ -3252,6 +3313,11 @@ function updateStats() {
       html += `<div class="warn">Pen ${i + 1} (${penKind(i)}) will barely show on this paper.</div>`;
     }
   }
+  if (s.cropMarks && perLayer && perLayer[L_GUIDES].strokes) {
+    const pen = [...perLayer[L_GUIDES].pens][0];
+    html += `<div>${perLayer[L_GUIDES].strokes} cut guide dots round the ${s.cropMarkAt}, ` +
+      `in pen ${pen + 1}</div>`;
+  }
   if (s.centre === 'hyperbolic' && (s.hypP - 2) * (s.hypQ - 2) <= 4) {
     html += `<div class="warn">{${s.hypP}, ${s.hypQ}} is not hyperbolic — (p − 2)(q − 2) has to ` +
       `be over 4. Stars are drawn instead.</div>`;
@@ -3279,6 +3345,7 @@ function metaComment() {
     `rings=[${RINGS.map(r => `${r.motif}×${r.cells}`).join(' ')}] ` +
     `warp=vortex${s.twist}/swirl${s.swirl}/breathe${s.breathe}/ripple${s.ripple}/melt${s.melt} ` +
     `aura=${s.aura} background=${s.background}${s.background === 'motif' ? '/' + s.bgMotif : ''} ` +
+    `${s.cropMarks ? `cutguides=${s.cropMarkAt}<=${s.cropMarkGap}mm ` : ''}` +
     `seed=${s.seed} pens=[${pens.join('; ')}] strokes=${strokes}`;
 }
 
