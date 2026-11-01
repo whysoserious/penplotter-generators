@@ -249,6 +249,29 @@
                         <span class="value-display" id="strokeMM-v">0.50</span>
                     </div>
                 </div>
+                <div class="control-group">
+                    <label><input type="checkbox" id="cropMarks" onchange="setCrop()" style="width:auto;margin-right:6px">Cut guide dots</label>
+                </div>
+                <div id="crop-group" style="display:none">
+                    <div class="control-group">
+                        <label>Dots round</label>
+                        <select id="cropMarkAt" onchange="setCrop()" style="
+                            width:100%; padding:8px 12px; border-radius:8px;
+                            border:1px solid var(--anthropic-light-gray);
+                            font-family:'Poppins',sans-serif; font-size:13px;
+                            background:var(--anthropic-light); cursor:pointer;">
+                            <option value="sheet" selected>the sheet — trim a larger piece back to size</option>
+                            <option value="picture">the picture — cut the margin off</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label>Most between two dots (mm)</label>
+                        <div class="slider-container">
+                            <input type="range" id="cropMarkGap" min="20" max="600" step="5" value="400" oninput="setP('cropMarkGap',this.value)">
+                            <span class="value-display" id="cropMarkGap-v">400</span>
+                        </div>
+                    </div>
+                </div>
                 <div class="layer-info" id="paper-info"></div>
             </div>
 
@@ -297,8 +320,35 @@ let P = {
     filled: true,
     contourWeight: 2,
     margin: 20,
-    strokeMM: 0.5
+    strokeMM: 0.5,
+    cropMarkGap: 400     // mm — the most that is ever left between two cut guide dots
 };
+
+// Cut guides — dots to lay the guillotine's blade through, round the sheet or the picture.
+let cropMarks = false;
+let cropMarkAt = 'sheet';
+
+// A dot in every corner and each side split evenly, so no two dots are further apart than
+// asked: lay the blade through two of them and cut. In millimetres on the sheet.
+function cropMarkPlaces() {
+    if (!cropMarks) return [];
+    const pm = getPaperMM();
+    const m = cropMarkAt === 'picture' ? Math.min(P.margin, pm.w / 2, pm.h / 2) : 0;
+    const w = pm.w - 2 * m, h = pm.h - 2 * m;
+    const step = Math.max(1, P.cropMarkGap);
+    const nx = Math.max(1, Math.ceil(w / step)), ny = Math.max(1, Math.ceil(h / step));
+    const out = [];
+    for (let i = 0; i <= nx; i++) out.push([m + w * i / nx, m], [m + w * i / nx, m + h]);
+    for (let j = 1; j < ny; j++) out.push([m, m + h * j / ny], [m + w, m + h * j / ny]);
+    return out;
+}
+
+function setCrop() {
+    cropMarks = document.getElementById('cropMarks').checked;
+    cropMarkAt = document.getElementById('cropMarkAt').value;
+    document.getElementById('crop-group').style.display = cropMarks ? '' : 'none';
+    redraw_all();
+}
 
 const DEFAULTS = JSON.parse(JSON.stringify(P));
 
@@ -492,6 +542,9 @@ function redraw_all() {
     rect(px + P.margin * paperScale, py + P.margin * paperScale,
          drawW * paperScale, drawH * paperScale);
     drawingContext.setLineDash([]);
+    stroke(0);
+    strokeWeight(3);
+    for (const [x, y] of cropMarkPlaces()) point(px + x * paperScale, py + y * paperScale);
 
     // Size label on canvas
     const pmInfo = getPaperMM();
@@ -553,6 +606,13 @@ function downloadSVG() {
 
     let svg = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${pm.w}mm" height="${pm.h}mm" viewBox="0 0 ${pm.w} ${pm.h}">\n`;
+
+    // The cut guides first, a group of their own: each a 0.01 mm stub, one touch of the pen.
+    const marks = cropMarkPlaces();
+    if (marks.length) {
+        const d = marks.map(([x, y]) => `M${(x - 0.005).toFixed(3)},${y.toFixed(3)}h0.01`).join('');
+        svg += `  <g id="cut-guides" fill="none" stroke="#000000" stroke-width="${sw}" stroke-linecap="round"><path d="${d}"/></g>\n`;
+    }
 
     for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
@@ -682,6 +742,10 @@ function resetAll() {
     setP('contourWeight', P.contourWeight);
     setP('margin', P.margin);
     setP('strokeMM', P.strokeMM);
+    setP('cropMarkGap', P.cropMarkGap);
+    document.getElementById('cropMarks').checked = false;
+    document.getElementById('cropMarkAt').value = 'sheet';
+    setCrop();
     toggleFill(P.filled);
     document.getElementById('seed-input').value = P.seed;
     updatePaperInfo();
