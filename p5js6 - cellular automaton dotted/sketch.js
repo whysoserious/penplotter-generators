@@ -19,6 +19,7 @@ const PAPER_SIZES = {
 
 const SEED_TYPES   = ['center', 'random', 'all-alive', 'alternating', 'left-edge'];
 const OUTPUT_MODES = ['dots', 'runs', 'chained'];
+const MARK_AT = ['sheet', 'picture'];
 const DOT_MARKERS  = ['segment', 'point'];
 
 // Presets — rule3 means "5-cell equivalent of Wolfram k=2 r=1 rule N"
@@ -54,6 +55,9 @@ const settings = {
   paper: 'A4',
   orientation: 'portrait',
   margin: 10,
+  cropMarks: false,    // cut guides — dots to lay the guillotine's blade through
+  cropMarkAt: 'sheet',
+  cropMarkGap: 400,    // mm — the most that is ever left between two dots
   penWidth: 0.5,       // mm — Rotring nib size
   pitchPercent: 85,    // grid pitch as a percentage of the pen width
   rule: 0,             // set in setup() from wolfram3to5(18)
@@ -328,6 +332,28 @@ function regenerate() {
   grid.chains = buildChains(grid);
 }
 
+// Where the cut guides stand: a dot in every corner of the sheet — or of the picture, the
+// sheet less the margin — and each side split evenly, so no two dots are further apart
+// than asked. Lay the blade of the guillotine through two of them and cut.
+function cropMarkPlaces() {
+  if (!settings.cropMarks) return [];
+  const [W, H] = paperDims();
+  const m = settings.cropMarkAt === 'picture' ? Math.min(settings.margin, W / 2, H / 2) : 0;
+  const B = { x0: m, y0: m, w: W - 2 * m, h: H - 2 * m };
+  const step = Math.max(1, settings.cropMarkGap);
+  const nx = Math.max(1, Math.ceil(B.w / step)), ny = Math.max(1, Math.ceil(B.h / step));
+  const out = [];
+  for (let i = 0; i <= nx; i++) {             // top and bottom, corners included
+    const x = B.x0 + B.w * i / nx;
+    out.push([x, B.y0], [x, B.y0 + B.h]);
+  }
+  for (let j = 1; j < ny; j++) {              // the sides, the corners already placed
+    const y = B.y0 + B.h * j / ny;
+    out.push([B.x0, y], [B.x0 + B.w, y]);
+  }
+  return out;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////
 // Shapes — everything the pen has to draw, as flat polylines in millimetres.
 // Shape i owns the points off[i] … off[i+1]-1.
@@ -541,6 +567,10 @@ function drawPreview() {
     ctx.stroke();
   }
 
+  ctx.beginPath();                            // the cut guides, one touch of the pen each
+  for (const [x, y] of cropMarkPlaces()) { ctx.moveTo(x - EPS / 2, y); ctx.lineTo(x + EPS / 2, y); }
+  ctx.stroke();
+
   ctx.restore();
 }
 
@@ -564,6 +594,25 @@ function buildControls() {
     settings.orientation = v; resizeForPaper();
   });
   addSlider(root, 'Margin (mm)', 0, 50, settings.margin, 1, v => settings.margin = v);
+  const cropRow = createDiv('').parent(root).class('checkbox-row');
+  const cropCb = createCheckbox('Cut guide dots', settings.cropMarks).parent(cropRow);
+  const cropAt = addSelect(root, 'Dots round', MARK_AT, settings.cropMarkAt, v => {
+    settings.cropMarkAt = v; update();
+  });
+  const cropGap = addSlider(root, 'Most between two dots (mm)', 20, 600, settings.cropMarkGap, 5,
+    v => settings.cropMarkGap = v);
+  const cropNote = createDiv(
+    'A dot in every corner, and each side split evenly so no gap is wider than this — lay ' +
+    'the blade through two dots and cut. <b>sheet</b> is for a plot on a larger piece of ' +
+    'paper trimmed back to size; <b>picture</b> cuts the margin off.'
+  ).parent(root).class('note');
+  const showCrop = () => {
+    for (const el of [cropAt.elt.parentNode, cropGap.elt, cropNote.elt]) {
+      el.style.display = settings.cropMarks ? '' : 'none';
+    }
+  };
+  cropCb.changed(() => { settings.cropMarks = cropCb.checked(); showCrop(); update(); });
+  showCrop();
 
   // --- Pattern ---
   addSection(root, 'Pattern');
@@ -715,7 +764,8 @@ function updateStats() {
   }
 
   const cells   = grid.cols * grid.rows;
-  const cycles  = plan ? plan.order.length : 0;
+  const guides  = cropMarkPlaces().length;
+  const cycles  = (plan ? plan.order.length : 0) + guides;
   const seconds = cycles * PEN_CYCLE_S + plan.ink / DRAW_SPEED + plan.travel / TRAVEL_SPEED;
 
   statsDiv.html(
@@ -730,6 +780,7 @@ function updateStats() {
     `<div>Draws <b>${(plan.ink / 1000).toFixed(1)} m</b>, ` +
     `travels <b>${(plan.travel / 1000).toFixed(1)} m</b> with the pen up</div>` +
     `<div>Rough plot time <b>${formatDuration(seconds)}</b></div>` +
+    (guides ? `<div>${guides} cut guide dots round the ${settings.cropMarkAt}</div>` : '') +
     hint
   );
 }
@@ -757,6 +808,7 @@ function addSlider(parent, labelText, min, max, val, step, onChange) {
   s.input(()    => { const v = Number(s.value());   num.value(v); onChange(v); });
   s.changed(()  => update());
   num.input(()  => { const v = Number(num.value()); s.value(v);   onChange(v); update(); });
+  return field;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -808,10 +860,19 @@ function exportSvg() {
   }
   if (d) body += `  <path d="${d}"/>\n`;
 
+  // The cut guides are a group of their own, plotted first, with the same pen.
+  let guides = '';
+  for (const [x, y] of cropMarkPlaces()) guides += `M${f(x - EPS / 2)},${f(y)}l${f(EPS)},0`;
+  if (guides) {
+    guides = `<g fill="none" stroke="#000000" stroke-width="${f(settings.penWidth)}" ` +
+      `stroke-linecap="round" stroke-linejoin="round">\n  <path d="${guides}"/>\n</g>\n`;
+  }
+
   const meta =
     `rule=${settings.rule} seed=${settings.seedType}/${settings.seedValue} ` +
     `wrap=${settings.wrapEdges} pen=${settings.penWidth}mm pitch=${p.toFixed(3)}mm ` +
     `grid=${cols}x${rows} dots=${grid.alive} mode=${settings.outputMode} ` +
+    `${settings.cropMarks ? `cutguides=${settings.cropMarkAt}<=${settings.cropMarkGap}mm ` : ''}` +
     `strokes=${order.length} ink=${(plan.ink / 1000).toFixed(1)}m travel=${(plan.travel / 1000).toFixed(1)}m`;
 
   const svg =
@@ -819,6 +880,7 @@ function exportSvg() {
     `<!-- ${meta} -->\n` +
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
     `width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}">\n` +
+    guides +
     `<g fill="none" stroke="#000000" stroke-width="${f(settings.penWidth)}" ` +
     `stroke-linecap="round" stroke-linejoin="round">\n` +
     body +
