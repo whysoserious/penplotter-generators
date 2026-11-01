@@ -31,6 +31,7 @@ const EDGE_MODES    = ['none', 'equal width'];
 const SHAPES        = ['linear', 'power', 'smoothstep', 'logistic', 'gaussian', 'step'];
 const DITHERS       = ['blue noise', 'random', 'ordered'];
 const DOT_MARKERS   = ['segment', 'point'];
+const MARK_AT       = ['sheet', 'picture'];
 
 const PRESETS = [
   { label: '— select preset —' },
@@ -134,6 +135,9 @@ const settings = {
   orientation: 'portrait',
   margin: 10,
   penWidth: 0.5,        // mm — Rotring nib size
+  cropMarks: false,     // cut guides — dots to lay the guillotine's blade through
+  cropMarkAt: 'sheet',
+  cropMarkGap: 400,     // mm — the most that is ever left between two dots
   pitchPercent: 85,     // cell pitch as a percentage of the pen width
 
   // the surface
@@ -209,7 +213,7 @@ let statsDiv, btnInkA, btnInkB, rampCanvas;
 let grid   = null;           // { W, H, p, cols, rows, cells, x0, y0 }
 let field  = null;           // { sig, vals, hist, … } — height at every cell
 let sample = null;           // { count, xs, ys, col, nA, nB, plut, alut, … }
-let layers = null;           // { A: layer, B: layer } — layer = { n, shapes, plan }
+let layers = null;           // { A: layer, B: layer, G: layer } — layer = { n, shapes, plan }
 let lastMs = 0;
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -609,6 +613,7 @@ function update() {
     field  = ensureField(grid);
     sample = sampleDots(grid, field);
     layers = { A: buildLayer(sample, 0), B: buildLayer(sample, 1) };
+    layers.G = cropMarkLayer();
   }
 
   lastMs = performance.now() - t0;
@@ -926,6 +931,45 @@ function buildLayer(s, which) {
   return { n, shapes, plan: orderShapes(shapes) };
 }
 
+// Where the cut guides stand: a dot in every corner of the sheet — or of the picture, the
+// sheet less the margin — and each side split evenly, so no two dots are further apart
+// than asked. Lay the blade of the guillotine through two of them and cut.
+function cropMarkPlaces() {
+  const [W, H] = paperDims();
+  const m = settings.cropMarkAt === 'picture' ? Math.min(settings.margin, W / 2, H / 2) : 0;
+  const B = { x0: m, y0: m, w: W - 2 * m, h: H - 2 * m };
+  const step = Math.max(1, settings.cropMarkGap);
+  const nx = Math.max(1, Math.ceil(B.w / step)), ny = Math.max(1, Math.ceil(B.h / step));
+  const out = [];
+  for (let i = 0; i <= nx; i++) {             // top and bottom, corners included
+    const x = B.x0 + B.w * i / nx;
+    out.push([x, B.y0], [x, B.y0 + B.h]);
+  }
+  for (let j = 1; j < ny; j++) {              // the sides, the corners already placed
+    const y = B.y0 + B.h * j / ny;
+    out.push([B.x0, y], [B.x0 + B.w, y]);
+  }
+  return out;
+}
+
+// The cut guides are a layer of their own, drawn with the first ink the sheet uses — A,
+// unless A has no dots — so they go down once, with that pen, before its dots.
+function cropMarkLayer() {
+  const pen = layers.A.n || !layers.B.n ? 'A' : 'B';
+  if (!settings.cropMarks) return { n: 0, pen, shapes: null, plan: null };
+  const places = cropMarkPlaces();
+  const n = places.length;
+  const pts = new Float64Array(n * 4);
+  const off = new Int32Array(n + 1);
+  places.forEach(([x, y], k) => {
+    pts[k * 4]     = x - EPS / 2; pts[k * 4 + 1] = y;
+    pts[k * 4 + 2] = x + EPS / 2; pts[k * 4 + 3] = y;
+    off[k + 1] = (k + 1) * 2;
+  });
+  const shapes = { pts, off };
+  return { n, pen, shapes, plan: orderShapes(shapes) };
+}
+
 // Greedy nearest-neighbour over shape endpoints, either end allowed as the entry point,
 // with a uniform bucket grid so the search stays local. Scan order would otherwise send
 // the pen across the full width of the sheet on every row. Greedy lands a little above
@@ -1127,6 +1171,7 @@ function drawPreview() {
   // Ink B first so ink A ends up on top, matching a plot drawn black last.
   if (settings.showB) strokeLayer(ctx, layers.B, settings.inkB, s);
   if (settings.showA) strokeLayer(ctx, layers.A, settings.inkA, s);
+  strokeLayer(ctx, layers.G, layers.G.pen === 'A' ? settings.inkA : settings.inkB, s);
 }
 
 function strokeLayer(ctx, layer, colour, s) {
@@ -1191,6 +1236,13 @@ function buildControls() {
   addSelect(root, 'Size', 'paper', Object.keys(PAPER_SIZES), resizeForPaper);
   addSelect(root, 'Orientation', 'orientation', ['portrait', 'landscape'], resizeForPaper);
   addSlider(root, 'Margin (mm)', 'margin', 0, 50, 1);
+  addCheckbox(root, 'Cut guide dots', 'cropMarks');
+  addSelect(root, 'Dots round', 'cropMarkAt', MARK_AT, update,
+    '<b>sheet</b> — plot on a larger piece of paper and trim it back to size; ' +
+    '<b>picture</b> — cut the margin off and keep the dots to their very edge.');
+  addSlider(root, 'Most between two dots (mm)', 'cropMarkGap', 20, 600, 5,
+    'A dot in every corner, and each side split evenly so no gap is wider than this — lay ' +
+    'the blade through two dots and cut. They go with ink A, or with B if A has no dots.');
 
   // --- Dot count ---
   addSection(root, 'Dot count');
@@ -1363,6 +1415,7 @@ function buildControls() {
     '<b>segment</b> — 0.01 mm stub, survives every plotter toolchain.<br>' +
     '<b>point</b> — zero-length path, smaller file, some software drops it.');
   addCheckbox(root, 'Optimise stroke order', 'optimiseOrder');
+  syncVisibility();
 }
 
 // The export buttons wear the ink they export, so there is no doubt which is which.
@@ -1377,12 +1430,18 @@ function applyPreset(patch) {
     if (setters[k]) setters[k](patch[k]);
   }
   setVisible('edgeWidth', settings.edgeMode === 'equal width');
+  syncVisibility();
   refreshExportButtons();
   update();
 }
 
 function addSection(parent, title) {
   createDiv(title).parent(parent).class('section');
+}
+
+function syncVisibility() {
+  setVisible('cropMarkAt', settings.cropMarks);
+  setVisible('cropMarkGap', settings.cropMarks);
 }
 
 function setVisible(key, on) {
@@ -1440,6 +1499,7 @@ function addCheckbox(parent, labelText, key, redrawOnly) {
   setters[key] = v => cb.checked(!!v);
   cb.changed(() => {
     settings[key] = cb.checked();
+    syncVisibility();
     if (redrawOnly) { drawPreview(); updateStats(); } else update();
   });
   return cb;
@@ -1508,9 +1568,10 @@ function updateStats() {
     return;
   }
 
-  const A = layers.A, B = layers.B;
+  const A = layers.A, B = layers.B, G = layers.G;
   const total = sample.count;
-  const secA = layerSeconds(A), secB = layerSeconds(B);
+  let secA = layerSeconds(A), secB = layerSeconds(B);
+  if (G.pen === 'A') secA += layerSeconds(G); else secB += layerSeconds(G);
   const covPct = 100 * total / grid.cells;
 
   const swatch = c => `<span class="sw" style="background:${c}"></span>`;
@@ -1561,6 +1622,7 @@ function updateStats() {
     `<b>${(B.plan.travel / 1000).toFixed(1)} m</b> with the pen up</div>` +
     `<div>Rough plot time <b>${formatDuration(secA)}</b> + ` +
     `<b>${formatDuration(secB)}</b> = <b>${formatDuration(secA + secB)}</b></div>` +
+    (G.n ? `<div>${G.n} cut guide dots round the ${settings.cropMarkAt}, in ink ${G.pen}</div>` : '') +
     `<div class="dim">generated in ${Math.round(lastMs)} ms</div>` +
     warn
   );
@@ -1617,6 +1679,7 @@ function metaComment() {
     `k${sample.scale === Infinity ? 'max' : sample.scale.toFixed(3)} ` +
     `curve2=${s.colorShape}@${s.colorCentre}±${s.colorWidth}` +
     `${s.colorInvert ? ',swapped' : ''},decorr${s.decorrelation}% ` +
+    `${s.cropMarks ? `cutguides=${s.cropMarkAt}<=${s.cropMarkGap}mm ` : ''}` +
     `pen=${s.penWidth}mm pitch=${pitchMm().toFixed(3)}mm ` +
     `grid=${grid.cols}x${grid.rows} dots=${sample.count}(A ${layers.A.n}/B ${layers.B.n})`;
 }
@@ -1641,7 +1704,18 @@ function exportSvg(which) {
   const fmt = n => String(+n.toFixed(3));
   const both = pick.length > 1;
 
+  // the cut guides go first, with the pen they belong to — in its file and in both
   let groups = '';
+  const G = layers.G;
+  if (G.n && pick.some(([k]) => k === G.pen)) {
+    const colour = G.pen === 'A' ? settings.inkA : settings.inkB;
+    groups +=
+      `<g${both ? ' inkscape:groupmode="layer" inkscape:label="cut guides"' : ''} fill="none" ` +
+      `stroke="${colour}" stroke-width="${fmt(settings.penWidth)}" ` +
+      `stroke-linecap="round" stroke-linejoin="round">\n` +
+      layerBody(G) +
+      `</g>\n`;
+  }
   for (const [k, colour] of pick) {
     const layerAttrs = both
       ? ` inkscape:groupmode="layer" inkscape:label="ink ${k}"` : '';
