@@ -32,15 +32,23 @@ repository root run `python3 -m http.server 8000` and open
    thickens or thins the fog. <kbd>S</kbd> steps through the views, <kbd>T</kbd> through the
    techniques, <kbd>V</kbd> through the previews (the plot, the grey picture, both),
    <kbd>I</kbd> turns to drawing the light, <kbd>R</kbd> rolls a seed, <kbd>[</kbd>
-   <kbd>]</kbd> step it, <kbd>G</kbd> shows the horizon and the lamps.
+   <kbd>]</kbd> step it, <kbd>X</kbd> switches the cut guides, <kbd>G</kbd> shows the
+   horizon, the lamps and where the cut guides stand.
 3. **Download SVG [everything]** writes the sheet, a group per pen; **[one per pen]** a file
-   per pass; a button per layer writes the tone, the edges or the border alone.
+   per pass; a button per layer writes the tone, the edges, the border or the cut guides
+   alone.
    **Download PNG** saves the preview. **Copy link** puts every setting in the clipboard as a
    URL — all but a loaded photograph, which has to be loaded again.
 
 The paper is any of A0–A5 and B0–B5, either way round, or **custom**; the **Picture** is cut
 to 4:3, 3:2, 16:9, 2:1, 1:1, 3:4 or the whole room inside the margin, with a line round it
 if asked. Everything is in millimetres, and the SVG is the sheet at 1:1.
+
+**Cut guide dots** (under **Paper**) are for trimming the plot on a guillotine: a dot in
+every corner, and each side split evenly so that no two dots are further apart than **Most
+between two dots** — lay the blade through two of them and cut. **Dots round** the
+**sheet** is for a plot made on a larger piece of paper and trimmed back to size; round the
+**picture** cuts the margin off. A dot is one touch of the pen, and no margin clips it.
 
 ## How it is made
 
@@ -130,7 +138,8 @@ a white marker with the lines spaced wider than it is.
 No fills and no background rectangle. `stroke-width` is each pen's own nib and the caps are
 round. **everything** is one `<g>` per pen; a layer's file is the tone, the edges or the
 border alone. Every file is the same sheet — the same `width`, `height` and `viewBox` in
-millimetres. Strokes come out ordered greedily; `vpype-process.sh` is the usual next step.
+millimetres. The cut guides are a layer of their own in the first pen the sheet uses: they
+are in **everything** and in that one pen's file, so they are plotted once. Strokes come out ordered greedily; `vpype-process.sh` is the usual next step.
 Two comments ride at the top of every file: the settings in one line, and the URL that
 rebuilds the sheet.
 

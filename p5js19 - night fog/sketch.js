@@ -67,8 +67,10 @@ const LAYERS = [
   { id: 'tone',   label: 'tone',   pen: 'tonePen' },
   { id: 'lines',  label: 'lines',  pen: 'linesPen' },
   { id: 'border', label: 'border', pen: 'borderPen' },
+  { id: 'guides', label: 'cut guides', pen: 'tonePen' },
 ];
-const L_TONE = 0, L_LINES = 1, L_BORDER = 2;
+const L_TONE = 0, L_LINES = 1, L_BORDER = 2, L_GUIDES = 3;
+const MARK_AT = ['sheet', 'picture'];
 
 const MAX_STROKES   = 400_000;
 const BUSY_STROKES  = 40_000;
@@ -87,6 +89,9 @@ const settings = {
   margin: 15,
   frame: '4:3',
   border: true,
+  cropMarks: false,        // cut guides — dots to lay the guillotine's blade through
+  cropMarkAt: 'sheet',
+  cropMarkGap: 400,        // mm — the most that is ever left between two dots
   paperTone: 'white',
   paperColor: '#fbfaf5',   // the preview only — the files have no background
   invert: false,           // draw the light, for white ink on black paper
@@ -1711,6 +1716,38 @@ function emitLines() {
 ////////////////////////////////////////////////////////////////////////////////////////
 // Everything, in order
 
+// Where the cut guides stand: a dot in every corner of the sheet — or of the picture — and
+// each side split evenly, so no two dots are further apart than asked. Lay the blade of
+// the guillotine through two of them and cut.
+function cropMarkPlaces() {
+  const [W, H] = paperDims();
+  const B = settings.cropMarkAt === 'picture' && F
+    ? { x0: F.x0, y0: F.y0, x1: F.x0 + F.w, y1: F.y0 + F.h, w: F.w, h: F.h }
+    : { x0: 0, y0: 0, x1: W, y1: H, w: W, h: H };
+  const step = Math.max(1, settings.cropMarkGap);
+  const nx = Math.max(1, Math.ceil(B.w / step)), ny = Math.max(1, Math.ceil(B.h / step));
+  const out = [];
+  for (let i = 0; i <= nx; i++) {             // top and bottom, corners included
+    const x = B.x0 + B.w * i / nx;
+    out.push([x, B.y0], [x, B.y1]);
+  }
+  for (let j = 1; j < ny; j++) {              // the sides, the corners already placed
+    const y = B.y0 + B.h * j / ny;
+    out.push([B.x0, y], [B.x1, y]);
+  }
+  return out;
+}
+
+// A dot is one touch of the pen, and no pen's box clips it: it stands on the very edge. It
+// goes with the first pen the sheet uses, so it is plotted once and before anything else.
+function cropMarkDots() {
+  if (!settings.cropMarks) return;
+  const [W] = paperDims();
+  LAY = L_GUIDES;
+  setPen(SINK.ink.length ? Math.min(...new Set(SINK.ink)) : layerPen(L_TONE));
+  for (const [x, y] of cropMarkPlaces()) pushRun([x, x + (x > W / 2 ? -EPS : EPS)], [y, y]);
+}
+
 function buildShapes() {
   const s = settings;
   makeFrame();
@@ -1744,6 +1781,7 @@ function buildShapes() {
     const x0 = F.x0, y0 = F.y0, x1 = F.x0 + F.w, y1 = F.y0 + F.h;
     emit([x0, x1, x1, x0, x0], [y0, y0, y1, y1, y0]);
   }
+  cropMarkDots();
 
   counts = { dots, edges, ink: meanInk };
   const S = SINK;
@@ -2026,6 +2064,17 @@ function drawGuides(ctx) {
     ctx.stroke();
   }
   ctx.restore();
+  if (settings.cropMarks) {
+    ctx.save();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 0.35;
+    for (const [x, y] of cropMarkPlaces()) {
+      ctx.beginPath();
+      ctx.arc(x, y, 1.6, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -2121,6 +2170,7 @@ function attachKeys() {
         applyScene(SCENES[k]);
         break;
       }
+      case 'x': case 'X': s.cropMarks = !s.cropMarks; refreshControls(); update(); break;
       case 'g': case 'G': s.showGuides = !s.showGuides; refreshControls(); drawPreview(); syncUrl(); break;
       default: return;
     }
@@ -2138,6 +2188,8 @@ function syncVisibility() {
   setVisible('orientation', s.paper !== 'custom');
   setVisible('customW', s.paper === 'custom');
   setVisible('customH', s.paper === 'custom');
+  setVisible('cropMarkAt', s.cropMarks);
+  setVisible('cropMarkGap', s.cropMarks);
   const scene = s.source === 'scene';
   for (const id of ['sec-sky', 'sec-emb', 'sec-lamps', 'sec-trees', 'sec-ground', 'sec-road', 'sec-stairs']) {
     const el = document.getElementById(id);
@@ -2378,6 +2430,13 @@ function buildControls() {
   addSlider(sec, 'Margin (mm)', 'margin', 0, 100, 1);
   addSelect(sec, 'Picture', 'frame', FRAME_NAMES, update, 'The picture\'s proportions, inside the margin.');
   addCheckbox(sec, 'A line round the picture', 'border');
+  addCheckbox(sec, 'Cut guide dots', 'cropMarks', () => { syncVisibility(); update(); });
+  addSelect(sec, 'Dots round', 'cropMarkAt', MARK_AT, update,
+    'The <b>sheet</b> — plot on a larger piece of paper and trim it back to size; the ' +
+    '<b>picture</b> — cut the margin off and keep the picture to its very edge.');
+  addSlider(sec, 'Most between two dots (mm)', 'cropMarkGap', 20, 600, 5,
+    'A dot in every corner, and each side split evenly so no gap is wider than this — lay ' +
+    'the blade through two dots and cut. <b>X</b> switches them.');
   addSelect(sec, 'Paper', 'paperTone', TONES, () => {
     if (PAPER_TONES[settings.paperTone]) {
       settings.paperColor = PAPER_TONES[settings.paperTone];
@@ -2392,7 +2451,7 @@ function buildControls() {
     '<b>plot</b>; <b>picture</b> — the greys the lines are made from; <b>both</b>. <b>V</b> steps.');
   addCheckbox(sec, 'Order the strokes for the plotter', 'optimiseOrder');
   addCheckbox(sec, 'Follow the sliders live', 'liveUpdate', () => syncUrl());
-  addCheckbox(sec, 'Show the horizon and the lamps', 'showGuides', () => { drawPreview(); syncUrl(); });
+  addCheckbox(sec, 'Show the horizon, the lamps and the cut guides', 'showGuides', () => { drawPreview(); syncUrl(); });
   createButton('Download SVG [everything]').parent(sec).class('primary')
     .mousePressed(() => exportSvg({ all: true }));
   createButton('Download SVG [one per pen]').parent(sec).mousePressed(() => exportSvg({ perPen: true }));
@@ -2400,8 +2459,8 @@ function buildControls() {
   LAYERS.forEach((ly, li) => {
     layerButtons[li] = createButton('').parent(lb).mousePressed(() => exportSvg({ layer: li }));
   });
-  addNote(sec, 'Everything is one file, a group per pen; a layer\'s file is the tone, the edges ' +
-    'or the border alone. Every file is the whole sheet in millimetres.');
+  addNote(sec, 'Everything is one file, a group per pen; a layer\'s file is the tone, the edges, ' +
+    'the border or the cut guides alone. Every file is the whole sheet in millimetres.');
   addSlider(sec, 'Picture (dpi)', 'pngDpi', 50, 600, 10, '', () => syncUrl());
   createButton('Download PNG').parent(sec).mousePressed(exportPng);
   const row = createDiv('').parent(sec).class('btn-row');
@@ -2414,7 +2473,7 @@ function buildControls() {
   createDiv('').parent(sec).class('note keys').html(
     '<div><kbd>drag</kbd> horizon up and down, lamps along · <kbd>shift</kbd>+<kbd>drag</kbd> trees</div>' +
     '<div><kbd>wheel</kbd> the fog · <kbd>S</kbd> view · <kbd>T</kbd> technique · <kbd>V</kbd> preview</div>' +
-    '<div><kbd>I</kbd> draw the light · <kbd>G</kbd> guides</div>' +
+    '<div><kbd>I</kbd> draw the light · <kbd>G</kbd> guides · <kbd>X</kbd> cut guides</div>' +
     '<div><kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it</div>');
   linkDiv = createDiv('').parent(sec).class('link');
   refreshPenSelects();
@@ -2448,6 +2507,11 @@ function updateStats() {
     `<div>Picture ${PIC ? PIC.w + ' × ' + PIC.h : '—'} px · F ${F.w.toFixed(0)} × ${F.h.toFixed(0)} mm</div>` +
     `<div>Pen up for ${(plan.travel / 1000).toFixed(1)} m between strokes</div>` +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ${lastMs.toFixed(0)} ms to build</div>`;
+  if (s.cropMarks && perLayer && perLayer[L_GUIDES].strokes) {
+    const pen = [...perLayer[L_GUIDES].pens][0];
+    html += `<div>${perLayer[L_GUIDES].strokes} cut guide dots round the ${s.cropMarkAt}, ` +
+      `in pen ${pen + 1}</div>`;
+  }
   if (s.source === 'photo' && !PHOTO) {
     html += '<div class="warn">No photo loaded — load one under <b>View</b>.</div>';
   }
@@ -2477,6 +2541,7 @@ function metaComment() {
   return `night fog — ${s.source === 'photo' ? 'photo ' + (PHOTO ? PHOTO.name : '') : 'scene'} ` +
     `${s.technique}${s.technique === 'line dither' ? ` ${s.spacing}mm/${s.levels}` : ''} ` +
     `lamps=${s.lamps}+${s.farRow} trees=${s.trees} fog=${s.fog}% invert=${s.invert} ` +
+    `${s.cropMarks ? `cutguides=${s.cropMarkAt}<=${s.cropMarkGap}mm ` : ''}` +
     `seed=${s.seed} pens=[${pens.join('; ')}] strokes=${strokes}`;
 }
 
@@ -2527,8 +2592,14 @@ function setVisible(key, on) {
   if (fieldDivs[key]) fieldDivs[key].style('display', on ? '' : 'none');
 }
 
+// What a scene leaves as it was: how the sheet is cut and how the files come out.
+const SCENE_KEEPS = ['cropMarks', 'cropMarkAt', 'cropMarkGap', 'optimiseOrder', 'liveUpdate',
+  'showGuides', 'pngDpi'];
+
 function applyScene(sc) {
-  Object.assign(settings, DEFAULTS, sc.s || {});
+  const kept = {};
+  for (const k of SCENE_KEEPS) kept[k] = settings[k];
+  Object.assign(settings, DEFAULTS, sc.s || {}, kept);
   lastScene = sc.label;
   refreshControls();
   resizeForPaper();
