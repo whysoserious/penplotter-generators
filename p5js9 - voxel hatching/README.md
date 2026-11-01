@@ -156,7 +156,8 @@ Three scenes show it off: **Eroded dunes**, **Marble ziggurat** and **Studded bl
 Tick **Cut guide dots around the image** under *Paper*. Dots are plotted on a rectangle
 around the drawing (or around the margin line), a set distance away from it, with a dot on
 every corner and no gap wider than the chosen maximum — lay a ruler through two dots and
-cut with a knife or a guillotine.
+cut with a knife or a guillotine. Around the **sheet** puts the dots on the very edge of the
+paper, for a plot made on a larger piece and trimmed back to size.
 
 ## How it works
 

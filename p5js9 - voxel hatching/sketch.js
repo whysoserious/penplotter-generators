@@ -53,7 +53,7 @@ const HATCH_PATTERNS = ['cross', 'parallel'];
 const HATCH_MODES    = ['along edges', 'screen angle'];
 const WALL_HATCH     = ['vertical', 'horizontal'];
 const EDGE_MODES     = ['outlines', 'every voxel', 'none'];
-const CUT_AROUND     = ['drawing', 'drawable area'];
+const CUT_AROUND     = ['drawing', 'drawable area', 'sheet'];
 const SHADOW_STYLES  = ['hatch', 'stipple'];
 const SVG_OUTPUTS    = ['both', 'voxels only', 'shadows only', 'all three'];
 const TEXTURES       = ['none', 'grain', 'strata', 'marble', 'chequer', 'speckle',
@@ -2152,9 +2152,14 @@ function makeSink(box) {
 }
 
 // The rectangle the image is cut out along: around the strokes themselves, or around the
-// drawable area, pushed out by the offset and kept on the sheet.
+// drawable area, pushed out by the offset and kept on the sheet — or the edge of the sheet
+// itself, for a plot made on a larger piece of paper and trimmed back to size.
 function cutFrame(v, pts, strokesEnd) {
   let x0, y0, x1, y1;
+  if (settings.cutAround === 'sheet') {          // the very edge, for trimming a larger sheet
+    const [W, H] = paperDims();
+    return { x0: 0, y0: 0, x1: W, y1: H };
+  }
   if (settings.cutAround === 'drawing') {
     x0 = y0 = Infinity; x1 = y1 = -Infinity;
     for (let i = 0; i < strokesEnd * 2; i += 2) {
@@ -2705,9 +2710,10 @@ function buildControls() {
   addSelect(root, 'Orientation', 'orientation', ['portrait', 'landscape'], resizeForPaper);
   addSlider(root, 'Margin (mm)', 'margin', 0, 60, 1);
   addCheckbox(root, 'Cut guide dots around the image', 'cutMarks');
-  addSelect(root, 'Dots go around', 'cutAround', CUT_AROUND, update,
+  addSelect(root, 'Dots go around', 'cutAround', CUT_AROUND, () => { syncVisibility(); update(); },
     '<b>drawing</b> — the strokes themselves, ink included.<br>' +
-    '<b>drawable area</b> — the margin line, the same frame whatever is drawn.');
+    '<b>drawable area</b> — the margin line, the same frame whatever is drawn.<br>' +
+    '<b>sheet</b> — the edge of the paper: plot on a larger piece and trim it back to size.');
   addSlider(root, 'Cut line offset (mm)', 'cutOffset', 0, 50, 0.5,
     'White border left between the image and the cut. The frame never leaves the sheet.');
   addSlider(root, 'Most between two dots (mm)', 'cutGap', 5, 300, 1,
@@ -2994,7 +3000,7 @@ function syncVisibility() {
   setVisible('modelOpacity', settings.showModel);
   setVisible('fov',          settings.projection === 'perspective');
   setVisible('cutAround',    settings.cutMarks);
-  setVisible('cutOffset',    settings.cutMarks);
+  setVisible('cutOffset',    settings.cutMarks && settings.cutAround !== 'sheet');
   setVisible('cutGap',       settings.cutMarks);
   const sh = settings.shadows;
   setVisible('shadowStyle',     sh);
