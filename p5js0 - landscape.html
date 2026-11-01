@@ -376,6 +376,33 @@ proprome<head>
             </div>
         </div>
 
+        <!-- ========== SEKCJA: Kropki do cięcia ========== -->
+        <div class="control-section">
+            <h2>Kropki do cięcia</h2>
+
+            <div class="control">
+                <label>
+                    <input type="checkbox" id="ctrlCropMarks" style="width: auto; margin-right: 6px;">
+                    Kropki na krawędziach (do gilotyny)
+                </label>
+            </div>
+
+            <div id="cropMarkGroup" style="display: none;">
+                <div class="control">
+                    <label>Kropki wokół</label>
+                    <select id="ctrlCropMarkAt">
+                        <option value="sheet" selected>arkusza</option>
+                        <option value="picture">rysunku (wewnątrz marginesów)</option>
+                    </select>
+                </div>
+
+                <div class="control">
+                    <label>Największy odstęp (mm) <span class="value" id="valCropMarkGap">400</span></label>
+                    <input type="range" id="ctrlCropMarkGap" min="20" max="600" value="400" step="5">
+                </div>
+            </div>
+        </div>
+
         <!-- ========== SEKCJA: Losowość i kolory ========== -->
         <div class="control-section">
             <h2>Inne</h2>
@@ -444,6 +471,9 @@ proprome<head>
             pageWidth: 297,            // Szerokość strony w mm (A4 landscape)
             pageHeight: 210,           // Wysokość strony w mm (A4 landscape)
             inverted: false,           // false = białe linie na czarnym tle
+            cropMarks: false,          // Kropki do cięcia gilotyną na krawędziach
+            cropMarkAt: 'sheet',       // 'sheet' — krawędź arkusza, 'picture' — marginesy
+            cropMarkGap: 400,          // Największy odstęp między kropkami (mm)
             seed: null,                // Ziarno losowości (null = losowe)
         };
 
@@ -1329,6 +1359,38 @@ proprome<head>
                 }
             }
 
+            // --- Kropki do cięcia ---
+            // Kropka w każdym rogu, boki podzielone równo, tak żeby żadne dwie
+            // kropki nie były dalej niż cropMarkGap. Przykłada się ostrze do
+            // dwóch kropek i tnie. Kropka to jedno dotknięcie pióra: kreska
+            // 0.01 mm, bo zerowe ścieżki toolchainy wyrzucają. Idą pierwsze.
+            if (CONFIG.cropMarks) {
+                const pic = CONFIG.cropMarkAt === 'picture';
+                const x0 = pic ? CONFIG.marginLeft : 0, y0 = pic ? CONFIG.marginTop : 0;
+                const x1 = pic ? pageW - CONFIG.marginRight : pageW;
+                const y1 = pic ? pageH - CONFIG.marginBottom : pageH;
+                const step = Math.max(1, CONFIG.cropMarkGap);
+                const nx = Math.max(1, Math.ceil((x1 - x0) / step));
+                const ny = Math.max(1, Math.ceil((y1 - y0) / step));
+                const places = [];
+                for (let i = 0; i <= nx; i++) {
+                    const x = x0 + (x1 - x0) * i / nx;
+                    places.push([x, y0], [x, y1]);
+                }
+                for (let j = 1; j < ny; j++) {
+                    const y = y0 + (y1 - y0) * j / ny;
+                    places.push([x0, y], [x1, y]);
+                }
+                let d = '';
+                for (const [x, y] of places) d += 'M' + (+(x - 0.005).toFixed(3)) + ',' + (+y.toFixed(3)) + 'h0.01';
+                const marks = createSVGElement('g', {
+                    'id': 'cut-guides', 'fill': 'none', 'stroke': lineColor,
+                    'stroke-width': CONFIG.strokeWidth, 'stroke-linecap': 'round',
+                });
+                marks.appendChild(createSVGElement('path', { 'd': d }));
+                svg.appendChild(marks);
+            }
+
             // --- Pierwszy ciąg linii ---
             drawPass(CONFIG.scanAngle, svg, random, 'normal');
 
@@ -1546,6 +1608,21 @@ proprome<head>
             CONFIG.inverted = this.checked;
             renderPreview();
         });
+
+
+        // ================================================================
+        // KROPKI DO CIĘCIA
+        // ================================================================
+        document.getElementById('ctrlCropMarks').addEventListener('change', function () {
+            CONFIG.cropMarks = this.checked;
+            document.getElementById('cropMarkGroup').style.display = this.checked ? 'block' : 'none';
+            renderPreview();
+        });
+        document.getElementById('ctrlCropMarkAt').addEventListener('change', function () {
+            CONFIG.cropMarkAt = this.value;
+            renderPreview();
+        });
+        bindSlider('ctrlCropMarkGap', 'valCropMarkGap', 'cropMarkGap', parseInt);
 
 
         // ================================================================
