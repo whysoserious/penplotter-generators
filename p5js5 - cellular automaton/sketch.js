@@ -15,6 +15,8 @@ const PAPER_SIZES = {
 
 const SEED_TYPES = ['center', 'random', 'all-alive', 'alternating', 'left-edge'];
 const CELL_STYLES = ['filled', 'dot', 'outline'];
+const MARK_AT = ['sheet', 'picture'];
+const EPS = 0.01;    // mm — the stub that stands in for a single dot
 
 // Presets — rule3 means "5-cell equivalent of Wolfram k=2 r=1 rule N"
 const PRESETS = [
@@ -38,6 +40,9 @@ const settings = {
   paper: 'A4',
   orientation: 'portrait',
   margin: 5,
+  cropMarks: false,  // cut guides — dots to lay the guillotine's blade through
+  cropMarkAt: 'sheet',
+  cropMarkGap: 400,  // mm — the most that is ever left between two dots
   cellSize: 2,
   rule: 0,           // set in setup() after computing wolfram3to5(18)
   seedType: 'center',
@@ -111,6 +116,28 @@ function setup() {
 function paperDims() {
   const [a, b] = PAPER_SIZES[settings.paper];
   return settings.orientation === 'portrait' ? [a, b] : [b, a];
+}
+
+// Where the cut guides stand: a dot in every corner of the sheet — or of the picture, the
+// sheet less the margin — and each side split evenly, so no two dots are further apart
+// than asked. Lay the blade of the guillotine through two of them and cut.
+function cropMarkPlaces() {
+  if (!settings.cropMarks) return [];
+  const [W, H] = paperDims();
+  const m = settings.cropMarkAt === 'picture' ? Math.min(settings.margin, W / 2, H / 2) : 0;
+  const B = { x0: m, y0: m, w: W - 2 * m, h: H - 2 * m };
+  const step = Math.max(1, settings.cropMarkGap);
+  const nx = Math.max(1, Math.ceil(B.w / step)), ny = Math.max(1, Math.ceil(B.h / step));
+  const out = [];
+  for (let i = 0; i <= nx; i++) {             // top and bottom, corners included
+    const x = B.x0 + B.w * i / nx;
+    out.push([x, B.y0], [x, B.y0 + B.h]);
+  }
+  for (let j = 1; j < ny; j++) {              // the sides, the corners already placed
+    const y = B.y0 + B.h * j / ny;
+    out.push([B.x0, y], [B.x0 + B.w, y]);
+  }
+  return out;
 }
 
 function applyCanvasDisplay() {
@@ -191,6 +218,17 @@ function buildControls() {
   addSlider(root, 'Pen width (mm)', 0.05, 2, settings.penWidth, 0.05, v => settings.penWidth = v);
   addSlider(root, 'Hatch size (mm)', 0.05, 2, settings.hatchSize, 0.05, v => settings.hatchSize = v);
   addSlider(root, 'Margin (mm)', 0, 50, settings.margin, 1, v => settings.margin = v);
+  const cropRow = createDiv('').parent(root).class('checkbox-row');
+  const cropCb = createCheckbox('Cut guide dots', settings.cropMarks).parent(cropRow);
+  const cropAt = addSelect(root, 'Dots round (sheet, or the picture inside the margin)', MARK_AT,
+    settings.cropMarkAt, v => { settings.cropMarkAt = v; regenerate(); });
+  const cropGap = addSlider(root, 'Most between two dots (mm)', 20, 600, settings.cropMarkGap, 5,
+    v => settings.cropMarkGap = v);
+  const showCrop = () => {
+    for (const el of [cropAt.elt.parentNode, cropGap.elt]) el.style.display = settings.cropMarks ? '' : 'none';
+  };
+  cropCb.changed(() => { settings.cropMarks = cropCb.checked(); showCrop(); regenerate(); });
+  showCrop();
   addSlider(root, 'Alive color (0–255)', 0, 255, settings.aliveColor, 1, v => settings.aliveColor = v);
   addSlider(root, 'Dead color (0–255)', 0, 255, settings.deadColor, 1, v => settings.deadColor = v);
 
@@ -249,6 +287,7 @@ function addSlider(parent, labelText, min, max, val, step, onChange) {
   s.input(()   => { const v = Number(s.value());   num.value(v); onChange(v); });
   s.changed(()  => regenerate());
   num.input(()  => { const v = Number(num.value()); s.value(v);  onChange(v); regenerate(); });
+  return field;
 }
 
 function resizeForPaper() {
@@ -323,6 +362,12 @@ function regenerate() {
     }
     row = nextRow(row, rule32);
   }
+
+  // the cut guides, one touch of the pen each
+  stroke(settings.aliveColor);
+  strokeWeight(settings.penWidth);
+  for (const [x, y] of cropMarkPlaces()) point(x, y);
+  strokeWeight(1);
 }
 
 // Boustrophedon hatch points for a square cell.
@@ -424,11 +469,20 @@ function exportSvg() {
     }
   }
 
+  // The cut guides are a group of their own, plotted first, with the same pen.
+  let guides = '';
+  for (const [x, y] of cropMarkPlaces()) guides += `M${fmt(x - EPS / 2)},${fmt(y)}l${fmt(EPS)},0`;
+  if (guides) {
+    guides = `  <g fill="none" stroke="${aliveH}" stroke-width="${fmt(pen)}" ` +
+      `stroke-linecap="round"><path d="${guides}"/></g>\n`;
+  }
+
   const svg =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
     `width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}">\n` +
     `  <rect width="${W}" height="${H}" fill="${deadH}"/>\n` +
+    guides +
     shapes +
     `</svg>\n`;
 
