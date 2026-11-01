@@ -105,6 +105,12 @@ let recordCheckbox;
 let paperSelect;
 let orientationSelect;
 
+// Cut guides — dots to lay the guillotine's blade through, round the sheet or round the
+// picture inside the margins.
+let cropMarks = false;
+let cropMarkAt = 'sheet';
+let cropMarkGap = 400;    // mm — the most that is ever left between two dots
+
 function updateCanvasSize() {
   const [w, h] = PAPER_SIZES[paperSelect.value()];
   const landscape = orientationSelect.value() === 'landscape';
@@ -152,6 +158,17 @@ function setup() {
   pointMargin = pm.getValue();
 
   createElement('br');
+  const cropCb = createCheckbox(' Cut guide dots', cropMarks);
+  cropCb.changed(() => { cropMarks = cropCb.checked(); regenerate(); });
+  createSpan(' round the ');
+  const cropAtSelect = createSelect();
+  cropAtSelect.option('sheet');
+  cropAtSelect.option('picture');
+  cropAtSelect.changed(() => { cropMarkAt = cropAtSelect.value(); regenerate(); });
+  const cg = createSliderControl("Most between two dots (mm): ", 20, 600, cropMarkGap, val => cropMarkGap = val);
+  cropMarkGap = cg.getValue();
+
+  createElement('br');
   const regenerateButton = createButton("Regenerate");
   regenerateButton.mousePressed(regenerate);
 
@@ -173,6 +190,27 @@ function setup() {
 
   beginRecordSvg(this, null);
   regenerate();
+}
+
+// A dot in every corner of the sheet — or of the picture — and each side split evenly, so
+// no two dots are further apart than asked; lay the blade through two of them and cut.
+// A dot is a stub too short to see, so the toolchains keep it. Drawn first, with the pen.
+function drawCropMarks() {
+  if (!cropMarks) return;
+  const pic = cropMarkAt === 'picture';
+  const x0 = pic ? horizontalMargin : 0, y0 = pic ? verticalMargin : 0;
+  const w = X - 2 * x0, h = Y - 2 * y0;
+  const step = Math.max(1, cropMarkGap) * DISPLAY_SCALE;
+  const nx = Math.max(1, Math.ceil(w / step)), ny = Math.max(1, Math.ceil(h / step));
+  const dot = (x, y) => line(x, y, x + 0.01 * DISPLAY_SCALE, y);
+  for (let i = 0; i <= nx; i++) {             // top and bottom, corners included
+    dot(x0 + w * i / nx, y0);
+    dot(x0 + w * i / nx, y0 + h);
+  }
+  for (let j = 1; j < ny; j++) {              // the sides, the corners already placed
+    dot(x0, y0 + h * j / ny);
+    dot(x0 + w, y0 + h * j / ny);
+  }
 }
 
 function regenerate() {
@@ -235,6 +273,7 @@ function regenerate() {
   console.log(`Recording SVG to ${svgFile}`);
 
   clearRecordSvg();
+  drawCropMarks();
 
   for (let i = 0; i < lines.length - 1; ++i) {
     const al = lines[i];
