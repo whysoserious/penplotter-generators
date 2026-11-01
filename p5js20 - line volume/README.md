@@ -37,11 +37,12 @@ repository root run `python3 -m http.server 8000` and open
    and pan. <kbd>S</kbd> steps through the scenes, <kbd>W</kbd> through the ways the walls
    stand, <kbd>F</kbd> through the fields, <kbd>D</kbd> through the ways the dark becomes
    ink, <kbd>L</kbd> through the line styles; <kbd>P</kbd> switches the projection,
-   <kbd>G</kbd> shows the box and the dark zone's middle, <kbd>R</kbd> rolls a seed,
+   <kbd>X</kbd> switches the cut guides, <kbd>G</kbd> shows the box, the dark zone's middle
+   and where the cut guides stand, <kbd>R</kbd> rolls a seed,
    <kbd>[</kbd> <kbd>]</kbd> step it.
 3. **Download SVG [everything]** writes the sheet, a group per pen; **[one per pen]** a file
-   per pass; a button per layer writes the walls, the dark zones, the accent or the edges
-   alone. **Download PNG** saves the preview. **Copy link** puts every setting in the
+   per pass; a button per layer writes the walls, the dark zones, the accent, the edges or
+   the cut guides alone. **Download PNG** saves the preview. **Copy link** puts every setting in the
    clipboard as a URL — all but a loaded photograph, which has to be loaded again.
 
 The paper is any of A0–A5 and B0–B5, either way round, or **custom**. The block is fitted
@@ -155,6 +156,12 @@ away, and with **Upright lines stay upright** the camera looks level and the pic
 shifted instead, as a shift lens does, so the upright lines of the walls stay upright.
 Nothing is hidden: the block is seen through, as in the reference.
 
+**Cut guide dots** (under **Paper**) are for trimming the plot on a guillotine: a dot in
+every corner, and each side split evenly so that no two dots are further apart than **Most
+between two dots** — lay the blade through two of them and cut. **Dots round** the
+**sheet** is for a plot made on a larger piece of paper and trimmed back to size; round the
+**picture** cuts the margin off. A dot is one touch of the pen, and no margin clips it.
+
 ## Pens
 
 Five slots — the drawer's black and red rapidographs and red, silver and white markers by
@@ -167,7 +174,9 @@ the pen is wide.
 
 No fills and no background rectangle. `stroke-width` is each pen's own nib and the caps are
 round. **everything** is one `<g>` per pen; a layer's file is that layer alone. Every file
-is the same sheet — the same `width`, `height` and `viewBox` in millimetres. Strokes come out
+is the same sheet — the same `width`, `height` and `viewBox` in millimetres. The cut guides
+are a layer of their own in the first pen the sheet uses: they are in **everything** and in
+that one pen's file, so they are plotted once. Strokes come out
 ordered greedily, one pen at a time; `vpype-process.sh` is the usual next step. Two
 comments ride at the top of every file: the settings in one line, and the URL that rebuilds
 the sheet.

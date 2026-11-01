@@ -89,8 +89,10 @@ const LAYERS = [
   { id: 'dark',   label: 'dark zones', pen: 'corePen' },
   { id: 'accent', label: 'accent',     pen: 'accentPen' },
   { id: 'edges',  label: 'edges',      pen: 'edgesPen' },
+  { id: 'guides', label: 'cut guides', pen: 'shellPen' },
 ];
-const L_SHELL = 0, L_CORE = 1, L_ACCENT = 2, L_EDGES = 3;
+const L_SHELL = 0, L_CORE = 1, L_ACCENT = 2, L_EDGES = 3, L_GUIDES = 4;
+const MARK_AT = ['sheet', 'picture'];
 
 const MAX_STROKES    = 400_000;
 const BUSY_STROKES   = 40_000;
@@ -113,6 +115,9 @@ const settings = {
   customW: 500,
   customH: 400,
   margin: 20,
+  cropMarks: false,        // cut guides — dots to lay the guillotine's blade through
+  cropMarkAt: 'sheet',
+  cropMarkGap: 400,        // mm — the most that is ever left between two dots
   paperTone: 'white',
   paperColor: '#fbfaf5',   // the preview only — the files have no background
 
@@ -2025,6 +2030,36 @@ function emit(xs, ys, n) {
   flush();
 }
 
+// Where the cut guides stand: a dot in every corner of the sheet — or of the picture — and
+// each side split evenly, so no two dots are further apart than asked. Lay the blade of
+// the guillotine through two of them and cut.
+function cropMarkPlaces() {
+  const [W, H] = paperDims();
+  const B = settings.cropMarkAt === 'picture' ? drawArea() : { x0: 0, y0: 0, x1: W, y1: H, w: W, h: H };
+  const step = Math.max(1, settings.cropMarkGap);
+  const nx = Math.max(1, Math.ceil(B.w / step)), ny = Math.max(1, Math.ceil(B.h / step));
+  const out = [];
+  for (let i = 0; i <= nx; i++) {             // top and bottom, corners included
+    const x = B.x0 + B.w * i / nx;
+    out.push([x, B.y0], [x, B.y1]);
+  }
+  for (let j = 1; j < ny; j++) {              // the sides, the corners already placed
+    const y = B.y0 + B.h * j / ny;
+    out.push([B.x0, y], [B.x1, y]);
+  }
+  return out;
+}
+
+// A dot is one touch of the pen, and no pen's box clips it: it stands on the very edge. It
+// goes with the first pen the sheet uses, so it is plotted once and before anything else.
+function cropMarkDots() {
+  if (!settings.cropMarks) return;
+  const [W] = paperDims();
+  PEN = SINK.ink.length ? Math.min(...new Set(SINK.ink)) : penIdx(settings.shellPen);
+  LAY = L_GUIDES;
+  for (const [x, y] of cropMarkPlaces()) pushPoly([x, x + (x > W / 2 ? -EPS : EPS)], [y, y], 2);
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////
 // Everything, in order
 
@@ -2055,6 +2090,7 @@ function buildShapes() {
     PEN = pens[LAY];
     emit(XS, YS, n);
   }
+  cropMarkDots();
 
   const S2 = SINK;
   perPen = [];
@@ -2311,6 +2347,14 @@ function drawGuides(ctx) {
       ctx.stroke();
     }
   }
+  if (settings.cropMarks) {
+    ctx.setLineDash([]);
+    for (const [x, y] of cropMarkPlaces()) {
+      ctx.beginPath();
+      ctx.arc(x, y, 1.6, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+  }
   ctx.restore();
 }
 
@@ -2462,6 +2506,7 @@ function attachKeys() {
       case '+': case '=': zoomAbout(1.1, null); break;
       case '-': case '_': zoomAbout(1 / 1.1, null); break;
       case '0': resetView(); break;
+      case 'x': case 'X': s.cropMarks = !s.cropMarks; refreshControls(); update(); break;
       case 'g': case 'G': s.showGuides = !s.showGuides; refreshControls(); drawPreview(); syncUrl(); break;
       default: return;
     }
@@ -2479,6 +2524,8 @@ function syncVisibility() {
   setVisible('orientation', s.paper !== 'custom');
   setVisible('customW', s.paper === 'custom');
   setVisible('customH', s.paper === 'custom');
+  setVisible('cropMarkAt', s.cropMarks);
+  setVisible('cropMarkGap', s.cropMarks);
   const cyl = isCylinder();
   setVisible('sizeD', !cyl);
   setVisible('hole', cyl);
@@ -2842,11 +2889,18 @@ function buildControls() {
     drawPreview(); updateStats(); syncUrl();
   }, 'The preview only — the files have no background.');
   addColor(sec, 'Paper colour', 'paperColor');
+  addCheckbox(sec, 'Cut guide dots', 'cropMarks', () => { syncVisibility(); update(); });
+  addSelect(sec, 'Dots round', 'cropMarkAt', MARK_AT, update,
+    'The <b>sheet</b> — plot on a larger piece of paper and trim it back to size; the ' +
+    '<b>picture</b> — cut the margin off and keep the picture to its very edge.');
+  addSlider(sec, 'Most between two dots (mm)', 'cropMarkGap', 20, 600, 5,
+    'A dot in every corner, and each side split evenly so no gap is wider than this — lay ' +
+    'the blade through two dots and cut. <b>X</b> switches them.');
 
   sec = addSection(root, 'Output');
   addCheckbox(sec, 'Order the strokes for the plotter', 'optimiseOrder');
   addCheckbox(sec, 'Follow the sliders live', 'liveUpdate', () => syncUrl());
-  addCheckbox(sec, 'Show the box and the dark zone\'s middle', 'showGuides', () => { drawPreview(); syncUrl(); });
+  addCheckbox(sec, 'Show the box, the dark zone\'s middle and the cut guides', 'showGuides', () => { drawPreview(); syncUrl(); });
   createButton('Download SVG [everything]').parent(sec).class('primary')
     .mousePressed(() => exportSvg({ all: true }));
   createButton('Download SVG [one per pen]').parent(sec).mousePressed(() => exportSvg({ perPen: true }));
@@ -2855,7 +2909,7 @@ function buildControls() {
     layerButtons[li] = createButton('').parent(lb).mousePressed(() => exportSvg({ layer: li }));
   });
   addNote(sec, 'Everything is one file, a group per pen; a layer\'s file is the walls, the dark ' +
-    'zones, the accent or the edges alone. Every file is the whole sheet in millimetres.');
+    'zones, the accent, the edges or the cut guides alone. Every file is the whole sheet in millimetres.');
   addSlider(sec, 'Picture (dpi)', 'pngDpi', 50, 600, 10, '', () => syncUrl());
   createButton('Download PNG').parent(sec).mousePressed(exportPng);
   const row = createDiv('').parent(sec).class('btn-row');
@@ -2869,7 +2923,7 @@ function buildControls() {
     '<div><kbd>drag</kbd> turn · <kbd>shift</kbd>+<kbd>drag</kbd> pan · <kbd>alt</kbd>+<kbd>drag</kbd> the dark zone</div>' +
     '<div><kbd>wheel</kbd> zoom · <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> turn · <kbd>+</kbd><kbd>−</kbd><kbd>0</kbd> zoom</div>' +
     '<div><kbd>S</kbd> scene · <kbd>W</kbd> walls · <kbd>F</kbd> field · <kbd>D</kbd> dark as · <kbd>L</kbd> line style</div>' +
-    '<div><kbd>P</kbd> projection · <kbd>G</kbd> guides · <kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it</div>');
+    '<div><kbd>P</kbd> projection · <kbd>G</kbd> guides · <kbd>X</kbd> cut guides · <kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it</div>');
   linkDiv = createDiv('').parent(sec).class('link');
   refreshPenSelects();
   syncVisibility();
@@ -2943,6 +2997,11 @@ function updateStats() {
     `<div>Pen up for ${(plan.travel / 1000).toFixed(1)} m between strokes</div>` +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ${lastMs.toFixed(0)} ms to build` +
     `${modelMs ? ` (the walls ${modelMs.toFixed(0)} ms)` : ''}</div>`;
+  if (s.cropMarks && perLayer && perLayer[L_GUIDES].strokes) {
+    const pen = [...perLayer[L_GUIDES].pens][0];
+    html += `<div>${perLayer[L_GUIDES].strokes} cut guide dots round the ${s.cropMarkAt}, ` +
+      `in pen ${pen + 1}</div>`;
+  }
   if (s.source === 'photo' && !PHOTO) {
     html += '<div class="warn">No photo loaded — load one under <b>Dark zones</b>.</div>';
   }
@@ -2979,6 +3038,7 @@ function metaComment() {
     `${s.source === 'function' ? ' ' + (s.fn === 'custom' ? s.fnExpr : s.fn) : ''}` +
     `${s.source === 'automaton' ? ' ' + s.caRule : ''} dark=${s.dark} ` +
     `${s.projection} az=${s.azimuth} el=${s.elevation} seed=${s.seed} ` +
+    `${s.cropMarks ? `cutguides=${s.cropMarkAt}<=${s.cropMarkGap}mm ` : ''}` +
     `pens=[${pens.join('; ')}] strokes=${strokes}`;
 }
 
@@ -3030,8 +3090,14 @@ function setVisible(key, on) {
   if (fieldDivs[key]) fieldDivs[key].style('display', on ? '' : 'none');
 }
 
+// What a scene leaves as it was: how the sheet is cut and how the files come out.
+const SCENE_KEEPS = ['cropMarks', 'cropMarkAt', 'cropMarkGap', 'optimiseOrder', 'liveUpdate',
+  'showGuides', 'pngDpi'];
+
 function applyScene(sc) {
-  Object.assign(settings, DEFAULTS, sc.s || {});
+  const kept = {};
+  for (const k of SCENE_KEEPS) kept[k] = settings[k];
+  Object.assign(settings, DEFAULTS, sc.s || {}, kept);
   lastScene = sc.label;
   refreshControls();
   resizeForPaper();
