@@ -50,13 +50,46 @@ const KIND_RANK = { 'silver marker': 0, 'white marker': 1, 'red marker': 2, 'oth
 
 const LAYOUTS    = ['one', 'pair', 'grid'];
 const FACINGS    = ['right', 'left', 'alternate', 'random'];
-const POSES      = ['standing', 'prancing', 'mixed'];
-const EYES       = ['sparkly', 'happy', 'sleepy', 'mixed'];
+const POSES      = ['standing', 'prancing', 'jumping', 'rearing', 'sitting', 'lying', 'mixed'];
+const EYES       = ['sparkly', 'happy', 'sleepy', 'hearts', 'mixed'];
+const MANES      = ['curls', 'waves', 'bob', 'hearts'];
+const TAILS      = ['curls', 'waves', 'hearts', 'mermaid'];
+const ACCESSORIES = ['none', 'crown', 'flowers', 'bow', 'glasses', 'scarf', 'bowtie', 'halo'];
+
+// Characters: each sets some of what a unicorn is like over the settings below — sizes as
+// a share of them, the rest outright. 'mixed' deals them out over a sheet, no two alike
+// until every one has been dealt.
+const CHARACTERS = {
+  'as set below':   {},
+  'classic':        { pose: 'standing', maneStyle: 'curls', tailStyle: 'curls', acc: 'none', mark: 'heart' },
+  'baby':           { head: 1.3, chubby: 0.88, legs: 0.6, horn: 0.55, maneStyle: 'bob', acc: 'bow', eyes: 'sparkly', mark: 'none' },
+  'pony':           { head: 0.85, chubby: 0.9, legs: 1.7, horn: 1.15, maneStyle: 'waves', tailStyle: 'waves', pose: 'prancing' },
+  'chonky':         { chubby: 1.3, legs: 0.5, head: 0.95, mark: 'dots' },
+  'princess':       { acc: 'crown', maneStyle: 'waves', tailStyle: 'waves', mark: 'three hearts' },
+  'flower child':   { acc: 'flowers', eyes: 'happy', mark: 'none' },
+  'sweetheart':     { maneStyle: 'hearts', tailStyle: 'hearts', mark: 'spots' },
+  'in love':        { eyes: 'hearts', mark: 'spots', maneStyle: 'curls' },
+  'sleepyhead':     { pose: 'lying', eyes: 'sleepy', maneStyle: 'bob' },
+  'sitting pretty': { pose: 'sitting', eyes: 'happy', acc: 'bow' },
+  'hopper':         { pose: 'jumping', eyes: 'happy', maneStyle: 'bob', legs: 0.9 },
+  'brave':          { pose: 'rearing', maneStyle: 'waves', tailStyle: 'waves' },
+  'angel':          { acc: 'halo', wings: true, eyes: 'happy' },
+  'pegasus':        { wings: true, pose: 'prancing', maneStyle: 'waves', tailStyle: 'waves' },
+  'mermaid':        { tailStyle: 'mermaid', maneStyle: 'waves', pose: 'standing', mark: 'none' },
+  'fluffy':         { fluffy: true, maneStyle: 'bob', mark: 'none', legs: 0.75 },
+  'smarty':         { acc: 'glasses', maneStyle: 'bob' },
+  'cosy':           { acc: 'scarf', pose: 'sitting', eyes: 'sleepy' },
+  'dapper':         { acc: 'bowtie', maneStyle: 'waves', tailStyle: 'waves' },
+  'dotty':          { mark: 'dots', tailStyle: 'hearts', eyes: 'happy' },
+  'lazy bones':     { pose: 'lying', eyes: 'happy', acc: 'flowers', maneStyle: 'waves', tailStyle: 'waves' },
+};
+const CHARACTER_NAMES = Object.keys(CHARACTERS).concat('mixed');
+const DEALT = Object.keys(CHARACTERS).filter(k => k !== 'as set below');
 const MANE_INKS  = ['curls', 'filled + curls', 'filled', 'plain'];
 const HORN_INKS  = ['candy stripes', 'stripes', 'filled', 'plain'];
 const HOOF_INKS  = ['filled', 'hatched', 'plain'];
 const BLUSHES    = ['filled', 'hatched', 'dashes', 'ring', 'none'];
-const MARKS      = ['heart', 'three hearts', 'none'];
+const MARKS      = ['heart', 'three hearts', 'spots', 'dots', 'none'];
 const HEARTS     = ['scattered', 'everywhere', 'rising', 'frame', 'none'];
 const HEART_INKS = ['filled', 'filled + outline', 'outline', 'double outline', 'hatched'];
 const TWINKLES   = ['stars and dots', 'stars', 'dots'];
@@ -131,7 +164,12 @@ const settings = {
   variety: 35,          // % — how much the unicorns of one sheet differ
 
   // the unicorn
+  character: 'as set below',
   pose: 'standing',
+  maneStyle: 'curls',
+  tailStyle: 'curls',
+  accessory: 'none',
+  fluffy: false,
   headSize: 100,        // %
   chubby: 100,          // %
   legLength: 100,       // %
@@ -204,10 +242,23 @@ const SCENES = [
       wings: true, wingSize: 140, eyes: 'sleepy', cloud: true, hearts: 'rising', heartMin: 5,
       heartMax: 20, figSize: 64, figY: 40,
       heartCount: 14, twinkles: 18, twinkleStyle: 'stars' } },
-  { label: 'Sticker sheet — nine to cut out', s: {
-      layout: 'grid', cols: 3, rows: 3, figSize: 84, variety: 70, eyes: 'mixed', pose: 'mixed',
+  { label: 'Sticker sheet — nine characters', s: {
+      character: 'mixed', layout: 'grid', cols: 3, rows: 3, figSize: 84, variety: 40,
       facing: 'alternate', hearts: 'everywhere', heartMin: 4, heartMax: 9, heartGap: 2.5,
       twinkles: 0, border: 'line' } },
+  { label: 'Everybody — twenty characters', s: {
+      character: 'mixed', paper: 'A3', orientation: 'landscape', layout: 'grid', cols: 5, rows: 4,
+      figSize: 86, variety: 20, facing: 'alternate', hearts: 'everywhere', heartMin: 4,
+      heartMax: 8, heartGap: 6, twinkles: 0 } },
+  { label: 'A princess', s: {
+      character: 'princess', figSize: 76, hearts: 'scattered', heartCount: 14, twinkles: 16 } },
+  { label: 'A mermaid', s: {
+      character: 'mermaid', figSize: 76, hearts: 'rising', heartCount: 10, twinkles: 14 } },
+  { label: 'A sleepyhead on a cloud', s: {
+      character: 'sleepyhead', cloud: true, orientation: 'landscape', figSize: 70,
+      hearts: 'scattered', heartCount: 12, heartMax: 14, twinkles: 20, twinkleStyle: 'stars' } },
+  { label: 'Sitting pretty', s: {
+      character: 'sitting pretty', figSize: 74, heartCount: 14 } },
   { label: 'Raining hearts', s: {
       hearts: 'everywhere', heartMin: 5, heartMax: 22, heartGap: 3, twinkles: 0, figSize: 66 } },
   { label: 'In a frame of hearts', s: {
@@ -222,7 +273,7 @@ const SCENES = [
       orientation: 'landscape', figSize: 92, heartCount: 12, heartMax: 22, twinkles: 8 } },
   { label: 'Colouring page — a sheet of nine', s: {
       colouring: true, outlineStrokes: 2, layout: 'grid', cols: 3, rows: 3, figSize: 84,
-      variety: 70, eyes: 'mixed', pose: 'mixed', facing: 'alternate', hearts: 'everywhere',
+      character: 'mixed', variety: 40, facing: 'alternate', hearts: 'everywhere',
       heartMin: 6, heartMax: 12, heartGap: 3, twinkles: 0 } },
 ];
 
@@ -796,35 +847,37 @@ function offsetLine(xs, ys, d) {
 // its strokes: the strokes depend on the nib, and the nib is known only on the sheet.
 
 function unicornParts(v, res) {
-  const parts = [];
-  const add = (poly, group, o) => {
-    const p = Object.assign({ poly, group, layer: 'outline', line: !!poly, bold: true,
-                              details: [], fills: [] }, o || {});
-    parts.push(p);
-    return p;
-  };
+  let parts = [];
+  const mk = (poly, group, o) => Object.assign({ poly, group, layer: 'outline', line: !!poly, bold: true,
+                                                details: [], fills: [] }, o || {});
+  const add = (poly, group, o) => { const p = mk(poly, group, o); parts.push(p); return p; };
   const N = k => Math.max(16, Math.round(k * res));
   const rnd = v.rnd;
   const C = v.chubby, rh = 0.9 * v.head;
   const bcy = 0.75, brx = 1.12 * C, bry = 0.72 * (0.8 + 0.2 * C);
-  const bodyBot = bcy + bry, legTop = bcy + 0.12, yb = bodyBot + 0.5 * v.legs;
+  const bodyBot = bcy + bry, legTop = bcy + 0.12;
+  const pose = v.pose, sitting = pose === 'sitting', lying = pose === 'lying', rearing = pose === 'rearing';
+  const yb = lying ? bodyBot + 0.1 : bodyBot + 0.5 * v.legs;
   const lw = 0.42 * Math.pow(C, 0.4);
   const hcx = 0.8 * brx, hcy = bcy - bry + 0.3 - 0.96 * rh;
   const H = (x, y) => [hcx + x * rh, hcy + y * rh];
-  const out = { parts, horn: null, top: null };
+  const out = { parts: null, horn: null };
+  const mermaid = v.tailStyle === 'mermaid';
 
-  // lobes along a path, each with a curl in it, bulging away from the point `from`
-  const lobes = (ctrl, count, r0, r1, group, from) => {
+  // lobes along a path, each with a curl in it — or hearts, point inward — bulging away
+  // from the point `from`
+  const lobes = (ctrl, count, r0, r1, group, from, hearts) => {
     const at = pathSample(ctrl, count), made = [];
     // never so few that they come apart: each overlaps the next by a fifth at least
     const spacing = count > 1 ? at.total / (count - 1) : 0;
-    const grow = Math.max(1, 0.62 * spacing / Math.min(r0, r1));
+    const grow = Math.max(1, (hearts ? 0.75 : 0.62) * spacing / Math.min(r0, r1));
     for (let i = 0; i < count; i++) {
       const q = at[i], t = count > 1 ? i / (count - 1) : 0;
       const r = (r0 + (r1 - r0) * t) * grow * (0.92 + 0.16 * rnd());
       const side = (q.nx * (q.x - from[0]) + q.ny * (q.y - from[1])) >= 0 ? 1 : -1;
-      const cx = q.x + side * q.nx * r * 0.25, cy = q.y + side * q.ny * r * 0.25;
-      made.push(lobe(cx, cy, r, group));
+      const nx = side * q.nx, ny = side * q.ny;
+      const cx = q.x + nx * r * 0.25, cy = q.y + ny * r * 0.25;
+      made.push(hearts ? heartLobe(cx, cy, r * 0.85, Math.atan2(nx, -ny), null) : lobe(cx, cy, r, group));
     }
     lobeFill(made);
   };
@@ -836,85 +889,137 @@ function unicornParts(v, res) {
     }
     return p;
   };
+  // a heart in place of a curl: its point to the head, a smaller heart inside it
+  const heartLobe = (cx, cy, r, rot, group) => {
+    const s2 = 2.3 * r, q = heartPts(cx, cy, s2, rot, 0, s2 * 0.02);
+    const p = add(Array.from(q.xs, (x, i) => [x, q.ys[i]]), group);
+    p.heart = [cx, cy, s2, rot];
+    if (v.curls) p.fills.push({ members: [{ heart: [cx, cy, s2, rot] }], layer: 'details', mode: 'ring', insetK: 0.2 });
+    return p;
+  };
   const lobeFill = made => {
     if (!v.maneFill || !made.length) return;
-    made[made.length - 1].fills.push({ members: made.map(p => ({ poly: p.poly })), layer: 'mane',
-                                       mode: 'solid', angle: 0.6 });
+    made[made.length - 1].fills.push({
+      members: made.map(p => p.heart ? { heart: p.heart } : { poly: p.poly, loose: !!p.loose }),
+      layer: 'mane', mode: 'solid', angle: 0.6 });
   };
-  const cloud = (x0, x1, cy, bumps, group) => {
-    add(supPts((x0 + x1) / 2, cy + 0.08, (x1 - x0) / 2 + 0.18, 0.22, 2.6, N(140)), group);
-    for (let i = 0; i < bumps; i++) {
-      const t = bumps > 1 ? i / (bumps - 1) : 0.5;
-      const r = (0.24 + 0.12 * Math.sin(t * Math.PI) + 0.05 * rnd()) * Math.min(1, (x1 - x0) / 1.6 + 0.3);
-      add(ellPts(x0 + t * (x1 - x0), cy - 0.06, r, r * 0.9, 0, N(64)), group);
+  // a lock of hair: from a round root, dir from it, curling by bend towards its tip
+  const lock = (root, dir, len, w0, bend, group) => {
+    const n = N(40), cl = [], wave0 = rnd() * 0.6;
+    let x = root[0], y = root[1];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, a = dir + bend * t * t + 0.28 * Math.sin(2 * Math.PI * 1.1 * t + wave0);
+      cl.push([x, y, a, w0 * Math.pow(1 - t, 0.65) * (0.85 + 0.3 * Math.sin(Math.PI * t * 0.8)) + 0.012]);
+      x += Math.cos(a) * len / n;
+      y += Math.sin(a) * len / n;
     }
-  };
-
-  // the rainbow, behind everything, its feet in two little clouds
-  if (v.rainbow) {
-    const cx = 0.25, cy = yb + 0.1, bw = 0.3 * v.bandW, r0 = 2.45;
-    const bands = Math.max(0, v.bands), r1 = r0 + Math.max(1, bands) * bw;
-    const poly = arcPts(cx, cy, r1, Math.PI, 2 * Math.PI, N(140))
-      .concat(arcPts(cx, cy, r0, 2 * Math.PI, Math.PI, N(120)));
-    const p = add(poly, null, { line: false });
-    for (let i = 0; i < bands; i++) {
-      // every other band in arcs further apart, lighter than a solid band
-      p.fills.push({ members: [{ annulus: [cx, cy, r0 + i * bw, r0 + (i + 1) * bw, Math.PI, 2 * Math.PI] }],
-                     layer: i % 2 ? 'rainbow2' : 'rainbow1', mode: i % 2 ? 'hatch' : 'solid',
-                     gap: settings.heartHatch });
+    const left = [], right = [];
+    for (const [cx, cy, a, w] of cl) {
+      left.push([cx - Math.sin(a) * w, cy + Math.cos(a) * w]);
+      right.push([cx + Math.sin(a) * w, cy - Math.cos(a) * w]);
     }
-    if (v.rainbowLines) {
-      for (let i = 0; i <= Math.max(1, bands); i++) {
-        p.details.push({ pts: arcPts(cx, cy, r0 + i * bw, Math.PI, 2 * Math.PI, N(140)), layer: 'outline' });
-      }
+    const cap = [];
+    for (let i = 1; i < 12; i++) {
+      const a = dir + Math.PI / 2 + Math.PI * i / 12;
+      cap.push([root[0] + Math.cos(a) * cl[0][3], root[1] + Math.sin(a) * cl[0][3]]);
     }
-    for (const side of [-1, 1]) {
-      const fx = cx + side * (r0 + r1) / 2, w = (r1 - r0) / 2 + 0.3;
-      cloud(fx - w * 0.75, fx + w * 0.75, cy - 0.02, 3, 'rainbowCloud' + side);
-    }
-  }
-
-  // a cloud to stand on
-  if (v.cloud) cloud(-brx - 0.45, brx + 1.0, yb + 0.08, 6, 'cloud');
-
-  // the tail
-  const tx = -brx;
-  lobes([[tx + 0.2, bcy - bry * 0.5], [tx - 0.2, bcy - 0.5], [tx - 0.58, bcy - 0.3],
-         [tx - 0.72, bcy + 0.1], [tx - 0.6, bcy + 0.5], [tx - 0.32, bcy + 0.72]],
-        Math.max(5, Math.round(v.curlCount * 0.8)), 0.3 * v.tail, 0.21 * v.tail, 'tail', [0, bcy]);
-
-  // the legs: the far pair behind the body, the near pair one with it
-  const prance = v.pose === 'prancing';
-  const leg = (x, bot, ang, group) => {
-    const shape = supPts(x, (legTop + bot) / 2, lw / 2, (bot - legTop) / 2, 3.2, N(96));
-    const piv = [x, legTop + 0.15];
-    const p = add(rotPts(shape, piv[0], piv[1], ang), group);
-    const cut = bot - 0.2 * Math.sqrt(v.legs);
-    const sub = rotPts(shape.filter(q => q[1] >= cut), piv[0], piv[1], ang);
-    if (sub.length >= 3) {
-      p.details.push({ pts: [sub[0], sub[sub.length - 1]], layer: 'outline' });
-      if (v.hoof === 'filled') p.fills.push({ members: [{ poly: sub }], layer: 'horn', mode: 'solid', angle: ang });
-      if (v.hoof === 'hatched') {
-        p.fills.push({ members: [{ poly: sub }], layer: 'horn', mode: 'hatch', gap: settings.heartHatch * 0.8, angle: ang + 0.8 });
-      }
+    const p = add(left.concat(right.reverse(), cap), group, { loose: true });
+    if (v.curls) {
+      const strand = cl.slice(Math.round(n * 0.12), Math.round(n * 0.85)).map(([cx, cy, a, w]) =>
+        [cx + Math.sin(a) * w * 0.25, cy - Math.cos(a) * w * 0.25]);
+      p.details.push({ pts: strand, layer: 'details', inside: true });
     }
     return p;
   };
-  leg(-0.36 * brx, yb - 0.07, prance ? 0.12 : 0, 'farBack');
-  leg(0.84 * brx, yb - 0.07, prance ? -0.35 : 0, 'farFront');
-  const body = add(supPts(0, bcy, brx, bry, 2.5, N(200)), 'body');
-  leg(-0.66 * brx, yb, prance ? 0.25 : 0, 'body');
-  leg(0.56 * brx, yb, prance ? -0.8 : 0, 'body');
+  const leg = (x, top, bot, ang, group, pivY) => {
+    const shape = supPts(x, (top + bot) / 2, lw / 2, (bot - top) / 2, 3.2, N(96));
+    const piv = [x, pivY === undefined ? top + 0.15 : pivY];
+    const p = mk(rotPts(shape, piv[0], piv[1], ang), group);
+    const cut = bot - 0.2 * Math.sqrt(Math.max(0.3, v.legs));
+    hoof(p, rotPts(shape.filter(q => q[1] >= cut), piv[0], piv[1], ang), ang);
+    return p;
+  };
+  // a leg folded under, lying along the ground with its hoof to the front
+  const tucked = (cx, cy, rx, ry, group) => {
+    const shape = supPts(cx, cy, rx, ry, 3, N(80));
+    const p = mk(shape, group);
+    hoof(p, shape.filter(q => q[0] >= cx + rx - 0.17), Math.PI / 2);
+    return p;
+  };
+  const hoof = (p, sub, ang) => {
+    if (sub.length < 3) return;
+    p.details.push({ pts: [sub[0], sub[sub.length - 1]], layer: 'outline' });
+    if (v.hoof === 'filled') p.fills.push({ members: [{ poly: sub }], layer: 'horn', mode: 'solid', angle: ang });
+    if (v.hoof === 'hatched') {
+      p.fills.push({ members: [{ poly: sub }], layer: 'horn', mode: 'hatch', gap: settings.heartHatch * 0.8, angle: ang + 0.8 });
+    }
+  };
 
-  // the mark on the hip
-  const hip = [-0.42 * brx, bcy + 0.08];
-  if (v.mark === 'heart') {
-    heartOn(body, [hip[0], hip[1], 0.36, -0.25]);
-  } else if (v.mark === 'three hearts') {
-    heartOn(body, [hip[0] - 0.12, hip[1] + 0.06, 0.25, -0.3]);
-    heartOn(body, [hip[0] + 0.14, hip[1] - 0.06, 0.2, 0.25]);
-    heartOn(body, [hip[0] + 0.02, hip[1] - 0.24, 0.15, -0.1]);
+  // the tail
+  const tx = -brx;
+  if (mermaid) {
+    // a fish's tail out of the rump, scales on it and a fin at its end
+    const ctrl = [[-0.45 * brx, bcy + 0.3], [tx - 0.05, bcy + 0.58], [tx - 0.6, bcy + 0.45], [tx - 0.88, bcy + 0.02]];
+    const at = pathSample(ctrl, 10);
+    at.forEach((q, i) => {
+      const r = (0.42 * C - 0.29 * C * i / 9) * v.tail;
+      const p = add(ellPts(q.x, q.y, r, r, 0, N(64)), 'body');
+      if (i > 1) {
+        for (const dx of [-0.35, 0.35]) {
+          p.details.push({ pts: arcPts(q.x + dx * r, q.y - 0.1 * r, 0.32 * r, 0.25, Math.PI - 0.25, 12), layer: 'details' });
+        }
+      }
+    });
+    const end = at[at.length - 1], prev = at[at.length - 2];
+    const a = Math.atan2(end.y - prev.y, end.x - prev.x);
+    for (const da of [-0.55, 0.55]) {
+      const E = [end.x + Math.cos(a + da) * 0.55 * v.tail, end.y + Math.sin(a + da) * 0.55 * v.tail];
+      const f = add(leafPts([end.x, end.y], E, 0.17 * v.tail, N(36)), 'fin');
+      f.details.push({ pts: [[end.x, end.y], [E[0] * 0.8 + end.x * 0.2, E[1] * 0.8 + end.y * 0.2]], layer: 'details', inside: true });
+    }
+  } else if (v.tailStyle === 'waves') {
+    const root = [tx + 0.18, bcy - bry * 0.45];
+    for (let i = 0; i < 3; i++) {
+      const t = i / 2;
+      lock([root[0] + 0.05 * i, root[1] + 0.06 * i], Math.PI * (0.78 - 0.16 * t), (1.25 + 0.15 * t) * v.tail,
+           0.22 * v.tail, -0.5 - 0.3 * rnd(), 'tail');
+    }
+  } else {
+    lobes([[tx + 0.2, bcy - bry * 0.5], [tx - 0.2, bcy - 0.5], [tx - 0.58, bcy - 0.3],
+           [tx - 0.72, bcy + 0.1], [tx - 0.6, bcy + 0.5], [tx - 0.32, bcy + 0.72]],
+          Math.max(5, Math.round(v.curlCount * 0.8)), 0.3 * v.tail, 0.21 * v.tail, 'tail', [0, bcy],
+          v.tailStyle === 'hearts');
   }
+
+  // the legs: the far pair behind the body, the near pair one with it
+  const ang = {
+    standing: [0, 0, 0, 0], prancing: [0.12, -0.35, 0.25, -0.8], jumping: [0.55, -0.55, 0.75, -0.8],
+    rearing: [0.42, -0.9, 0.42, -1.25],
+  }[pose] || [0, 0, 0, 0];
+  const farLegs = [], nearLegs = [];
+  if (lying) {
+    farLegs.push(tucked(0.85 * brx, bodyBot - 0.06, 0.3, 0.12, 'farFront'));
+    nearLegs.push(tucked(-0.35 * brx, bodyBot - 0.03, 0.4, 0.14, 'body'));
+    nearLegs.push(tucked(0.55 * brx, bodyBot - 0.02, 0.4, 0.14, 'body'));
+  } else if (!sitting) {
+    const fb = rearing ? legTop + (yb - legTop) * 0.75 : yb;
+    if (!mermaid) farLegs.push(leg(-0.36 * brx, legTop, yb - 0.07, ang[0], 'farBack'));
+    farLegs.push(leg(0.84 * brx, legTop, fb - 0.07, ang[1], 'farFront'));
+    if (!mermaid) nearLegs.push(leg(-0.66 * brx, legTop, yb, ang[2], 'body'));
+    nearLegs.push(leg(0.56 * brx, legTop, fb, ang[3], 'body'));
+  }
+  parts.push(...farLegs);
+  let body;
+  if (v.fluffy) {
+    // a fleece: a smaller body and a ring of puffs round it
+    body = add(supPts(0, bcy, brx * 0.9, bry * 0.86, 2.5, N(200)), 'body');
+    const ring = supPts(0, bcy, brx * 0.9, bry * 0.86, 2.5, 18);
+    for (const [x, y] of ring) add(ellPts(x, y, 0.2 * C, 0.2 * C, 0, N(48)), 'body');
+  } else {
+    body = add(supPts(0, bcy, brx, bry, 2.5, N(200)), 'body');
+  }
+  parts.push(...nearLegs);
+  const bodyAt = parts.indexOf(body);
 
   // a wing of three feathers
   if (v.wings) {
@@ -928,19 +1033,38 @@ function unicornParts(v, res) {
   }
 
   // the head and its muzzle, one outline
+  const headAt = parts.length;
   add(supPts(hcx, hcy, 1.04 * rh, 0.96 * rh, 2.3, N(200)), 'head');
   const muzzle = add(ellPts(hcx + 0.68 * rh, hcy + 0.4 * rh, 0.5 * rh, 0.4 * rh, 0, N(120)), 'head');
   face(muzzle);
+  if (v.acc === 'bowtie') bowtie();
 
   // the mane down the back of the head
-  lobes([H(-0.02, -0.98), H(-0.5, -0.9), H(-0.92, -0.55), H(-1.08, -0.05), H(-0.98, 0.45), H(-0.72, 0.85)],
-        v.curlCount, 0.3 * rh * v.mane, 0.22 * rh * v.mane, 'mane', [hcx, hcy]);
+  const maneCtrl = [H(-0.02, -0.98), H(-0.5, -0.9), H(-0.92, -0.55), H(-1.08, -0.05), H(-0.98, 0.45), H(-0.72, 0.85)];
+  if (v.maneStyle === 'waves') {
+    // a few long locks falling from the crown down behind the head
+    const k = clamp(Math.round(v.curlCount / 2), 3, 6), at = pathSample(maneCtrl.slice(0, 4), k), made = [];
+    at.forEach((q, i) => {
+      const t = k > 1 ? i / (k - 1) : 0;
+      made.push(lock([q.x, q.y], Math.PI * (0.62 - 0.08 * t), rh * v.mane * (1.55 - 0.35 * t),
+                     0.27 * rh * v.mane, 0.25 + 0.2 * rnd(), 'mane'));
+    });
+    lobeFill(made);
+  } else if (v.maneStyle === 'bob') {
+    lobes(maneCtrl.slice(0, 5), 4, 0.42 * rh * v.mane, 0.36 * rh * v.mane, 'mane', [hcx, hcy]);
+  } else {
+    lobes(maneCtrl, v.curlCount, 0.3 * rh * v.mane, 0.22 * rh * v.mane, 'mane', [hcx, hcy],
+          v.maneStyle === 'hearts');
+  }
+  if (v.acc === 'scarf') scarf();
+  if (v.acc === 'bow') bow();
 
   // the ear
   const ear = add(leafPts(H(-0.33, -0.72), H(-0.62, -1.42), 0.23 * rh, N(40)), null);
-  const eB = H(-0.38, -0.85), eE = H(-0.58, -1.3);
-  const inner = leafPts(eB, eE, 0.1 * rh, N(30));
-  ear.details.push({ pts: inner.slice(0, inner.length), layer: 'details', inside: true, open: true });
+  ear.details.push({ pts: leafPts(H(-0.38, -0.85), H(-0.58, -1.3), 0.1 * rh, N(30)), layer: 'details', inside: true });
+  if (v.acc === 'crown') crown();
+  if (v.acc === 'flowers') flowers();
+  if (v.acc === 'halo') halo();
 
   // the horn
   const Hb = H(0.1, -0.86), hAng = 0.26, hL = rh * v.horn, hw = 0.2 * rh;
@@ -972,11 +1096,18 @@ function unicornParts(v, res) {
   if (v.hornFill) horn.fills.push({ members: [{ poly: horn.poly }], layer: 'horn', mode: 'solid', angle: hAng - Math.PI / 2 });
 
   // the forelock, over the root of the horn
-  const fm = v.mane, fore = [];
-  fore.push(lobe(...H(-0.12, -0.86), 0.25 * rh * fm, 'mane'));
-  fore.push(lobe(...H(0.2, -0.84), 0.21 * rh * fm, 'mane'));
-  fore.push(lobe(...H(0.42, -0.74), 0.14 * rh * fm, 'mane'));
-  lobeFill(fore);
+  const fm = v.mane;
+  if (v.maneStyle === 'waves') {
+    lobeFill([lock(H(-0.12, -0.92), 0.35, 0.62 * rh * fm, 0.17 * rh * fm, 0.9, 'mane')]);
+  } else if (v.maneStyle === 'hearts') {
+    lobeFill([heartLobe(...H(-0.1, -0.9), 0.22 * rh * fm, -0.3, null),
+              heartLobe(...H(0.24, -0.86), 0.18 * rh * fm, 0.35, null)]);
+  } else {
+    const big = v.maneStyle === 'bob' ? 1.25 : 1;
+    lobeFill([lobe(...H(-0.12, -0.86), 0.25 * rh * fm * big, 'mane'),
+              lobe(...H(0.2, -0.84), 0.21 * rh * fm * big, 'mane'),
+              lobe(...H(0.42, -0.74), 0.14 * rh * fm * big, 'mane')]);
+  }
 
   // a heart balloon on a string held in the mouth
   if (v.balloon) {
@@ -990,28 +1121,202 @@ function unicornParts(v, res) {
       str.push([x + w, y]);
     }
     add(null, null, { line: false, details: [{ pts: str, layer: 'outline' }] });
-    const hp = add(heartPts(c[0], c[1], bs, rot, 0, bs * 0.015), null, { bold: false });
-    hp.poly = hp.poly ? Array.from(hp.poly.xs, (x, i) => [x, hp.poly.ys[i]]) : null;
+    const q = heartPts(c[0], c[1], bs, rot, 0, bs * 0.015);
+    const hp = add(Array.from(q.xs, (x, i) => [x, q.ys[i]]), null, { bold: false });
     styleHeart(hp, [c[0], c[1], bs, rot]);
   }
+
+  // sitting or rearing: the whole animal turned about its rump or its hind hooves
+  let turn = null;
+  if (sitting) turn = [-0.78 * brx, bodyBot - 0.05, -0.4];
+  if (rearing) turn = [-0.66 * brx, yb, -0.42];
+  const rp = turn ? (([x, y]) => rotPts([[x, y]], turn[0], turn[1], turn[2])[0]) : (q => q);
+  if (turn) {
+    // the body turns; the head goes where the neck takes it and stays upright
+    const neck = H(-0.3, 0.85), nk = rp(neck), dx = nk[0] - neck[0], dy = nk[1] - neck[1];
+    parts.forEach((p, i) => {
+      if (i < headAt) turnPart(p, turn[0], turn[1], turn[2]);
+      else turnPart(p, 0, 0, 0, dx, dy);
+    });
+    out.horn = [out.horn[0] + dx, out.horn[1] + dy];
+  }
+  let ground = yb, hipPart = body, hip = rp([-0.42 * brx, bcy + 0.08]), hipRot = turn ? turn[2] : 0;
+  if (sitting) {
+    // front legs straight down to the ground; the hind leg a haunch and a foot forward
+    let low = -Infinity;
+    for (const [, y] of body.poly) low = Math.max(low, y);
+    ground = low + 0.02;
+    const fTop = rp([0.56 * brx, legTop + 0.1]), fTop2 = rp([0.84 * brx, legTop + 0.1]);
+    const far = leg(fTop2[0], fTop2[1] - 0.1, ground - 0.06, 0, 'farFront');
+    const near = leg(fTop[0], fTop[1] - 0.1, ground, 0, 'body');
+    const thighC = rp([-0.4 * brx, bcy + 0.28]);
+    const thigh = mk(ellPts(thighC[0], thighC[1], 0.46 * Math.sqrt(C), 0.38, -0.5, N(80)), 'thigh');
+    const foot = tucked(thighC[0] + 0.32, ground - 0.14, 0.36, 0.14, 'thigh');
+    parts.splice(bodyAt + 1, 0, near, thigh, foot);
+    parts.splice(bodyAt, 0, far);
+    hipPart = thigh; hip = thighC; hipRot = -0.3;
+  }
+
+  // the mark on the hip, or spots all over
+  if (v.mark === 'heart') {
+    heartOn(hipPart, [hip[0], hip[1], 0.36, -0.25 + hipRot]);
+  } else if (v.mark === 'three hearts') {
+    for (const [dx, dy, sz, r] of [[-0.12, 0.06, 0.25, -0.3], [0.14, -0.06, 0.2, 0.25], [0.02, -0.24, 0.15, -0.1]]) {
+      const q = sitting ? [hip[0] + dx, hip[1] + dy] : rp([-0.42 * brx + dx, bcy + 0.08 + dy]);
+      heartOn(hipPart, [q[0], q[1], sz, r + hipRot]);
+    }
+  } else if (v.mark === 'spots' || v.mark === 'dots') {
+    const spots = [[-0.55, -0.1], [-0.15, 0.25], [0.3, -0.05], [-0.4, 0.45], [0.05, -0.4], [0.5, 0.35]];
+    for (const [fx, fy] of spots) {
+      const q = rp([fx * brx, bcy + fy * bry]);
+      if (v.mark === 'spots') heartOn(body, [q[0], q[1], 0.2 + 0.08 * rnd(), (rnd() - 0.5) * 0.8 + hipRot]);
+      else {
+        const r = 0.07 + 0.06 * rnd();
+        body.fills.push({ members: [{ poly: ellPts(q[0], q[1], r, r * 0.85, rnd() * 3, N(32)) }],
+                          layer: 'blush', mode: 'solid', angle: 0.4, ring: true });
+      }
+    }
+  }
+
+  // behind it all: a rainbow with its feet in two little clouds, and a cloud to stand on
+  const back = parts;
+  parts = [];
+  if (v.rainbow) {
+    const cx = 0.25, cy = ground + 0.1, bw = 0.3 * v.bandW, r0 = 2.45;
+    const bands = Math.max(0, v.bands), r1 = r0 + Math.max(1, bands) * bw;
+    const poly = arcPts(cx, cy, r1, Math.PI, 2 * Math.PI, N(140))
+      .concat(arcPts(cx, cy, r0, 2 * Math.PI, Math.PI, N(120)));
+    const p = add(poly, null, { line: false });
+    for (let i = 0; i < bands; i++) {
+      // every other band in arcs further apart, lighter than a solid band
+      p.fills.push({ members: [{ annulus: [cx, cy, r0 + i * bw, r0 + (i + 1) * bw, Math.PI, 2 * Math.PI] }],
+                     layer: i % 2 ? 'rainbow2' : 'rainbow1', mode: i % 2 ? 'hatch' : 'solid',
+                     gap: settings.heartHatch });
+    }
+    if (v.rainbowLines) {
+      for (let i = 0; i <= Math.max(1, bands); i++) {
+        p.details.push({ pts: arcPts(cx, cy, r0 + i * bw, Math.PI, 2 * Math.PI, N(140)), layer: 'outline' });
+      }
+    }
+    for (const side of [-1, 1]) {
+      const fx = cx + side * (r0 + r1) / 2, w = (r1 - r0) / 2 + 0.3;
+      cloud(fx - w * 0.75, fx + w * 0.75, cy - 0.02, 3, 'rainbowCloud' + side);
+    }
+  }
+  if (v.cloud) cloud(-brx - 0.45, brx + 1.0, ground + 0.08, 6, 'cloud');
+  out.parts = parts.concat(back);
   return out;
 
-  // the eye, the eyelashes, a nostril, a smile and a blush
+  function cloud(x0, x1, cy, bumps, group) {
+    add(supPts((x0 + x1) / 2, cy + 0.08, (x1 - x0) / 2 + 0.18, 0.22, 2.6, N(140)), group);
+    for (let i = 0; i < bumps; i++) {
+      const t = bumps > 1 ? i / (bumps - 1) : 0.5;
+      const r = (0.24 + 0.12 * Math.sin(t * Math.PI) + 0.05 * rnd()) * Math.min(1, (x1 - x0) / 1.6 + 0.3);
+      add(ellPts(x0 + t * (x1 - x0), cy - 0.06, r, r * 0.9, 0, N(64)), group);
+    }
+  }
+
+  // points given in heads, turned by ang about (0, 0) and put at c
+  function place(pts, c, ang) {
+    const co = Math.cos(ang), si = Math.sin(ang);
+    return pts.map(([x, y]) => [c[0] + (x * co - y * si) * rh, c[1] + (x * si + y * co) * rh]);
+  }
+
+  function crown() {
+    const c = H(-0.2, -1.0), a = -0.3;
+    const pts = [[-0.3, 0.04], [0.3, 0.04], [0.33, -0.36], [0.16, -0.18], [0, -0.42], [-0.16, -0.18], [-0.33, -0.36]];
+    const p = add(place(pts, c, a), 'crown', { loose: true });
+    p.details.push({ pts: place([[-0.34, -0.1], [0.34, -0.1]], c, a), layer: 'details', inside: true });
+    p.fills.push({ members: [{ poly: place([[-0.3, 0.04], [0.3, 0.04], [0.3, -0.1], [-0.3, -0.1]], c, a) }],
+                   layer: 'horn', mode: 'hatch', gap: settings.heartHatch * 0.8, angle: a + 0.8 });
+    for (const [x, y] of [[0.33, -0.4], [0, -0.46], [-0.33, -0.4]]) {
+      const [jx, jy] = place([[x, y]], c, a)[0];
+      const j = add(ellPts(jx, jy, 0.055 * rh, 0.055 * rh, 0, N(28)), null, { bold: false });
+      j.fills.push({ members: [{ poly: j.poly }], layer: 'horn', mode: 'solid', angle: 0, ring: true });
+    }
+  }
+
+  function flowers() {
+    [-2.65, -2.25, -1.9, -1.08, -0.72].forEach((a, k) => {
+      const c = [hcx + Math.cos(a) * 1.0 * rh, hcy + Math.sin(a) * 0.93 * rh], g = 'flower' + k;
+      const turn0 = rnd() * 2;
+      for (let i = 0; i < 5; i++) {
+        const b = turn0 + i * 2 * Math.PI / 5;
+        add(ellPts(c[0] + Math.cos(b) * 0.1 * rh, c[1] + Math.sin(b) * 0.1 * rh, 0.085 * rh, 0.085 * rh, 0, N(32)), g);
+      }
+      const m = add(ellPts(c[0], c[1], 0.06 * rh, 0.06 * rh, 0, N(28)), null, { bold: false });
+      m.fills.push({ members: [{ poly: m.poly }], layer: 'blush', mode: 'solid', angle: 0, ring: true });
+    });
+  }
+
+  function halo() {
+    const c = H(-0.35, -1.75);
+    const p = add(ellPts(c[0], c[1], 0.5 * rh, 0.12 * rh, -0.12, N(80)), null);
+    p.details.push({ pts: ellPts(c[0], c[1], 0.36 * rh, 0.06 * rh, -0.12, N(60)).concat([[c[0] + 0.36 * rh * Math.cos(-0.12), c[1] + 0.36 * rh * Math.sin(-0.12)]]),
+                     layer: 'outline' });
+  }
+
+  function bow() {
+    const K = H(-0.98, -0.25), g = 'bow';
+    const loops = [[-0.3, -0.12, 0.13], [0.3, -0.12, 0.13], [-0.15, 0.27, 0.06], [0.14, 0.27, 0.06]];
+    for (const [dx, dy, w] of loops) {
+      const a = Math.atan2(dy, dx), L = Math.hypot(dx, dy) * rh;
+      const p = add(w > 0.1
+        ? ellPts(K[0] + Math.cos(a) * L * 0.55, K[1] + Math.sin(a) * L * 0.55, L * 0.6, w * rh, a, N(40))
+        : leafPts(K, [K[0] + dx * rh, K[1] + dy * rh], w * rh, N(32)), g);
+      p.fills.push({ members: [{ poly: p.poly }], layer: 'horn', mode: 'solid', angle: 0.7, ring: false });
+    }
+    const k = add(ellPts(K[0], K[1], 0.06 * rh, 0.075 * rh, 0, N(32)), null, { bold: false });
+    k.fills.push({ members: [{ poly: k.poly }], layer: 'horn', mode: 'solid', angle: 0, ring: false });
+  }
+
+  function bowtie() {
+    const K = H(-0.08, 1.0);
+    for (const sgn of [-1, 1]) {
+      const p = add([[K[0], K[1]], [K[0] + sgn * 0.24 * rh, K[1] - 0.14 * rh], [K[0] + sgn * 0.24 * rh, K[1] + 0.14 * rh]], 'tie');
+      p.fills.push({ members: [{ poly: p.poly }], layer: 'horn', mode: 'solid', angle: 0.6, ring: false });
+    }
+    add(ellPts(K[0], K[1], 0.05 * rh, 0.06 * rh, 0, N(24)), null, { bold: false });
+  }
+
+  function scarf() {
+    const c = H(-0.3, 0.9), a = 0.28;
+    const band = add(place(supPts(0, 0, 0.5, 0.15, 3, 80), c, a), 'scarf');
+    for (let i = -3; i <= 3; i++) {
+      band.details.push({ pts: place([[i * 0.13, -0.3], [i * 0.13 + 0.05, 0.3]], c, a), layer: 'details', inside: true });
+    }
+    const e0 = place([[-0.3, 0.05]], c, a)[0];
+    const end = add(place(supPts(0, 0.32, 0.12, 0.34, 3, 60), e0, 0.25), 'scarf');
+    const fr = place([[-0.1, 0.64], [-0.1, 0.78], [0, 0.66], [0, 0.8], [0.1, 0.64], [0.1, 0.78]], e0, 0.25);
+    for (let i = 0; i < 6; i += 2) end.details.push({ pts: [fr[i], fr[i + 1]], layer: 'outline' });
+    end.details.push({ pts: place([[-0.14, 0.2], [0.14, 0.2]], e0, 0.25), layer: 'details', inside: true });
+    end.details.push({ pts: place([[-0.14, 0.4], [0.14, 0.4]], e0, 0.25), layer: 'details', inside: true });
+  }
+
+  // the eye, the eyelashes, a nostril, a smile and a blush; glasses if worn
   function face(p) {
     const [ex, ey] = H(0.2, -0.06), erx = 0.155 * rh, ery = 0.215 * rh, er = -0.1;
     const lash = (bx, by, a, len) => [[bx, by], [bx + Math.cos(a + 0.12) * len * 0.55, by + Math.sin(a + 0.12) * len * 0.55],
                                       [bx + Math.cos(a - 0.08) * len, by + Math.sin(a - 0.08) * len]];
-    if (v.eyes === 'sparkly') {
-      p.fills.push({ members: [{ poly: ellPts(ex, ey, erx, ery, er, N(64)) }],
-                     holes: [{ c: [ex + 0.055 * rh, ey - 0.08 * rh, 0.058 * rh] },
-                             { c: [ex - 0.05 * rh, ey + 0.09 * rh, 0.026 * rh] }],
-                     layer: 'outline', mode: 'solid', angle: Math.PI / 2, keep: true });
+    const lashes = () => {
       for (const a of [-2.75, -2.35, -1.95]) {
         const c = Math.cos(a), s = Math.sin(a), cr = Math.cos(er), sr = Math.sin(er);
         const lx = erx * c, ly = ery * s;
         const bx = ex + lx * cr - ly * sr, by = ey + lx * sr + ly * cr;
         p.details.push({ pts: lash(bx, by, a - 0.1, 0.12 * rh), layer: 'outline', bold: true });
       }
+    };
+    if (v.eyes === 'sparkly') {
+      p.fills.push({ members: [{ poly: ellPts(ex, ey, erx, ery, er, N(64)) }],
+                     holes: [{ c: [ex + 0.055 * rh, ey - 0.08 * rh, 0.058 * rh] },
+                             { c: [ex - 0.05 * rh, ey + 0.09 * rh, 0.026 * rh] }],
+                     layer: 'outline', mode: 'solid', angle: Math.PI / 2, keep: true });
+      lashes();
+    } else if (v.eyes === 'hearts') {
+      const Hh = [ex, ey, 0.4 * rh, -0.1];
+      p.fills.push({ members: [{ heart: Hh }], layer: 'hearts', mode: 'solid', angle: 0.4, ring: true });
+      p.fills.push({ members: [{ heart: Hh }], layer: 'outline', mode: 'ring', inset: 0 });
+      lashes();
     } else if (v.eyes === 'happy') {
       const r = 0.16 * rh, cy = ey + 0.06 * rh;
       p.details.push({ pts: arcPts(ex, cy, r, -Math.PI + 0.35, -0.35, 24), layer: 'outline', bold: true });
@@ -1025,6 +1330,12 @@ function unicornParts(v, res) {
         const bx = ex + r * Math.cos(a), by = cy + r * Math.sin(a);
         p.details.push({ pts: lash(bx, by, a + 0.2, 0.09 * rh), layer: 'outline', bold: true });
       }
+    }
+    if (v.acc === 'glasses') {
+      const gr = 0.3 * rh, ring = arcPts(ex, ey, gr, 0, 2 * Math.PI, 48);
+      p.details.push({ pts: ring, layer: 'outline', bold: true });
+      p.details.push({ pts: [[ex - gr, ey - 0.02 * rh], H(-0.5, -0.24)], layer: 'outline', bold: true });
+      p.details.push({ pts: [[ex + gr * Math.cos(-0.3), ey + gr * Math.sin(-0.3)], H(0.66, -0.2)], layer: 'outline', bold: true });
     }
     // the nostril and the smile
     p.details.push({ pts: arcPts(...H(1.0, 0.27), 0.045 * rh, Math.PI * 1.05, Math.PI * 1.95, 12), layer: 'outline' });
@@ -1043,6 +1354,22 @@ function unicornParts(v, res) {
         p.details.push({ pts: [[cx - 0.025 * rh, by + 0.05 * rh], [cx + 0.025 * rh, by - 0.05 * rh]], layer: 'blush' });
       }
     }
+  }
+}
+
+// A part turned by ang about (px, py) and moved by (dx, dy): its outline, its lines and its
+// fills.
+function turnPart(p, px, py, ang, dx = 0, dy = 0) {
+  const r = pts => rotPts(pts, px, py, ang).map(([x, y]) => [x + dx, y + dy]);
+  const r1 = (x, y) => r([[x, y]])[0];
+  if (p.poly) p.poly = r(p.poly);
+  if (p.heart) p.heart = [...r1(p.heart[0], p.heart[1]), p.heart[2], p.heart[3] + ang];
+  for (const d of p.details) d.pts = r(d.pts);
+  for (const f of p.fills) {
+    f.angle = (f.angle || 0) + ang;
+    f.members = f.members.map(m => m.poly ? { ...m, poly: r(m.poly) }
+      : m.heart ? { heart: [...r1(m.heart[0], m.heart[1]), m.heart[2], m.heart[3] + ang] } : m);
+    if (f.holes) f.holes = f.holes.map(h => ({ c: [...r1(h.c[0], h.c[1]), h.c[2]] }));
   }
 }
 
@@ -1077,15 +1404,16 @@ function variantFor(i) {
   const s = settings, R = rng(1000 + i * 7919), V = s.variety / 100;
   const j = a => 1 + V * a * (R() * 2 - 1);
   const pick = (opt, list) => opt === 'mixed' ? list[Math.floor(R() * list.length)] : opt;
-  return {
+  const v = {
     rnd: rng(5000 + i * 104729),
     head: s.headSize / 100 * j(0.15), chubby: s.chubby / 100 * j(0.12),
     legs: s.legLength / 100 * j(0.25), horn: s.hornLength / 100 * j(0.3),
     mane: s.maneSize / 100 * j(0.2), tail: s.tailSize / 100 * j(0.2),
     curlCount: Math.max(3, Math.round(s.maneCurls * j(0.3))),
-    eyes: pick(s.eyes, ['sparkly', 'sparkly', 'happy', 'sleepy']),
-    pose: pick(s.pose, ['standing', 'prancing']),
+    eyes: pick(s.eyes, ['sparkly', 'sparkly', 'happy', 'sleepy', 'hearts']),
+    pose: pick(s.pose, ['standing', 'standing', 'prancing', 'jumping', 'sitting', 'lying']),
     flipRoll: R(),
+    maneStyle: s.maneStyle, tailStyle: s.tailStyle, acc: s.accessory, fluffy: s.fluffy,
     wings: s.wings, wingSize: s.wingSize / 100, cloud: s.cloud,
     rainbow: s.rainbow, bands: s.rainbowBands, bandW: s.rainbowWidth / 100, rainbowLines: s.rainbowLines || s.colouring,
     balloon: s.balloon, balloonSize: s.balloonSize / 100, mark: s.cutieMark,
@@ -1093,6 +1421,20 @@ function variantFor(i) {
     hornStripes: s.hornInk.includes('stripes'), hornCandy: s.hornInk === 'candy stripes',
     hornFill: s.hornInk === 'filled', hoof: s.hoofInk, blush: s.blush,
   };
+  let ch = s.character;
+  if (ch === 'mixed') {
+    // dealt from a deck shuffled by the seed, so a sheet repeats none until it must
+    const deck = DEALT.slice(), D = rng(31);
+    for (let k = deck.length - 1; k > 0; k--) { const m = Math.floor(D() * (k + 1)); [deck[k], deck[m]] = [deck[m], deck[k]]; }
+    ch = deck[i % deck.length];
+  }
+  const pre = CHARACTERS[ch] || {};
+  for (const k in pre) {
+    if (['head', 'chubby', 'legs', 'horn'].includes(k)) v[k] *= pre[k];
+    else v[k] = pre[k];
+  }
+  v.character = ch;
+  return v;
 }
 
 // A unicorn put on the sheet: fitted into a box, turned to face the way asked, tilted.
@@ -1134,7 +1476,7 @@ function placeUnicorn(v, box, flip) {
       ...f,
       angle: ta(f.angle || 0),
       members: f.members.map(m => {
-        if (m.poly) return { poly: tpoly(m.poly) };
+        if (m.poly) return { poly: tpoly(m.poly), loose: m.loose };
         if (m.heart) {
           const [x, y] = tp(m.heart[0], m.heart[1]);
           return { heart: [x, y, m.heart[2] * k, (T.flip < 0 ? -m.heart[3] : m.heart[3]) + T.tilt] };
@@ -1153,7 +1495,7 @@ function placeUnicorn(v, box, flip) {
     const b = polyBox(p.xs, p.ys);
     box2 = { x0: Math.min(box2.x0, b.x0), y0: Math.min(box2.y0, b.y0), x1: Math.max(box2.x1, b.x1), y1: Math.max(box2.y1, b.y1) };
   }
-  return { parts, box: box2, horn: tp(...built.horn), k };
+  return { parts, box: box2, horn: tp(...built.horn), k, character: v.character };
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -1394,10 +1736,11 @@ function fillStrokes(f, nib) {
     return out;
   }
   const insetOf = (m, d) => m.heart ? heartPts(m.heart[0], m.heart[1], m.heart[2], m.heart[3], d, 0.3)
-                                    : convexInset(m.poly.xs, m.poly.ys, d);
+                          : m.loose ? looseInset(m.poly.xs, m.poly.ys, d)
+                          : convexInset(m.poly.xs, m.poly.ys, d);
   if (f.mode === 'ring') {
     for (const m of f.members) {
-      const q = insetOf(m, f.inset);
+      const q = insetOf(m, f.insetK && m.heart ? m.heart[2] * f.insetK : f.inset);
       if (q) out.push({ xs: q.xs, ys: q.ys, closed: true });
     }
     return out;
@@ -1431,6 +1774,14 @@ function fillStrokes(f, nib) {
   const gap = f.mode === 'solid' ? PASS * nib : Math.max(nib * 0.5, f.gap || 1);
   hatchLines(insets, holes, gap, f.angle || 0, out);
   return out;
+}
+
+// A shape that is not convex — a lock of hair, a crown — moved in along its corners'
+// normals; good enough where it bends gently, and given up when it turns inside out.
+function looseInset(xs, ys, d) {
+  if (d <= 0) return { xs, ys };
+  const A = polyArea(xs, ys), q = offsetPoly(xs, ys, d), B = polyArea(q.xs, q.ys);
+  return Math.sign(A) === Math.sign(B) && Math.abs(B) > 0.05 * Math.abs(A) ? q : null;
 }
 
 function centroid(xs, ys) {
@@ -2165,6 +2516,8 @@ function attachKeys() {
       case 'i': cycle('heartInk', HEART_INKS, 1); break;
       case 'I': cycle('heartInk', HEART_INKS, -1); break;
       case 'p': case 'P': cycle('pose', POSES, 1); break;
+      case 'c': cycle('character', CHARACTER_NAMES, 1); break;
+      case 'C': cycle('character', CHARACTER_NAMES, -1); break;
       case 'm': case 'M': cycle('facing', FACINGS, 1); break;
       case 'w': case 'W': toggle('wings'); break;
       case 'b': case 'B': toggle('balloon'); break;
@@ -2287,9 +2640,22 @@ function buildControls() {
     'How much the unicorns of one sheet differ: heads, horns, legs, curls.');
 
   sec = addSection(root, 'The unicorn');
-  addSelect(sec, 'Pose', 'pose', POSES, update, '<b>prancing</b> lifts a front hoof. <b>P</b> steps.');
+  addSelect(sec, 'Character', 'character', CHARACTER_NAMES, update,
+    'A baby, a pony, a princess, a mermaid, an angel, a sleepyhead… Each sets some of what ' +
+    'is below and leaves the rest as it is. <b>mixed</b> deals a different one to every ' +
+    'unicorn of the sheet. <b>C</b> steps.');
+  addSelect(sec, 'Pose', 'pose', POSES, update,
+    '<b>prancing</b> lifts a front hoof, <b>jumping</b> throws all four, <b>rearing</b> ' +
+    'stands on the hind legs; <b>sitting</b>, <b>lying</b>. <b>P</b> steps.');
   addSelect(sec, 'Eyes', 'eyes', EYES, update,
-    '<b>sparkly</b> — big and shining; <b>happy</b> — smiling shut; <b>sleepy</b>. <b>E</b> steps.');
+    '<b>sparkly</b> — big and shining; <b>happy</b> — smiling shut; <b>sleepy</b>; ' +
+    '<b>hearts</b> — red. <b>E</b> steps.');
+  addSelect(sec, 'Mane', 'maneStyle', MANES, update,
+    '<b>curls</b>; long <b>waves</b>; a <b>bob</b> of a few big curls; <b>hearts</b>.');
+  addSelect(sec, 'Tail', 'tailStyle', TAILS, update, '<b>mermaid</b> — a fish\'s tail instead of hind legs.');
+  addSelect(sec, 'Wearing', 'accessory', ACCESSORIES, update,
+    'A crown, a crown of flowers, a bow in the mane, glasses, a scarf, a bow tie, a halo.');
+  addCheckbox(sec, 'Fluffy fleece', 'fluffy');
   addSlider(sec, 'Head (%)', 'headSize', 60, 140, 1);
   addSlider(sec, 'Chubby (%)', 'chubby', 70, 130, 1);
   addSlider(sec, 'Legs (%)', 'legLength', 40, 200, 1);
@@ -2412,7 +2778,7 @@ function buildControls() {
   createDiv('').parent(sec).class('note keys').html(
     '<div><kbd>drag</kbd> move the unicorns · <kbd>wheel</kbd> size · <kbd>shift</kbd>+<kbd>drag</kbd> tilt · <kbd>0</kbd> back</div>' +
     '<div><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> move by 1 mm, with <kbd>shift</kbd> 10 · <kbd>+</kbd><kbd>−</kbd> size</div>' +
-    '<div><kbd>S</kbd> scene · <kbd>L</kbd> how many · <kbd>M</kbd> facing · <kbd>P</kbd> pose · <kbd>E</kbd> eyes</div>' +
+    '<div><kbd>S</kbd> scene · <kbd>C</kbd> character · <kbd>L</kbd> how many · <kbd>M</kbd> facing · <kbd>P</kbd> pose · <kbd>E</kbd> eyes</div>' +
     '<div><kbd>H</kbd> hearts · <kbd>I</kbd> how drawn · <kbd>W</kbd> wings · <kbd>B</kbd> balloon · <kbd>N</kbd> rainbow · <kbd>U</kbd> cloud · <kbd>K</kbd> colouring</div>' +
     '<div><kbd>X</kbd> cut guides · <kbd>G</kbd> guides · <kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it</div>');
   linkDiv = createDiv('').parent(sec).class('link');
@@ -2449,6 +2815,7 @@ function updateStats() {
     `<b>${(plan.ink / 1000).toFixed(1)}</b> m of line</div>` +
     `<div>${one(COUNTS.figs, 'unicorn', 'unicorns')}, ${one(COUNTS.hearts, 'heart', 'hearts')}, ` +
     `${one(COUNTS.twinkles, 'twinkle', 'twinkles')}</div>` +
+    `<div>${FIGS.length <= 30 ? FIGS.map(f => f.character).join(', ') : ''}</div>` +
     `<div>The pen goes down <b>${groupNum(plan.downs)}</b> times, ` +
     `${(plan.travel / 1000).toFixed(1)} m in the air</div>` +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ${lastMs.toFixed(0)} ms to build</div>`;
@@ -2479,7 +2846,7 @@ function metaComment() {
   const s = settings;
   const pens = [];
   for (let i = 0; i < SLOTS; i++) if (perPen && perPen[i].strokes) pens.push(penLabel(i));
-  return `sweet unicorns — ${s.layout}${s.layout === 'grid' ? ` ${s.cols}x${s.rows}` : ''} ` +
+  return `sweet unicorns — ${s.character} ${s.layout}${s.layout === 'grid' ? ` ${s.cols}x${s.rows}` : ''} ` +
     `pose=${s.pose} eyes=${s.eyes} hearts=${s.hearts}/${s.heartInk} ` +
     `${s.wings ? 'wings ' : ''}${s.rainbow ? 'rainbow ' : ''}${s.cloud ? 'cloud ' : ''}${s.balloon ? 'balloon ' : ''}` +
     `${s.cropMarks ? `cutguides=${s.cropMarkAt}<=${s.cropMarkGap}mm ` : ''}seed=${s.seed} ` +

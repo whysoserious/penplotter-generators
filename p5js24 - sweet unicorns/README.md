@@ -21,13 +21,14 @@ browser; everything works from `file://`.
 ## Using it
 
 1. Pick a **Scene** — one unicorn with hearts all round, over a rainbow on a cloud, two in
-   love under a big heart, a heart balloon, dreaming with wings, a sticker sheet of nine,
-   raining hearts, a frame of hearts, red only, hearts with black edges, a colouring page,
-   or a colouring sheet of nine — or set it up in the panel. Each section folds away.
+   love under a big heart, a heart balloon, dreaming with wings, a sticker sheet of nine
+   characters, all twenty characters on an A3, a princess, a mermaid, a sleepyhead on a
+   cloud, sitting pretty, raining hearts, a frame of hearts, red only, hearts with black
+   edges, a colouring page, or a colouring sheet of nine — or set it up in the panel.
 2. **Drag** on the sheet to move the unicorns, the **wheel** makes them bigger or smaller,
    **shift-drag** (or a right-drag) tilts them; <kbd>0</kbd> puts them back. The arrow keys
    move them by 1 mm, or 10 with <kbd>shift</kbd>; <kbd>+</kbd> <kbd>−</kbd> size.
-   <kbd>S</kbd> steps through the scenes, <kbd>L</kbd> how many, <kbd>M</kbd> which way they
+   <kbd>S</kbd> steps through the scenes, <kbd>C</kbd> the characters, <kbd>L</kbd> how many, <kbd>M</kbd> which way they
    face, <kbd>P</kbd> the pose, <kbd>E</kbd> the eyes, <kbd>H</kbd> the hearts, <kbd>I</kbd>
    how the hearts are drawn; <kbd>W</kbd> wings, <kbd>B</kbd> balloon, <kbd>N</kbd> rainbow,
    <kbd>U</kbd> cloud, <kbd>K</kbd> colouring page; <kbd>X</kbd> cut guides, <kbd>G</kbd> the
@@ -52,11 +53,28 @@ The picture is the sheet less the **Margin**. Everything is in millimetres, 1:1.
 
 ### The unicorn
 
-**Pose** standing or prancing (a front hoof up), or mixed across a sheet. **Eyes**:
-**sparkly** — big, black, with two shines and three lashes; **happy** — smiling shut;
-**sleepy** — shut, lashes down; or mixed. **Head**, **Chubby**, **Legs**, **Horn**, **Curls
+**Character** — twenty of them, each setting some of what follows and leaving the rest as
+it is: **classic**; **baby** (a big head, a little horn, a bow); **pony** (long legs, long
+hair); **chonky**; **princess** (a crown, long hair); **flower child** (a crown of
+flowers); **sweetheart** (a mane and a tail of hearts, hearts all over); **in love** (heart
+eyes); **sleepyhead** (lying down, asleep); **sitting pretty**; **hopper** (jumping);
+**brave** (rearing); **angel** (a halo and wings); **pegasus**; **mermaid** (a fish's tail
+with scales and a fin); **fluffy** (a fleece of puffs); **smarty** (glasses); **cosy**
+(sitting in a striped scarf); **dapper** (a bow tie); **dotty**; **lazy bones**. **mixed**
+deals them out over a sheet from a deck shuffled by the seed, so a sheet of twenty has
+every one once; **as set below** uses the settings alone.
+
+**Pose** standing, prancing (a front hoof up), jumping (all four flung out), rearing (on the
+hind legs), sitting (the body tipped back on a haunch, a foot forward, the front legs
+straight) or lying (the legs folded under); or mixed across a sheet. Sitting and rearing
+turn the body and carry the head along with the neck, upright. **Eyes**: **sparkly** —
+big, black, with two shines and three lashes; **happy** — smiling shut; **sleepy** — shut,
+lashes down; **hearts** — red; or mixed. **Mane**: curls, long **waves** (a few locks
+falling from the crown, a strand drawn in each), a **bob** of a few big curls, or
+**hearts**. **Tail**: curls, waves, hearts, or a **mermaid**'s. **Wearing**: a crown, a
+crown of flowers, a bow, glasses, a scarf, a bow tie, a halo. **Fluffy fleece**. **Head**, **Chubby**, **Legs**, **Horn**, **Curls
 in the mane** (the curls grow if there are too few to touch), **Mane**, **Tail**. **On the
-hip** a heart, three small ones or nothing. **Wings** — three feathers on the back. A
+hip** a heart, three small ones, little hearts or round dots all over, or nothing. **Wings** — three feathers on the back. A
 **cloud** to stand on; a **rainbow** behind with its feet in two little clouds — **bands**
 filled and in arcs further apart by turns, **lines between the bands** if asked; a **heart
 balloon** on a string held in the mouth.
