@@ -3,12 +3,21 @@
 A pen-plotter generator of towers stacked out of machinery floors, drawn in exact hidden
 lines.
 
-A tower is a pile of floors, and each floor is one kind of thing: dense **machinery** cut
-into cabinets, rows of tall **racks** round a slab, a **ribbed** sleeve of thin plates
-wrapped round a core, a hollow **frame** like a piece of square duct, an open **deck** on
-columns, or a tangle of **pipework**. Everything is built of upright boxes on a quarter-unit
-grid: slabs, beams, plates, posts, pipes with flanges, panels, vents, ladders, trays, masts.
-The drawing is the edges of those boxes in a parallel projection.
+A building is one or more towers, on a podium and a stepped plinth or straight on the
+ground, joined by bridges. A tower is a pile of floors, and each floor is one kind of thing:
+dense **machinery** cut into cabinets, rows of tall **racks** round a slab, a **ribbed**
+sleeve of thin plates wrapped round a core, a hollow **frame** like a piece of square duct,
+an open **deck** on columns, a tangle of **pipework**, a **lattice** cage of bars with
+stepped diagonals, **tanks** standing or lying on a slab, or a barrel **vault** of arched
+ribs. A floor's plan may be an L, a U, a T, a cross, a ring round a courtyard, or two
+blocks with a bridge between them. Floors step back into terraces, slide out on braces, lean,
+wind round a circle, grow wings with pods on their ends, and a core runs up through them.
+
+Everything is built of upright boxes on a quarter-unit grid: slabs, beams, plates, posts,
+pipes with flanges, panels, vents, ladders, stairs, trays, masts and cranes. Round things
+(tanks, domes, arches) and diagonals (braces, trusses) are boxes too, turned in steps, so
+they come out faceted and jagged. The drawing is the edges of those boxes in a parallel
+projection.
 
 ## How the lines are found
 
@@ -32,17 +41,19 @@ browser; everything works from `file://`.
 
 ## Using it
 
-1. Pick a **Scene**: machine tower, ribbed sleeves, server stacks, exploded on columns, a
-   low wide block, a needle, three towers, red pipework, hatched by the light, solid
-   shadows, blades and grilles, hollow frames, one red floor, plan oblique, or a fine pen
-   for the small parts. Or set it up in the panel.
+1. Pick a **Scene**: two towers on a podium, the plain stack, an arcology, leaning on its
+   braces, a winding tower, a ziggurat, courtyards, every plan there is, a tank farm, on
+   stilts, cranes over the site, hangars, wings and pods, twin bridges, to scale, and the
+   older ones (ribbed sleeves, server stacks, a needle, red pipework, the shading scenes…).
+   Or set it up in the panel.
 2. **Drag** on the sheet to turn the camera (in isometric the first drag switches to
    axonometric). **Shift-drag** or a right-drag moves the drawing, the **wheel** zooms about
    the cursor, <kbd>0</kbd> puts it back. The arrow keys move the drawing by 1 mm, or 10 with
    <kbd>shift</kbd>; <kbd>+</kbd> <kbd>−</kbd> zoom.
    <kbd>S</kbd> scene, <kbd>P</kbd> projection, <kbd>Q</kbd> <kbd>E</kbd> turn (by quarters in
    isometric), <kbd>F</kbd> / <kbd>shift-F</kbd> floors, <kbd>T</kbd> towers, <kbd>O</kbd> turn
-   every other floor, <kbd>W</kbd> fin wrap, <kbd>A</kbd> accent, <kbd>J</kbd> <kbd>H</kbd>
+   every other floor, <kbd>C</kbd> core, <kbd>L</kbd> layout, <kbd>V</kbd> footprints,
+   <kbd>U</kbd> roof, <kbd>M</kbd> size on the paper, <kbd>W</kbd> fin wrap, <kbd>A</kbd> accent, <kbd>J</kbd> <kbd>H</kbd>
    <kbd>K</kbd> shade the left, right and top faces, <kbd>X</kbd> cut guides, <kbd>G</kbd>
    guides, <kbd>R</kbd> a new seed, <kbd>[</kbd> <kbd>]</kbd> step it.
 3. **Download SVG [everything]** writes the sheet with a group per pen. **[one per pen]**
@@ -55,25 +66,73 @@ cut off there, in the files too.
 
 ## The parameters
 
-Sizes are in **units** of the grid. The tower is fitted to the picture, so only how the
-sizes compare matters. The stats say how many millimetres a unit came out.
+Sizes are in **units** of the grid; 0.25 of a unit is the step everything snaps to. The
+stats give the building's width, depth and height in units and in millimetres, and the
+drawing's size on the paper.
 
-### The tower
+### The building on the paper
 
-- **Towers** side by side, each built from its own seed, **Between the towers**.
-- **Floors**, **Width**, **Depth**, **Floor height**. **Heights differ** and **Sizes
-  differ** vary each floor.
+**Size**: **fit the picture** (as big as the margin allows), **mm per unit** (a fixed
+scale, so a wider tower draws wider and two sheets match), **height in mm** or **width in
+mm** of the whole drawing. **Stands**: in the middle of the picture, on its bottom edge, or
+hung from the top. Zoom and pan still apply on top of it; whatever comes out bigger than
+the picture is cut at the margin, and the stats say so.
+
+### The towers
+
+- **Towers**, standing in a **row**, **staggered**, a **grid**, a **ring** or
+  **scatter**ed, **Between the towers**. **Towers shorter by up to** (the first is the
+  tallest) and **Towers differ in size**.
+- **Height by**: a number of **Floors**, or a **Total height** the floors are fitted into.
+- **Width**, **Depth**, **Floor height**. **Heights differ** and **Sizes differ** vary
+  each floor.
 - **Floors stand off**: how far a floor may sit to the side of the one below it.
 - **Taper**: how much narrower the top floor is.
 - **Air between floors**: 0 stacks them tight; more pulls the tower apart, with **Posts
   across a gap**.
-- **Every other floor turned a quarter**, **On the roof** (machinery, masts, a slab, or
-  nothing), **Masts**.
+- **Every other floor turned a quarter**, **On the roof** (machinery, masts, a slab, tanks,
+  a stepped dome, a crane, nothing, or **mixed**: one of them for each tower), **Masts**,
+  **Cranes**.
+
+### Massing
+
+- **Podium floors** under all the towers together, **Podium floor height**, how far the
+  podium **stands out** round the towers, and how far each podium floor **steps in**.
+- **Plinth steps**: thin slabs under everything, each wider than the one above, by **Plinth
+  step**, **Plinth step height** each.
+- **Towers lifted** off the ground or the podium, carried by the core or, without one, by
+  legs at the corners.
+- **Crown floors** and **Crown width**: the top floors sized on their own, wider than the
+  tower (over 100 %) or narrower.
+- **Terraces**: a floor now and then steps back from one side by **Terrace depth**, and so
+  does every floor above it.
+- **Slid out**: floors pushed out past the one under them, by **Slid out by**, with stepped
+  braces from the tip down to the lower floor.
+- **Lean** (units a floor) **towards** an angle, and **Wind round**: the floors walk round a
+  circle, **Wind a floor** degrees each.
+- **Footprints**: rectangle, L, U, T, cross, courtyard, split (two blocks with a bridge), or
+  mixed. **Floors shaped** is how many of them, **Cut in by** how deep the notch is.
+- **Wings**: an arm standing out of a floor, banded, by **Wing reach**, **Wing arm** thick,
+  with a pod on its end: a cabinet, a tank or a small cage.
+- **Core**: solid, banded or a lattice of bars, up the middle of every tower, in a piece
+  under each floor so it follows a leaning tower in steps, and on above the roof by **Core
+  above the roof**. It shows in the gaps between the floors and in courtyards.
+- **Bridges** between two neighbouring towers where two of their floors face each other:
+  a **truss**, a **tube** with windows, a **deck** with a railing, or mixed; **Bridge
+  width**, **Bridge height**.
+- **Braced**: gaps between floors and legs crossed by stepped diagonals.
 
 ### Floors
 
 How often each kind comes up, as shares (0 = never): **Machinery**, **Racks**,
-**Ribbed**, **Frame**, **Deck**, **Pipework**.
+**Ribbed**, **Frame**, **Deck**, **Pipework**, **Lattice**, **Tanks**, **Vault**.
+
+### Lattice, tanks, vaults
+
+**Lattice cell** and **Bar size** (of the lattice floors and the lattice core), **Panels
+braced**. **Tank radius**, **Tank roundness** (how many steps a quarter of the round is made
+of: 1 is a square, 6 almost a circle), **Domes on tanks**. **Between two ribs** of a vault;
+the ribs are as thick as the fins' plates and as deep as their depth.
 
 ### Slabs and frames
 
@@ -111,7 +170,8 @@ out of the sides) and **Vents** (rows of slats).
 **Pipe runs a floor**: each run stays in one upright plane, along a face, just outside it,
 or through the middle, and turns between level and upright. **Pipe size**, **Pipes side by
 side up to**, **Flanges**. **Risers**: pipes up the outside of the tower, past several
-floors. **Ladders**, **Trays** (shelves standing out of a face with things on them).
+floors. **Ladders**, **Trays** (shelves standing out of a face with things on them), **Stairs**
+(two flights up the outside of a floor, turning on a landing).
 
 ### Camera
 
@@ -122,7 +182,8 @@ floors. **Ladders**, **Trays** (shelves standing out of a face with things on th
 ### Ink
 
 - **Accent**: what goes in the accent pen (red by default): the pipes, the fins, the
-  frames, the racks, the small details, one floor, every other floor, or random parts
+  frames, the racks, the small details, the trusses (lattice, cranes, truss bridges), the
+  tanks, the bridges, the core, the wings, one floor, every other floor, or random parts
   (**Parts in the accent**).
 - **Small parts under**: elements smaller than this on the paper go in the fine pen.
 - **Faces to the left**, **to the right**, **on top**: sparse, hatch, dense, cross, or

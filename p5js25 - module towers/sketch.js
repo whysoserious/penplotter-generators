@@ -53,11 +53,18 @@ const SLOTS = 5;
 function kindRank(k) { return k.startsWith('red') ? 0 : k === 'other' ? 1 : 2; }
 
 const PROJECTIONS = ['isometric', 'axonometric', 'military'];
-const FLOOR_KINDS = ['machinery', 'racks', 'ribbed', 'frame', 'deck', 'pipework'];
+const FLOOR_KINDS = ['machinery', 'racks', 'ribbed', 'frame', 'deck', 'pipework', 'lattice', 'tanks', 'vault'];
 const WRAPS       = ['over', 'under', 'ring', 'side', 'corner', 'blades', 'mixed'];
-const ROOFS       = ['machinery', 'masts', 'slab', 'open'];
-const ACCENTS     = ['none', 'pipes', 'fins', 'frames', 'racks', 'details', 'one floor',
-                     'every other floor', 'random parts'];
+const ROOFS       = ['mixed', 'machinery', 'masts', 'slab', 'tanks', 'dome', 'crane', 'open'];
+const ACCENTS     = ['none', 'pipes', 'fins', 'frames', 'racks', 'details', 'trusses', 'tanks',
+                     'bridges', 'core', 'wings', 'one floor', 'every other floor', 'random parts'];
+const LAYOUTS     = ['row', 'staggered', 'grid', 'ring', 'scatter'];
+const FOOTPRINTS  = ['rectangle', 'L', 'U', 'T', 'cross', 'courtyard', 'split', 'mixed'];
+const CORES       = ['none', 'solid', 'banded', 'lattice'];
+const BRIDGES     = ['truss', 'tube', 'deck', 'mixed'];
+const HEIGHT_BY   = ['floors', 'total height'];
+const SIZE_MODES  = ['fit the picture', 'mm per unit', 'height in mm', 'width in mm'];
+const ANCHORS     = ['middle', 'bottom', 'top'];
 const SHADES      = ['none', 'sparse', 'hatch', 'dense', 'cross', 'solid'];
 const SHADE_WHO   = ['everything', 'machinery', 'structure', 'fins', 'pipes'];
 const HATCH_DIRS  = ['along the height', 'across', 'diagonal'];
@@ -66,6 +73,9 @@ const MARK_AT     = ['sheet', 'picture'];
 
 // What every box is, for the accent and the shading.
 const K_STRUCT = 0, K_MACHINE = 1, K_FIN = 2, K_PIPE = 3, K_FRAME = 4, K_RACK = 5, K_DETAIL = 6;
+const K_TRUSS = 7, K_TANK = 8;
+// what a box belongs to beyond its kind, for the accent
+const ROLE_BRIDGE = 1, ROLE_CORE = 2, ROLE_WING = 3;
 
 // What goes on the sheet, each picking a pen of the drawer by number. The cut guides go
 // with the first pen in use.
@@ -121,9 +131,21 @@ const settings = {
 
   seed: 11,
 
-  // the tower — in units of the grid; the drawing is fitted to the sheet
-  towers: 1,
-  towerGap: 10,
+  // the building on the paper
+  sizeMode: 'fit the picture',
+  unitMm: 2,            // mm a unit, for 'mm per unit'
+  heightMm: 300,        // mm, for 'height in mm'
+  widthMm: 200,         // mm, for 'width in mm'
+  anchor: 'middle',
+
+  // the towers — in units of the grid
+  towers: 2,
+  towerGap: 12,
+  layout: 'staggered',
+  towerHeights: 40,     // % — how much shorter the other towers may be than the first
+  towerSizes: 20,       // % — how much they differ in width and depth
+  heightBy: 'floors',
+  totalHeight: 90,      // units, for 'total height'
   floors: 7,
   width: 24,
   depth: 20,
@@ -134,7 +156,41 @@ const settings = {
   taper: 0,             // % — how much narrower the top floor is
   gap: 1.5,             // units of air between two floors
   alternate: false,     // every other floor turned a quarter
-  roof: 'machinery',
+  roof: 'mixed',
+
+  // the massing
+  podiumFloors: 1,
+  podiumHeight: 7,
+  podiumGrow: 5,        // units the podium stands out round the towers
+  podiumStep: 2,        // units each podium floor steps in
+  plinth: 2,            // steps under everything
+  plinthStep: 1.5,
+  plinthHeight: 0.75,
+  lift: 0,              // units the towers stand off the podium, on legs or the core
+  crownFloors: 1,
+  crownScale: 125,      // % of the width the crown is
+  setback: 20,          // % — floors stepped back from a side, for good
+  setbackDepth: 3,
+  cantilever: 20,       // % — floors slid out past the one under them
+  cantReach: 6,
+  lean: 0,              // units a floor
+  leanTurn: 0,          // °
+  spiral: 0,            // units — the radius the floors wind round
+  spiralTurn: 40,       // ° a floor
+  footprint: 'mixed',
+  footShare: 40,        // % of the floors not plain rectangles
+  footCut: 40,          // % — how deep the cut of an L, a U, a courtyard is
+  wings: 20,            // % — floors with an arm and a pod
+  wingReach: 8,
+  wingSize: 1.5,
+  core: 'lattice',
+  coreSize: 5,
+  coreAbove: 6,
+  bridges: 2,           // between two neighbouring towers
+  bridgeKind: 'mixed',
+  bridgeWidth: 4,
+  bridgeHeight: 3,
+  gapBraces: 30,        // % — legs and gaps braced with diagonals
 
   // what the floors are — how often each kind comes up
   wMachinery: 3,
@@ -143,6 +199,18 @@ const settings = {
   wFrame: 2,
   wDeck: 1,
   wPipework: 1,
+  wLattice: 2,
+  wTanks: 1.5,
+  wVault: 1,
+
+  // lattice, tanks, vaults
+  latticeCell: 4,
+  latticeBar: 0.5,
+  latticeBrace: 40,     // % of the panels braced
+  tankSize: 3,          // radius
+  tankRound: 3,         // steps a quarter of the round is made of
+  domes: 50,            // %
+  vaultPitch: 2,
 
   // slabs and frames
   slabs: 60,            // % — floors with a slab under them
@@ -190,7 +258,9 @@ const settings = {
   risers: 2,            // pipes up the outside of the tower
   ladders: 20,          // %
   trays: 20,            // %
-  masts: 3,
+  stairs: 20,           // %
+  masts: 2,
+  cranes: 0,
 
   // camera
   projection: 'isometric',
@@ -225,39 +295,103 @@ const DEFAULTS = { ...settings };
 
 // Everything the structure depends on — the camera, the pens and the paper do not
 // rebuild it.
-const STRUCT_KEYS = ['seed', 'towers', 'towerGap', 'floors', 'width', 'depth', 'floorHeight',
+const STRUCT_KEYS = ['seed', 'towers', 'towerGap', 'layout', 'towerHeights', 'towerSizes', 'heightBy',
+  'totalHeight', 'floors', 'width', 'depth', 'floorHeight',
   'heightVar', 'sizeVar', 'shift', 'taper', 'gap', 'alternate', 'roof',
-  'wMachinery', 'wRacks', 'wRibbed', 'wFrame', 'wDeck', 'wPipework',
+  'podiumFloors', 'podiumHeight', 'podiumGrow', 'podiumStep', 'plinth', 'plinthStep', 'plinthHeight',
+  'lift', 'crownFloors', 'crownScale', 'setback', 'setbackDepth', 'cantilever', 'cantReach', 'lean',
+  'leanTurn', 'spiral', 'spiralTurn', 'footprint', 'footShare', 'footCut', 'wings', 'wingReach',
+  'wingSize', 'core', 'coreSize', 'coreAbove', 'bridges', 'bridgeKind', 'bridgeWidth', 'bridgeHeight',
+  'gapBraces',
+  'wMachinery', 'wRacks', 'wRibbed', 'wFrame', 'wDeck', 'wPipework', 'wLattice', 'wTanks', 'wVault',
+  'latticeCell', 'latticeBar', 'latticeBrace', 'tankSize', 'tankRound', 'domes', 'vaultPitch',
   'slabs', 'slabThick', 'overhang', 'frameWall', 'rings', 'portals', 'beams', 'beamSize', 'windows',
   'columns', 'columnSize',
   'rackSides', 'rackDepth', 'rackWidth', 'rackGap', 'rackSteps', 'rackSplit',
   'finWrap', 'finThick', 'finGap', 'finDepth', 'finCover', 'finJog',
   'machineFill', 'machineSize', 'machineLevels', 'machineInset', 'greebles', 'panels', 'vents',
-  'pipes', 'pipeSize', 'bundle', 'flanges', 'risers', 'ladders', 'trays', 'masts',
+  'pipes', 'pipeSize', 'bundle', 'flanges', 'risers', 'ladders', 'trays', 'stairs', 'masts', 'cranes',
   'accent', 'accentShare'];
 
-// Sheets worth starting from. Each one is the whole state.
+// Sheets worth starting from. Each one is the whole state. PLAIN switches the massing off,
+// for the scenes about what a single stack of floors can be.
+const PLAIN = {
+  towers: 1, podiumFloors: 0, plinth: 0, crownFloors: 0, setback: 0, cantilever: 0, wings: 0,
+  footprint: 'rectangle', core: 'none', stairs: 0, wLattice: 0, wTanks: 0, wVault: 0, roof: 'machinery',
+  masts: 3,
+};
 const SCENES = [
   { label: '— select a scene —' },
-  { label: 'Machine tower', s: {} },
-  { label: 'Ribbed sleeves', s: {
+  { label: 'Two towers on a podium', s: {} },
+  { label: 'The plain stack', s: { ...PLAIN } },
+  { label: 'Arcology', s: {
+      towers: 4, layout: 'grid', towerGap: 14, towerHeights: 55, podiumFloors: 2, podiumGrow: 6,
+      bridges: 2, bridgeKind: 'truss', floors: 8, width: 18, depth: 16, floorHeight: 9, core: 'lattice',
+      orientation: 'landscape', accent: 'bridges', masts: 1, seed: 41 } },
+  { label: 'Leaning on its braces', s: {
+      towers: 1, lean: 1.75, leanTurn: 20, cantilever: 45, cantReach: 7, gap: 2.5, gapBraces: 70,
+      floors: 9, core: 'banded', coreSize: 4, podiumFloors: 0, plinth: 3, accent: 'core', seed: 13 } },
+  { label: 'Winding tower', s: {
+      towers: 1, spiral: 9, spiralTurn: 55, floors: 14, floorHeight: 8, width: 18, depth: 16, gap: 2.5,
+      core: 'lattice', coreSize: 4, podiumFloors: 0, crownFloors: 0, cantilever: 0, setback: 0,
+      accent: 'core', seed: 6 } },
+  { label: 'Ziggurat', s: {
+      towers: 1, setback: 80, setbackDepth: 3.5, floors: 9, floorHeight: 7, width: 40, depth: 36,
+      plinth: 4, plinthStep: 2, podiumFloors: 0, crownFloors: 0, cantilever: 0, wings: 10,
+      core: 'none', stairs: 50, roof: 'dome', gap: 0, accent: 'details', seed: 23 } },
+  { label: 'Courtyards', s: {
+      towers: 2, layout: 'row', footprint: 'courtyard', footShare: 100, footCut: 45, floors: 5,
+      width: 32, depth: 30, floorHeight: 9, gap: 2, podiumFloors: 0, orientation: 'landscape',
+      core: 'solid', coreSize: 6, accent: 'frames', seed: 9 } },
+  { label: 'Every plan there is', s: {
+      towers: 1, footprint: 'mixed', footShare: 100, footCut: 45, floors: 8, width: 30, depth: 28,
+      gap: 3, columns: 6, podiumFloors: 0, crownFloors: 0, cantilever: 0, setback: 0, core: 'none',
+      accent: 'one floor', seed: 18 } },
+  { label: 'Tank farm', s: {
+      towers: 5, layout: 'scatter', towerGap: 8, towerHeights: 70, floors: 3, width: 16, depth: 14,
+      wTanks: 6, wLattice: 2, wMachinery: 1, wRacks: 0, wRibbed: 0, wFrame: 0, wDeck: 1, wPipework: 2, wVault: 0,
+      tankSize: 2.5, domes: 70, tankRound: 4, podiumFloors: 1, podiumHeight: 3, podiumGrow: 4,
+      bridges: 1, bridgeKind: 'deck', roof: 'tanks', core: 'none', orientation: 'landscape',
+      accent: 'tanks', seed: 3 } },
+  { label: 'On stilts', s: {
+      towers: 1, lift: 22, core: 'lattice', coreSize: 7, coreAbove: 10, floors: 6, crownFloors: 2,
+      crownScale: 150, podiumFloors: 1, podiumHeight: 4, podiumGrow: 10, accent: 'core', seed: 27 } },
+  { label: 'Cranes over the site', s: {
+      towers: 3, layout: 'staggered', towerHeights: 60, roof: 'crane', cranes: 1, wLattice: 4,
+      wDeck: 3, core: 'lattice', floors: 7, accent: 'trusses', orientation: 'landscape', seed: 35 } },
+  { label: 'Hangars', s: {
+      towers: 3, layout: 'row', towerGap: 4, towerHeights: 30, floors: 2, width: 22, depth: 30,
+      floorHeight: 12, wVault: 6, wTanks: 1, wMachinery: 1, wRacks: 0, wRibbed: 0, wFrame: 0, wDeck: 0,
+      wPipework: 1, wLattice: 0, vaultPitch: 1.5, podiumFloors: 0, plinth: 2, crownFloors: 0,
+      bridges: 1, bridgeKind: 'tube', core: 'none', roof: 'masts', orientation: 'landscape',
+      accent: 'fins', seed: 14 } },
+  { label: 'Wings and pods', s: {
+      towers: 1, wings: 70, wingReach: 10, wingSize: 1.5, floors: 8, gap: 3, core: 'solid', coreSize: 5,
+      podiumFloors: 0, accent: 'wings', seed: 22 } },
+  { label: 'Twin bridges', s: {
+      towers: 2, layout: 'row', towerGap: 14, towerHeights: 15, bridges: 5, bridgeKind: 'mixed',
+      floors: 10, width: 16, depth: 16, floorHeight: 8, podiumFloors: 0, plinth: 2, accent: 'bridges',
+      seed: 50 } },
+  { label: 'To scale — a unit is 1.5 mm', s: {
+      sizeMode: 'mm per unit', unitMm: 1.5, anchor: 'bottom', towers: 3, layout: 'row', towerGap: 6,
+      towerHeights: 60, podiumFloors: 1, seed: 8 } },
+  { label: 'Ribbed sleeves', s: { ...PLAIN,
       wMachinery: 2, wRacks: 0, wRibbed: 6, wFrame: 1, wDeck: 0, wPipework: 0, finWrap: 'mixed',
       finCover: 85, finJog: 45, floors: 6, floorHeight: 13, accent: 'none', seed: 4 } },
-  { label: 'Server stacks', s: {
+  { label: 'Server stacks', s: { ...PLAIN,
       wMachinery: 1, wRacks: 6, wRibbed: 0, wFrame: 3, wDeck: 0, wPipework: 0, rackSides: 3,
       rackDepth: 4, rackWidth: 3, rackGap: 0.5, rackSteps: 10, floors: 8, floorHeight: 10,
       gap: 2, slabs: 90, accent: 'none', seed: 21 } },
   { label: 'Exploded, on columns', s: {
-      gap: 6, columns: 6, columnSize: 0.75, floors: 6, wDeck: 2, risers: 0, accent: 'frames', seed: 8 } },
+      gap: 6, columns: 6, columnSize: 0.75, floors: 6, wDeck: 2, risers: 0, gapBraces: 50, towers: 1,
+      accent: 'frames', seed: 8 } },
   { label: 'A low wide block', s: {
-      orientation: 'landscape', floors: 2, width: 44, depth: 34, floorHeight: 10, heightVar: 20,
-      machineSize: 5, accent: 'pipes', pipes: 4, risers: 0, seed: 15 } },
+      orientation: 'landscape', towers: 1, floors: 2, width: 44, depth: 34, floorHeight: 10, heightVar: 20,
+      machineSize: 5, accent: 'pipes', pipes: 4, risers: 0, crownFloors: 0, footShare: 60, seed: 15 } },
   { label: 'A needle', s: {
-      floors: 15, width: 14, depth: 12, floorHeight: 8, taper: 45, sizeVar: 10, shift: 1,
-      machineSize: 4, finDepth: 1, rackDepth: 2.5, rackWidth: 2, masts: 4, seed: 30 } },
-  { label: 'Three towers', s: {
-      orientation: 'landscape', towers: 3, towerGap: 8, floors: 6, width: 18, depth: 16,
-      floorHeight: 9, risers: 1, seed: 5 } },
+      towers: 1, podiumFloors: 1, podiumHeight: 4, floors: 15, width: 14, depth: 12, floorHeight: 8,
+      taper: 45, sizeVar: 10, shift: 1, crownFloors: 0, wings: 35, cantilever: 10, machineSize: 4,
+      finDepth: 1, rackDepth: 2.5, rackWidth: 2, masts: 4, coreSize: 3, seed: 30 } },
   { label: 'Red pipework', s: {
       wPipework: 4, pipes: 4, bundle: 5, risers: 5, flanges: 60, accent: 'pipes', seed: 12 } },
   { label: 'Hatched by the light', s: {
@@ -266,11 +400,11 @@ const SCENES = [
   { label: 'Solid shadows', s: {
       shadeRight: 'solid', shadeTop: 'none', shadeWho: 'machinery', accent: 'pipes',
       greebles: 20, panels: 15, vents: 10, seed: 9 } },
-  { label: 'Blades and grilles', s: {
+  { label: 'Blades and grilles', s: { ...PLAIN,
       wRibbed: 6, wMachinery: 2, wRacks: 1, wFrame: 0, wDeck: 0, wPipework: 0, finWrap: 'blades',
       finDepth: 2, finThick: 0.5, finGap: 0.75, finCover: 90, accent: 'fins', seed: 3 } },
   { label: 'Hollow frames', s: {
-      wFrame: 6, wMachinery: 1, wRacks: 1, wRibbed: 1, wDeck: 0, wPipework: 0, frameWall: 1.25,
+      wFrame: 6, wMachinery: 1, wRacks: 1, wRibbed: 1, wDeck: 0, wPipework: 0, wLattice: 1, frameWall: 1.25,
       rings: 80, portals: 30, accent: 'frames', seed: 17 } },
   { label: 'One red floor', s: { accent: 'one floor', seed: 26 } },
   { label: 'Plan oblique', s: {
@@ -559,7 +693,7 @@ function liveUpdate() {
 // share a group and are drawn as one solid. Sizes are snapped to a quarter of a unit, so
 // faces that ought to meet do meet and their lines merge.
 
-let WB, WK, WG, WF, GROUPS, CUR_FLOOR, R;
+let WB, WK, WG, WF, WR, GROUPS, CUR_FLOOR, CUR_ROLE, R;
 
 function q(v) { return Math.round(v * 4) / 4; }
 function rr(a, b) { return a + (b - a) * R(); }
@@ -577,6 +711,7 @@ function addBox(x0, y0, z0, x1, y1, z1, kind, grp) {
   WK.push(kind);
   WG.push(grp === undefined ? newGroup() : grp);
   WF.push(CUR_FLOOR);
+  WR.push(CUR_ROLE);
   return WK.length - 1;
 }
 
@@ -703,7 +838,7 @@ function machinery(x0, z0, x1, z1, y0, hMax, level, density, kind) {
 function floorSlab(F, always) {
   const s = settings;
   if (!always && R() >= s.slabs / 100) return F.y0;
-  const ov = q(rr(0, s.overhang)), th = Math.max(0.25, q(s.slabThick));
+  const ov = F.sub ? 0 : q(rr(0, s.overhang)), th = Math.max(0.25, q(s.slabThick));
   if (F.y1 - F.y0 < th + 1) return F.y0;
   slab(F.x0 - ov, F.z0 - ov, F.x1 + ov, F.z1 + ov, F.y0, th);
   return F.y0 + th;
@@ -1052,9 +1187,491 @@ function beamRing(F) {
   }
 }
 
+// A diagonal in an upright plane across A, as a staircase of boxes about t thick: from
+// (a0, y0) to (a1, y1), filling [b0, b1] across. Every step overlaps the next, so the
+// whole brace is one jagged band.
+function stepBrace(A, a0, y0, a1, y1, b0, b1, t, kind, g) {
+  const da = a1 - a0, dy = y1 - y0;
+  const L = Math.max(Math.abs(da), Math.abs(dy));
+  if (L < 0.5) return;
+  const n = Math.max(1, Math.round(L / Math.max(0.5, t)));
+  const h = Math.max(0.25, q(t / 2));
+  if (g === undefined) g = newGroup();
+  for (let i = 0; i < n; i++) {
+    const pa0 = a0 + da * i / n, pa1 = a0 + da * (i + 1) / n;
+    const py0 = y0 + dy * i / n, py1 = y0 + dy * (i + 1) / n;
+    addAx(A, q(Math.min(pa0, pa1)) - h, q(Math.max(pa0, pa1)) + h, b0, b1,
+          q(Math.min(py0, py1)) - h, q(Math.max(py0, py1)) + h, kind, g);
+  }
+}
+
+// How far a footprint's piece reaches — the shapes in a unit square, u along x, v along z.
+function footprintRects(F, shape) {
+  const c = clamp(settings.footCut, 10, 80) / 100;
+  let rs;
+  switch (shape) {
+    case 'L': rs = [[0, 0, 1, 1 - c], [0, 1 - c, 1 - c, 1]]; break;
+    case 'U': {
+      const m0 = (1 - c) / 2, m1 = (1 + c) / 2;
+      rs = [[0, 0, 1, 1 - c], [0, 1 - c, m0, 1], [m1, 1 - c, 1, 1]];
+      break;
+    }
+    case 'T': {
+      const st = Math.max(0.25, 1 - c), bar = 0.45;
+      rs = [[0, 1 - bar, 1, 1], [(1 - st) / 2, 0, (1 + st) / 2, 1 - bar]];
+      break;
+    }
+    case 'cross': {
+      const st = Math.max(0.25, 1 - c), a = (1 - st) / 2, b = (1 + st) / 2;
+      rs = [[0, a, 1, b], [a, 0, b, a], [a, b, b, 1]];
+      break;
+    }
+    case 'courtyard': {
+      const t = Math.max(0.12, (1 - c) / 2);
+      rs = [[0, 0, 1, t], [0, 1 - t, 1, 1], [0, t, t, 1 - t], [1 - t, t, 1, 1 - t]];
+      break;
+    }
+    case 'split': {
+      const gp = Math.min(0.6, c * 0.6);
+      rs = [[0, 0, (1 - gp) / 2, 1], [(1 + gp) / 2, 0, 1, 1]];
+      break;
+    }
+    default: return [{ x0: F.x0, z0: F.z0, x1: F.x1, z1: F.z1 }];
+  }
+  const tr = R() < 0.5, fu = R() < 0.5, fv = R() < 0.5;
+  const w = F.x1 - F.x0, d = F.z1 - F.z0;
+  const X = u => q(F.x0 + w * (fu ? 1 - u : u)), Z = v => q(F.z0 + d * (fv ? 1 - v : v));
+  const out = [];
+  for (let [u0, v0, u1, v1] of rs) {
+    if (tr) { [u0, v0, u1, v1] = [v0, u0, v1, u1]; }
+    let x0 = X(u0), x1 = X(u1), z0 = Z(v0), z1 = Z(v1);
+    if (x0 > x1) [x0, x1] = [x1, x0];
+    if (z0 > z1) [z0, z1] = [z1, z0];
+    if (x1 - x0 >= 2 && z1 - z0 >= 2) out.push({ x0, z0, x1, z1 });
+  }
+  return out.length ? out : [{ x0: F.x0, z0: F.z0, x1: F.x1, z1: F.z1 }];
+}
+
+function biggest(rects) {
+  let b = rects[0];
+  for (const r of rects) if ((r.x1 - r.x0) * (r.z1 - r.z0) > (b.x1 - b.x0) * (b.z1 - b.z0)) b = r;
+  return b;
+}
+
+// A tank: a round upright drum as boxes turned in steps, a stepped dome on it now and then,
+// bands round it.
+function tank(cx, cz, y0, r, h, dome) {
+  const s = settings;
+  const m = clamp(Math.round(s.tankRound), 1, 6);
+  const g = newGroup();
+  const drum = (rad, ya, yb, kind, gg) => {
+    for (let i = 0; i < m; i++) {
+      const th = (i + 0.5) / m * Math.PI / 2;
+      const hx = q(rad * Math.cos(th)), hz = q(rad * Math.sin(th));
+      if (hx < 0.25 || hz < 0.25 || yb - ya < 0.05) continue;
+      addBox(cx - hx, ya, cz - hz, cx + hx, yb, cz + hz, kind, gg);
+    }
+  };
+  drum(r, y0, y0 + h, K_TANK, g);
+  if (dome) {
+    const L = m + 1;
+    for (let l = 0; l < L - 1; l++) {
+      const pa = l / L * Math.PI / 2, pb = (l + 1) / L * Math.PI / 2;
+      const ya = q(y0 + h + r * 0.6 * Math.sin(pa)), yb = q(y0 + h + r * 0.6 * Math.sin(pb));
+      drum(r * Math.cos(pb), ya, Math.max(yb, ya + 0.25), K_TANK, g);
+    }
+  }
+  const bands = h >= 3 ? ri(0, 2) : 0;
+  for (let k = 0; k < bands; k++) {
+    const y = q(y0 + h * rr(0.15, 0.85));
+    drum(r + 0.25, y, y + 0.5, K_TANK, newGroup());
+  }
+}
+
+// A tank lying along A on two saddles.
+function lyingTank(A, a0, a1, cb, yFloor, r) {
+  const m = clamp(Math.round(settings.tankRound), 1, 6);
+  const g = newGroup();
+  const cy = yFloor + q(r + 0.75);
+  const drum = (rad, p0, p1) => {
+    for (let i = 0; i < m; i++) {
+      const th = (i + 0.5) / m * Math.PI / 2;
+      const hb = q(rad * Math.cos(th)), hy = q(rad * Math.sin(th));
+      if (hb < 0.25 || hy < 0.25 || p1 - p0 < 0.25) continue;
+      addAx(A, p0, p1, cb - hb, cb + hb, cy - hy, cy + hy, K_TANK, g);
+    }
+  };
+  const cap = q(Math.min(r * 0.5, (a1 - a0) / 6));
+  drum(r, a0 + cap, a1 - cap);
+  if (cap >= 0.25) { drum(r * 0.7, a0, a0 + cap); drum(r * 0.7, a1 - cap, a1); }
+  for (const u of [0.25, 0.75]) {
+    const at = q(a0 + (a1 - a0) * u);
+    addAx(A, at - 0.375, at + 0.375, cb - q(r * 0.75), cb + q(r * 0.75), yFloor, cy - q(r * 0.5), K_STRUCT);
+  }
+}
+
+// Tanks on a slab: drums standing in a row or a grid, or lying side by side, pipes
+// among them.
+function floorTanks(F) {
+  const s = settings;
+  const yb = floorSlab(F, true);
+  const H = F.y1 - yb;
+  const W = F.x1 - F.x0, D = F.z1 - F.z0;
+  if (R() < 0.6) {
+    const r = q(clamp(s.tankSize * rr(0.8, 1.2), 0.75, Math.min(W, D) / 2 - 0.5));
+    if (r < 0.75) { floorMachinery(F); return; }
+    const pitch = 2 * r + 1;
+    const nx = Math.max(1, Math.floor(W / pitch)), nz = Math.max(1, Math.floor(D / pitch));
+    for (let i = 0; i < nx; i++) {
+      for (let j = 0; j < nz; j++) {
+        if (R() < 0.15) continue;
+        const cx = q(F.x0 + W * (i + 0.5) / nx), cz = q(F.z0 + D * (j + 0.5) / nz);
+        const dome = R() < s.domes / 100;
+        const h = q(Math.max(1, (H - (dome ? r * 0.6 : 0)) * rr(0.55, 0.95)));
+        tank(cx, cz, yb, r, h, dome);
+      }
+    }
+  } else {
+    const A = W >= D ? 0 : 2, B = 2 - A;
+    const span = hi(F, B) - lo(F, B);
+    const r = q(clamp(s.tankSize * rr(0.7, 1.1), 0.75, Math.min((H - 1) / 2, span / 2 - 0.5)));
+    if (r < 0.75) { floorMachinery(F); return; }
+    const k = Math.max(1, Math.floor(span / (2 * r + 1)));
+    for (let i = 0; i < k; i++) {
+      const cb = q(lo(F, B) + span * (i + 0.5) / k);
+      lyingTank(A, lo(F, A) + 1, hi(F, A) - 1, cb, yb, r);
+    }
+  }
+  for (let i = 0; i < 2; i++) pipeRun({ ...F, y0: yb }, true);
+}
+
+// A cage of bars round the outside of the floor's grid, diagonals stepped across some of
+// its panels, machinery or a tank inside.
+function floorLattice(F) {
+  const s = settings;
+  const yb = floorSlab(F, R() < 0.6);
+  const bar = Math.max(0.25, q(s.latticeBar));
+  const cell = Math.max(2 * bar + 1, s.latticeCell);
+  const grid = (a, b) => {
+    const n = Math.max(1, Math.round((b - a) / cell));
+    const out = [];
+    for (let i = 0; i <= n; i++) out.push(q(a + (b - a - bar) * i / n));
+    return out;
+  };
+  const xs = grid(F.x0, F.x1), zs = grid(F.z0, F.z1), ys = grid(yb, F.y1);
+  const edge = (i, list) => i === 0 || i === list.length - 1;
+  const g = newGroup();
+  for (let j = 0; j < ys.length; j++) {
+    for (let k = 0; k < zs.length; k++) {
+      if (edge(j, ys) || edge(k, zs)) addBox(F.x0, ys[j], zs[k], F.x1, ys[j] + bar, zs[k] + bar, K_TRUSS, g);
+    }
+    for (let i = 0; i < xs.length; i++) {
+      if (edge(j, ys) || edge(i, xs)) addBox(xs[i], ys[j], F.z0, xs[i] + bar, ys[j] + bar, F.z1, K_TRUSS, g);
+    }
+  }
+  for (let i = 0; i < xs.length; i++) {
+    for (let k = 0; k < zs.length; k++) {
+      if (edge(i, xs) || edge(k, zs)) addBox(xs[i], yb, zs[k], xs[i] + bar, F.y1, zs[k] + bar, K_TRUSS, g);
+    }
+  }
+  // diagonals across the panels of the four sides
+  const pb = s.latticeBrace / 100;
+  for (let j = 0; j + 1 < ys.length; j++) {
+    for (let i = 0; i + 1 < xs.length; i++) {
+      for (const zb of [F.z0, F.z1 - bar]) {
+        if (R() >= pb) continue;
+        const up = R() < 0.5;
+        stepBrace(0, xs[i] + bar, up ? ys[j] + bar : ys[j + 1], xs[i + 1], up ? ys[j + 1] : ys[j] + bar,
+                  zb, zb + bar, bar, K_TRUSS, g);
+      }
+    }
+    for (let k = 0; k + 1 < zs.length; k++) {
+      for (const xb of [F.x0, F.x1 - bar]) {
+        if (R() >= pb) continue;
+        const up = R() < 0.5;
+        stepBrace(2, zs[k] + bar, up ? ys[j] + bar : ys[j + 1], zs[k + 1], up ? ys[j + 1] : ys[j] + bar,
+                  xb, xb + bar, bar, K_TRUSS, g);
+      }
+    }
+  }
+  const ix0 = F.x0 + bar + 0.5, ix1 = F.x1 - bar - 0.5, iz0 = F.z0 + bar + 0.5, iz1 = F.z1 - bar - 0.5;
+  if (R() < 0.35 && Math.min(ix1 - ix0, iz1 - iz0) >= 3) {
+    const r = q(Math.min(ix1 - ix0, iz1 - iz0) / 2 * rr(0.5, 0.85));
+    tank(q((ix0 + ix1) / 2), q((iz0 + iz1) / 2), yb + bar, r, q((F.y1 - yb - bar) * rr(0.5, 0.85)), false);
+  } else {
+    machinery(ix0, iz0, ix1, iz1, yb + bar, (F.y1 - yb - bar) * 0.7, Math.max(0, s.machineLevels - 1),
+              s.machineFill / 150);
+  }
+}
+
+// One rib of a barrel vault: a half ring of thickness e in the plane across A, as boxes
+// round the arc.
+function archRib(A, p0, p1, cb, rb, ry, e, y0, kind, g) {
+  const m = clamp(Math.round((rb + ry) * 0.8), 4, 28);
+  for (let k = 0; k < m; k++) {
+    const f0 = k / m * Math.PI, f1 = (k + 1) / m * Math.PI;
+    const pts = [[rb, ry, f0], [rb, ry, f1], [rb - e, ry - e, f0], [rb - e, ry - e, f1]];
+    let bl = Infinity, bh = -Infinity, yl = Infinity, yh = -Infinity;
+    for (const [ra, rr_, f] of pts) {
+      const b = cb + ra * Math.cos(f), y = y0 + rr_ * Math.sin(f);
+      bl = Math.min(bl, b); bh = Math.max(bh, b); yl = Math.min(yl, y); yh = Math.max(yh, y);
+    }
+    if (f0 < Math.PI / 2 && f1 > Math.PI / 2) yh = y0 + ry;
+    bl = q(bl); bh = Math.max(q(bh), bl + 0.25); yl = q(yl); yh = Math.max(q(yh), yl + 0.25);
+    addAx(A, p0, p1, bl, bh, yl, yh, kind, g);
+  }
+}
+
+// A barrel vault of arched ribs over a slab, purlins along its back, low machinery under it.
+function floorVault(F) {
+  const s = settings;
+  const yb = floorSlab(F, true);
+  const A = (F.x1 - F.x0 >= F.z1 - F.z0) === (R() < 0.75) ? 0 : 2, B = 2 - A;
+  const bLo = lo(F, B), bHi = hi(F, B), cb = q((bLo + bHi) / 2);
+  const rb = (bHi - bLo) / 2, ry = Math.min(F.y1 - yb, rb * rr(0.7, 1.3));
+  const e = Math.max(0.25, q(Math.min(s.finDepth, rb / 3)));
+  if (rb < 2 || ry < 2) { floorMachinery(F); return; }
+  machinery(F.x0 + 1, F.z0 + 1, F.x1 - 1, F.z1 - 1, yb, ry * 0.45, 1, s.machineFill / 150);
+  const tf = Math.max(0.25, q(s.finThick));
+  const pitch = Math.max(tf + 0.25, q(s.vaultPitch));
+  const aLo = lo(F, A), aHi = hi(F, A);
+  const n = Math.max(2, Math.floor((aHi - aLo - tf) / pitch) + 1);
+  const a0 = q(aLo + (aHi - aLo - ((n - 1) * pitch + tf)) / 2);
+  for (let i = 0; i < n; i++) {
+    const p = a0 + i * pitch;
+    archRib(A, p, p + tf, cb, rb, ry, e, yb, K_FIN, newGroup());
+  }
+  const purlins = ri(1, 3);
+  for (let k = 0; k < purlins; k++) {
+    const f = Math.PI * (k + 1) / (purlins + 1);
+    const b = q(cb + rb * Math.cos(f)), y = q(yb + ry * Math.sin(f));
+    addAx(A, a0 - 0.5, a0 + (n - 1) * pitch + tf + 0.5, b - 0.25, b + 0.25, y - 0.25, y + 0.25, K_STRUCT);
+  }
+}
+
+// A stair up a face: two flights that turn on a landing, each step one box, the whole of
+// it one solid.
+function stair(F) {
+  const A = R() < 0.5 ? 0 : 2, B = 2 - A, side = R() < 0.5;
+  const face = side ? hi(F, B) : lo(F, B), out = side ? 1 : -1;
+  const w = 1.5, tread = 0.75;
+  const H = F.y1 - F.y0, len = hi(F, A) - lo(F, A);
+  const n = Math.min(Math.floor((H / 2) / 0.5), Math.floor((len - w - 1) / tread));
+  if (n < 3) return;
+  const rise = H / 2 / n;
+  const g = newGroup();
+  const lane = (k) => k === 0 ? [Math.min(face, face + out * w), Math.max(face, face + out * w)]
+                               : [Math.min(face + out * w, face + out * 2 * w), Math.max(face + out * w, face + out * 2 * w)];
+  const a0 = q(rr(lo(F, A) + 0.5, hi(F, A) - 0.5 - n * tread - w));
+  const [l0, l1] = lane(0), [m0, m1] = lane(1);
+  for (let i = 0; i < n; i++) {
+    const a = q(a0 + i * tread), y = q(F.y0 + (i + 1) * rise);
+    addAx(A, a, q(a + tread), l0, l1, Math.max(F.y0, q(y - 2 * rise)), y, K_DETAIL, g);
+  }
+  const aT = q(a0 + n * tread), yM = q(F.y0 + H / 2);
+  addAx(A, aT, aT + w, Math.min(l0, m0), Math.max(l1, m1), q(yM - 0.5), yM, K_DETAIL, g);
+  for (let i = 0; i < n; i++) {
+    const a = q(aT - (i + 1) * tread), y = q(yM + (i + 1) * rise);
+    addAx(A, a, q(a + tread), m0, m1, Math.max(yM - 0.5, q(y - 2 * rise)), Math.min(F.y1, y), K_DETAIL, g);
+  }
+}
+
+// A tower crane on the roof: a lattice mast, a jib one way and a counter-jib with its
+// weight the other, a cab, a hook on a line.
+function crane(x, z, y, H) {
+  const m = 1.5, bar = 0.25;
+  const g = newGroup();
+  for (const [dx, dz] of [[0, 0], [m - bar, 0], [0, m - bar], [m - bar, m - bar]]) {
+    addBox(x + dx, y, z + dz, x + dx + bar, y + H, z + dz + bar, K_TRUSS, g);
+  }
+  for (let yy = y + m; yy < y + H - 0.5; yy += m) {
+    addBox(x, yy, z, x + m, yy + bar, z + bar, K_TRUSS, g);
+    addBox(x, yy, z + m - bar, x + m, yy + bar, z + m, K_TRUSS, g);
+    addBox(x, yy, z, x + bar, yy + bar, z + m, K_TRUSS, g);
+    addBox(x + m - bar, yy, z, x + m, yy + bar, z + m, K_TRUSS, g);
+  }
+  const A = R() < 0.5 ? 0 : 2, dir = R() < 0.5 ? 1 : -1;
+  const L = q(H * rr(0.9, 1.4)), L2 = q(L * 0.35);
+  const ac = A === 0 ? x : z, bc = A === 0 ? z : x;
+  const jy = y + H;
+  const j0 = dir > 0 ? ac - L2 : ac + m - L, j1 = dir > 0 ? ac + L : ac + m + L2;
+  const gj = newGroup(), jh = 1.25;
+  for (const yy of [jy, jy + jh - bar]) {
+    addAx(A, j0, j1, bc, bc + bar, yy, yy + bar, K_TRUSS, gj);
+    addAx(A, j0, j1, bc + m - bar, bc + m, yy, yy + bar, K_TRUSS, gj);
+  }
+  for (let a = j0; a <= j1 - bar + 1e-9; a += m) {
+    for (const c of [bc, bc + m - bar]) addAx(A, q(a), q(a) + bar, c, c + bar, jy + bar, jy + jh - bar, K_TRUSS, gj);
+  }
+  addAx(A, ac, ac + m, bc, bc + m, jy + jh, jy + jh + 2, K_TRUSS, gj);
+  // counterweight, cab, hook
+  const cw = dir > 0 ? [j0, j0 + 1.5] : [j1 - 1.5, j1];
+  addAx(A, cw[0], cw[1], bc - 0.25, bc + m + 0.25, jy - 1.5, jy, K_DETAIL);
+  addAx(A, dir > 0 ? ac + m : ac - 1.25, dir > 0 ? ac + m + 1.25 : ac, bc, bc + m, jy - 1.5, jy, K_DETAIL);
+  const hookA = q(dir > 0 ? rr(ac + m + 2, j1 - 1) : rr(j0 + 1, ac - 2));
+  const drop = q(rr(H * 0.3, H * 0.8));
+  addAx(A, hookA, hookA + bar, bc + m / 2 - bar / 2, bc + m / 2 + bar / 2, jy - drop, jy, K_DETAIL);
+  addAx(A, hookA - 0.375, hookA + 0.625, bc + m / 2 - 0.5, bc + m / 2 + 0.5, jy - drop - 0.75, jy - drop, K_DETAIL);
+}
+
+// A wing: an arm standing out of a face, banded, with a pod at its end — a cabinet, a
+// tank or a small cage.
+function wing(F) {
+  const s = settings;
+  const A = R() < 0.5 ? 0 : 2, B = 2 - A, side = R() < 0.5;   // the arm runs along A
+  const reach = q(s.wingReach * rr(0.6, 1.3)), sz = Math.max(0.5, q(s.wingSize));
+  const face = side ? hi(F, A) : lo(F, A), out = side ? 1 : -1;
+  if (hi(F, B) - lo(F, B) < sz + 2 || F.y1 - F.y0 < sz + 1) return;
+  const b = q(rr(lo(F, B) + 0.5, hi(F, B) - 0.5 - sz));
+  const y = q(rr(F.y0 + 0.5, F.y1 - sz - 0.5));
+  const a0 = face - out * 0.5, a1 = face + out * reach;
+  addAx(A, Math.min(a0, a1), Math.max(a0, a1), b, b + sz, y, y + sz, K_STRUCT);
+  for (let p = 2; p < reach - 1; p += q(rr(1.5, 3))) {
+    const at = face + out * p;
+    plate(A, at, at + 0.5, b - 0.25, b + sz + 0.25, y - 0.25, y + sz + 0.25, 0.25, 'ring', false);
+  }
+  const P = q(Math.max(3, sz * rr(2, 3.5))), ph = q(Math.max(3, sz * rr(1.5, 3)));
+  const p0 = face + out * reach, p1 = p0 + out * P;
+  const pa0 = Math.min(p0, p1), pa1 = Math.max(p0, p1);
+  const pb0 = q(b + sz / 2 - P / 2), pb1 = pb0 + P;
+  const hang = R() < 0.5;
+  const py0 = hang ? q(y + sz - ph) : y, py1 = py0 + ph;
+  const roll = R();
+  if (roll < 0.25) {
+    const r = q(P / 2 - 0.25);
+    if (A === 0) tank(q((pa0 + pa1) / 2), q((pb0 + pb1) / 2), py0, r, ph, R() < 0.5);
+    else tank(q((pb0 + pb1) / 2), q((pa0 + pa1) / 2), py0, r, ph, R() < 0.5);
+  } else if (roll < 0.45) {
+    const sub = A === 0 ? { x0: pa0, x1: pa1, z0: pb0, z1: pb1 } : { x0: pb0, x1: pb1, z0: pa0, z1: pa1 };
+    floorLattice({ ...sub, y0: py0, y1: py1, sub: true });
+  } else {
+    if (A === 0) { addBox(pa0, py0, pb0, pa1, py1, pb1, K_MACHINE); decorate(pa0, py0, pb0, pa1, py1, pb1); }
+    else { addBox(pb0, py0, pa0, pb1, py1, pa1, K_MACHINE); decorate(pb0, py0, pa0, pb1, py1, pa1); }
+    const gx0 = A === 0 ? pa0 : pb0, gx1 = A === 0 ? pa1 : pb1, gz0 = A === 0 ? pb0 : pa0, gz1 = A === 0 ? pb1 : pa1;
+    if (R() < 0.6) greebles(gx0, gz0, gx1, gz1, py1);
+    if (R() < 0.3) mast(q((gx0 + gx1) / 2), q((gz0 + gz1) / 2), py1, q(rr(2, 5)));
+  }
+}
+
+// A bridge between two faces, along A from a0 to a1, across [b0, b1], from y0 up h.
+function bridge(A, a0, a1, b0, b1, y0, h, kind) {
+  const s = settings;
+  const was = CUR_ROLE;
+  CUR_ROLE = ROLE_BRIDGE;
+  if (a0 > a1) [a0, a1] = [a1, a0];
+  const t = Math.max(0.25, q(Math.min(s.beamSize, h / 4, (b1 - b0) / 4)));
+  if (kind === 'tube') {
+    const g = newGroup(), fw = Math.max(0.25, q(Math.min(s.frameWall, h / 4)));
+    addAx(A, a0, a1, b0, b1, y0, y0 + fw, K_FRAME, g);
+    addAx(A, a0, a1, b0, b1, y0 + h - fw, y0 + h, K_FRAME, g);
+    const posts = Math.max(2, Math.round((a1 - a0) / 3) + 1);
+    for (const [c0, c1] of [[b0, b0 + fw], [b1 - fw, b1]]) {
+      if (R() < 0.4) { addAx(A, a0, a1, c0, c1, y0 + fw, y0 + h - fw, K_FRAME, g); continue; }
+      for (let k = 0; k < posts; k++) {
+        const a = q(a0 + (a1 - a0 - fw) * k / (posts - 1));
+        addAx(A, a, a + fw, c0, c1, y0 + fw, y0 + h - fw, K_FRAME, g);
+      }
+    }
+  } else if (kind === 'deck') {
+    const th = Math.max(0.25, q(s.slabThick));
+    addAx(A, a0, a1, b0, b1, y0, y0 + th, K_STRUCT);
+    const g = newGroup(), rh = 1.25;
+    for (const c of [b0, b1 - 0.25]) {
+      addAx(A, a0, a1, c, c + 0.25, y0 + th + rh - 0.25, y0 + th + rh, K_DETAIL, g);
+      for (let a = a0 + 0.5; a < a1 - 0.5; a += 1.5) addAx(A, q(a), q(a) + 0.25, c, c + 0.25, y0 + th, y0 + th + rh, K_DETAIL, g);
+    }
+  } else {
+    const g = newGroup();
+    for (const yy of [y0, y0 + h - t]) {
+      addAx(A, a0, a1, b0, b0 + t, yy, yy + t, K_TRUSS, g);
+      addAx(A, a0, a1, b1 - t, b1, yy, yy + t, K_TRUSS, g);
+    }
+    const panels = Math.max(1, Math.round((a1 - a0) / Math.max(h, 2)));
+    const at = k => q(a0 + (a1 - a0 - t) * k / panels);
+    for (let k = 0; k <= panels; k++) {
+      for (const c of [b0, b1 - t]) addAx(A, at(k), at(k) + t, c, c + t, y0 + t, y0 + h - t, K_TRUSS, g);
+    }
+    for (let k = 0; k < panels; k++) {
+      const up = k % 2 === 0;
+      for (const c of [b0, b1 - t]) {
+        stepBrace(A, at(k) + t, up ? y0 + t : y0 + h - t, at(k + 1), up ? y0 + h - t : y0 + t, c, c + t, t, K_TRUSS, g);
+      }
+    }
+    addAx(A, a0, a1, b0 + t, b1 - t, y0, y0 + Math.max(0.25, q(t / 2)), K_STRUCT);
+  }
+  CUR_ROLE = was;
+}
+
+// The core up the middle of a tower: a piece per floor under the floor's middle, so it
+// follows a leaning or winding tower in steps; above the roof it goes on by coreAbove.
+function core(placed, yBase) {
+  const s = settings;
+  if (s.core === 'none' || !placed.length) return;
+  const was = CUR_ROLE;
+  CUR_ROLE = ROLE_CORE;
+  const cs = Math.max(1, q(s.coreSize));
+  const g = newGroup();
+  const top = placed[placed.length - 1];
+  const pieces = [];
+  for (let f = 0; f < placed.length; f++) {
+    const F = placed[f];
+    const ya = f === 0 ? yBase : placed[f - 1].y1;
+    const yb = f === placed.length - 1 ? F.y1 + Math.max(0, q(s.coreAbove)) : F.y1;
+    const cx = q((F.x0 + F.x1) / 2 - cs / 2), cz = q((F.z0 + F.z1) / 2 - cs / 2);
+    pieces.push([cx, cz, ya, yb]);
+  }
+  if (s.core === 'lattice') {
+    const bar = Math.max(0.25, q(s.latticeBar));
+    for (const [cx, cz, ya, yb] of pieces) {
+      for (const [dx, dz] of [[0, 0], [cs - bar, 0], [0, cs - bar], [cs - bar, cs - bar]]) {
+        addBox(cx + dx, ya, cz + dz, cx + dx + bar, yb, cz + dz + bar, K_TRUSS, g);
+      }
+      for (let y = ya; y <= yb - bar; y += cs) {
+        const yy = q(y);
+        addBox(cx, yy, cz, cx + cs, yy + bar, cz + bar, K_TRUSS, g);
+        addBox(cx, yy, cz + cs - bar, cx + cs, yy + bar, cz + cs, K_TRUSS, g);
+        addBox(cx, yy, cz + bar, cx + bar, yy + bar, cz + cs - bar, K_TRUSS, g);
+        addBox(cx + cs - bar, yy, cz + bar, cx + cs, yy + bar, cz + cs - bar, K_TRUSS, g);
+        if (yy + cs <= yb && R() < s.latticeBrace / 100) {
+          const zb = R() < 0.5 ? cz : cz + cs - bar;
+          stepBrace(0, cx + bar, yy + bar, cx + cs - bar, yy + cs, zb, zb + bar, bar, K_TRUSS, g);
+        }
+      }
+    }
+  } else {
+    for (const [cx, cz, ya, yb] of pieces) addBox(cx, ya, cz, cx + cs, yb, cz + cs, K_STRUCT, g);
+    if (s.core === 'banded') {
+      for (const [cx, cz, ya, yb] of pieces) {
+        for (let y = ya + 1; y < yb - 1; y += Math.max(1.5, cs * 0.75)) {
+          addBox(cx - 0.25, q(y), cz - 0.25, cx + cs + 0.25, q(y) + 0.5, cz + cs + 0.25, K_STRUCT);
+        }
+      }
+    }
+  }
+  // what stands on top of it
+  const [cx, cz, , yb] = pieces[pieces.length - 1];
+  if (s.coreAbove > 1 && R() < 0.6) mast(q(cx + cs / 2 - 0.25), q(cz + cs / 2 - 0.25), yb, q(rr(2, s.floorHeight)));
+  CUR_ROLE = was;
+  return top;
+}
+
+// Legs under a tower lifted off the ground: at the corners of its first floor.
+function legs(F, yBase) {
+  const s = settings;
+  const cs = Math.max(0.5, q(s.columnSize * 2));
+  if (F.y0 - yBase < 0.5) return;
+  const g = newGroup();
+  const xs = [F.x0 + 0.5, F.x1 - 0.5 - cs], zs = [F.z0 + 0.5, F.z1 - 0.5 - cs];
+  for (const x of xs) for (const z of zs) addBox(q(x), yBase, q(z), q(x) + cs, F.y0, q(z) + cs, K_STRUCT);
+  if (R() < s.gapBraces / 100) {
+    for (const z of zs) stepBrace(0, xs[0] + cs, yBase + cs, xs[1], F.y0, z, z + cs, cs, K_STRUCT, g);
+  }
+}
+
 function pickKind() {
   const s = settings;
-  const w = [s.wMachinery, s.wRacks, s.wRibbed, s.wFrame, s.wDeck, s.wPipework].map(v => Math.max(0, v));
+  const w = [s.wMachinery, s.wRacks, s.wRibbed, s.wFrame, s.wDeck, s.wPipework, s.wLattice, s.wTanks,
+             s.wVault].map(v => Math.max(0, v));
   const sum = w.reduce((a, b) => a + b, 0);
   if (sum <= 0) return 'machinery';
   let r = R() * sum;
@@ -1062,56 +1679,186 @@ function pickKind() {
   return FLOOR_KINDS[0];
 }
 
-function buildTower(ox, salt, floorsOut) {
+function pickFootprint() {
   const s = settings;
-  R = rng(salt);
-  const n = clamp(Math.round(s.floors), 1, 40);
-  let y = 0, prev = null;
+  if (s.footprint === 'rectangle' || R() >= s.footShare / 100) return 'rectangle';
+  return s.footprint === 'mixed' ? pick(FOOTPRINTS.slice(1, -1)) : s.footprint;
+}
+
+function fillKind(F) {
+  switch (F.kind) {
+    case 'racks': floorRacks(F); break;
+    case 'ribbed': floorRibbed(F); break;
+    case 'frame': floorFrame(F); break;
+    case 'deck': floorDeck(F); break;
+    case 'pipework': floorPipework(F); break;
+    case 'lattice': floorLattice(F); break;
+    case 'tanks': floorTanks(F); break;
+    case 'vault': floorVault(F); break;
+    default: floorMachinery(F);
+  }
+}
+
+// Everything in and on one floor: its pieces by the footprint, what kind it is, and what
+// hangs off it.
+function fillFloor(F, prev) {
+  const s = settings;
+  const shape = pickFootprint();
+  F.shape = shape;
+  F.rects = footprintRects(F, shape);
+  const sub = F.rects.length > 1;
+  if (prev && F.y0 - prev.y1 > 0.2) links(prev, F);
+  const pieces = F.rects.map(r => ({ ...F, ...r, sub }));
+  for (const P of pieces) {
+    fillKind(P);
+    if (P.kind !== 'frame' && P.kind !== 'deck' && P.kind !== 'lattice' && R() < s.beams / 100) beamRing(P);
+  }
+  if (shape === 'split' && pieces.length === 2) {
+    const [P, Q] = pieces;
+    const A = P.x1 <= Q.x0 || Q.x1 <= P.x0 ? 0 : 2, B = 2 - A;
+    const first = hi(P, A) <= lo(Q, A) ? P : Q, second = first === P ? Q : P;
+    const bw = Math.min(hi(P, B) - lo(P, B), q(s.bridgeWidth));
+    const b0 = q(rr(lo(P, B), hi(P, B) - bw));
+    const h = Math.min(F.y1 - F.y0 - 0.5, q(s.bridgeHeight));
+    if (h >= 1.5) {
+      bridge(A, hi(first, A) - 0.5, lo(second, A) + 0.5, b0, b0 + bw, q(rr(F.y0, F.y1 - h)), h,
+             s.bridgeKind === 'mixed' ? pick(BRIDGES.slice(0, -1)) : s.bridgeKind);
+    }
+  }
+  const on = () => pick(pieces);
+  const runs = Math.round(s.pipes);
+  for (let i = 0; i < runs; i++) pipeRun(on(), false);
+  if (R() < s.ladders / 100) ladder(on());
+  if (R() < s.trays / 100) tray(on());
+  if (R() < s.stairs / 100) stair(on());
+  if (R() < s.wings / 100) {
+    const was = CUR_ROLE;
+    CUR_ROLE = ROLE_WING;
+    wing(on());
+    CUR_ROLE = was;
+  }
+  return pieces;
+}
+
+// Braces under a floor that slid out past the one below: stepped diagonals from the tip
+// back down to the lower floor's face.
+function cantBraces(F, P, side) {
+  const s = settings;
+  const A = side < 2 ? 0 : 2, B = 2 - A, up = side % 2 === 1;
+  const tip = up ? hi(F, A) - 0.5 : lo(F, A) + 0.5;
+  const face = up ? hi(P, A) : lo(P, A);
+  const reach = Math.abs(tip - face);
+  if (reach < 1.5 || (up ? tip < face : tip > face)) return;
+  const drop = Math.min(F.y0 - P.y0 - 0.5, reach);
+  if (drop < 1) return;
+  const t = Math.max(0.5, q(s.beamSize));
+  const b0 = Math.max(lo(F, B), lo(P, B)) + 0.5, b1 = Math.min(hi(F, B), hi(P, B)) - 0.5 - t;
+  if (b1 <= b0) return;
+  const g = newGroup();
+  for (const b of [q(b0), q(b1)]) stepBrace(A, tip, F.y0, face, F.y0 - drop, b, b + t, t, K_STRUCT, g);
+}
+
+function roofOn(T, top) {
+  const s = settings;
+  const rects = T.rects || [T];
+  const big = biggest(rects);
+  let roof = s.roof;
+  if (roof === 'mixed') roof = pick(['machinery', 'masts', 'tanks', 'dome', 'crane', 'machinery']);
+  if (roof === 'slab') {
+    for (const r of rects) slab(r.x0 - 0.5, r.z0 - 0.5, r.x1 + 0.5, r.z1 + 0.5, T.y1, Math.max(0.25, q(s.slabThick)));
+  }
+  if (roof === 'machinery') {
+    for (const r of rects) {
+      machinery(r.x0 + 1, r.z0 + 1, r.x1 - 1, r.z1 - 1, top, s.floorHeight * 0.35, 1, s.machineFill / 200);
+    }
+  }
+  if (roof === 'tanks') {
+    const r = q(Math.min(s.tankSize, (big.x1 - big.x0) / 4, (big.z1 - big.z0) / 4));
+    const k = ri(1, 3);
+    for (let i = 0; i < k && r >= 0.75; i++) {
+      tank(q(rr(big.x0 + r + 0.5, big.x1 - r - 0.5)), q(rr(big.z0 + r + 0.5, big.z1 - r - 0.5)), top, r,
+           q(rr(r, r * 3)), R() < s.domes / 100);
+    }
+  }
+  if (roof === 'dome') {
+    const r = q(Math.min(big.x1 - big.x0, big.z1 - big.z0) / 2 * 0.8);
+    if (r >= 1) tank(q((big.x0 + big.x1) / 2), q((big.z0 + big.z1) / 2), top, r, q(Math.max(0.5, r * 0.25)), true);
+  }
+  if (roof === 'crane' || s.cranes > 0) {
+    const n = roof === 'crane' ? Math.max(1, Math.round(s.cranes)) : Math.round(s.cranes);
+    for (let i = 0; i < n; i++) {
+      const r = pick(rects);
+      if (r.x1 - r.x0 < 3 || r.z1 - r.z0 < 3) continue;
+      crane(q(rr(r.x0 + 0.5, r.x1 - 2)), q(rr(r.z0 + 0.5, r.z1 - 2)), top, q(s.floorHeight * rr(1, 1.8)));
+    }
+  }
+  if (roof !== 'open' || s.masts > 0) {
+    const m = Math.round(s.masts);
+    for (let i = 0; i < m; i++) {
+      const r = pick(rects);
+      mast(q(rr(r.x0 + 1, r.x1 - 1.5)), q(rr(r.z0 + 1, r.z1 - 1.5)), top, q(rr(3, s.floorHeight * 1.1)));
+    }
+  }
+}
+
+// One tower: its floors from yBase up, each sized, moved and shaped, then the roof, the
+// core and the risers.
+function buildTower(TW, floorsOut) {
+  const s = settings;
+  R = rng(TW.salt);
+  const n = TW.floors;
+  const gap = Math.max(0, q(s.gap));
+  const sv = clamp(s.sizeVar, 0, 80) / 100, hv = clamp(s.heightVar, 0, 90) / 100;
+  const hs = [];
+  for (let f = 0; f < n; f++) hs.push(s.floorHeight * (1 + hv * (R() * 2 - 1)));
+  if (TW.height) {
+    const sum = hs.reduce((a, b) => a + b, 0), want = TW.height - gap * (n - 1);
+    for (let f = 0; f < n; f++) hs[f] *= Math.max(0.1, want) / sum;
+  }
+  let y = TW.y0 + Math.max(0, q(s.lift)), prev = TW.under || null;
   const placed = [];
+  const cut = [0, 0, 0, 0];
+  const lt = rad(s.leanTurn), st = rad(s.spiralTurn);
+  const crownFrom = n - clamp(Math.round(s.crownFloors), 0, n);
   for (let f = 0; f < n; f++) {
     CUR_FLOOR = floorsOut.length;
     const tk = 1 - clamp(s.taper, 0, 90) / 100 * (n > 1 ? f / (n - 1) : 0);
-    const sv = clamp(s.sizeVar, 0, 80) / 100, hv = clamp(s.heightVar, 0, 90) / 100;
-    let w = s.width * tk * (1 + sv * (R() * 2 - 1)), d = s.depth * tk * (1 + sv * (R() * 2 - 1));
+    const cr = f >= crownFrom ? clamp(s.crownScale, 20, 300) / 100 : 1;
+    let w = TW.w * tk * cr * (1 + sv * (R() * 2 - 1)), d = TW.d * tk * cr * (1 + sv * (R() * 2 - 1));
     if (s.alternate && f % 2) { const t = w; w = d; d = t; }
-    w = Math.max(4, q(w)); d = Math.max(4, q(d));
-    const cx = ox + q(s.shift * (R() * 2 - 1)), cz = q(s.shift * (R() * 2 - 1));
-    const h = Math.max(3, q(s.floorHeight * (1 + hv * (R() * 2 - 1))));
-    const F = { x0: q(cx - w / 2), x1: q(cx - w / 2) + w, z0: q(cz - d / 2), z1: q(cz - d / 2) + d,
-                y0: y, y1: y + h, kind: pickKind() };
-    if (prev && s.gap > 0) links(prev, F);
-    switch (F.kind) {
-      case 'racks': floorRacks(F); break;
-      case 'ribbed': floorRibbed(F); break;
-      case 'frame': floorFrame(F); break;
-      case 'deck': floorDeck(F); break;
-      case 'pipework': floorPipework(F); break;
-      default: floorMachinery(F);
+    w = Math.max(3, q(w)); d = Math.max(3, q(d));
+    const cx = TW.cx + q(s.shift * (R() * 2 - 1)) + s.lean * f * Math.cos(lt) + s.spiral * (Math.cos(st * f) - 1);
+    const cz = TW.cz + q(s.shift * (R() * 2 - 1)) + s.lean * f * Math.sin(lt) + s.spiral * Math.sin(st * f);
+    const h = Math.max(2, q(hs[f]));
+    const F = { x0: q(cx - w / 2), z0: q(cz - d / 2), y0: y, y1: y + h, kind: pickKind() };
+    F.x1 = F.x0 + w; F.z1 = F.z0 + d;
+    // terraces: a floor now and then stepped back from one side, for good
+    if (f > 0 && R() < s.setback / 100) cut[ri(0, 3)] += q(s.setbackDepth * rr(0.6, 1.3));
+    if (f >= crownFrom && crownFrom > 0) cut.fill(0);
+    const nx0 = F.x0 + cut[0], nx1 = F.x1 - cut[1], nz0 = F.z0 + cut[2], nz1 = F.z1 - cut[3];
+    if (nx1 - nx0 >= 4 && nz1 - nz0 >= 4) { F.x0 = q(nx0); F.x1 = q(nx1); F.z0 = q(nz0); F.z1 = q(nz1); }
+    // a floor slid out past the one under it, braced back to it
+    let cant = -1;
+    if (f > 0 && R() < s.cantilever / 100) {
+      cant = ri(0, 3);
+      const reach = q(s.cantReach * rr(0.6, 1.3));
+      if (cant === 0) F.x0 -= reach; else if (cant === 1) F.x1 += reach;
+      else if (cant === 2) F.z0 -= reach; else F.z1 += reach;
     }
-    if (F.kind !== 'frame' && F.kind !== 'deck' && R() < s.beams / 100) beamRing(F);
-    const runs = Math.round(s.pipes);
-    for (let i = 0; i < runs; i++) pipeRun(F, false);
-    if (R() < s.ladders / 100) ladder(F);
-    if (R() < s.trays / 100) tray(F);
+    fillFloor(F, prev);
+    if (cant >= 0 && prev && F.y0 - prev.y0 > 1) cantBraces(F, prev, cant);
     floorsOut.push(F);
     placed.push(F);
-    y += h + Math.max(0, q(s.gap));
+    y += h + gap;
     prev = F;
   }
+  if (s.lift > 0 && placed.length && s.core === 'none') legs(placed[0], TW.y0);
   // the roof
   const T = prev;
   CUR_FLOOR = floorsOut.length - 1;
-  if (s.roof === 'slab') slab(T.x0 - 0.5, T.z0 - 0.5, T.x1 + 0.5, T.z1 + 0.5, T.y1, Math.max(0.25, q(s.slabThick)));
   const top = s.roof === 'slab' ? T.y1 + Math.max(0.25, q(s.slabThick)) : T.y1;
-  if (s.roof === 'machinery') {
-    machinery(T.x0 + 1, T.z0 + 1, T.x1 - 1, T.z1 - 1, top, s.floorHeight * 0.35, 1, s.machineFill / 200);
-  }
-  if (s.roof !== 'open' || s.masts > 0) {
-    const m = Math.round(s.masts);
-    for (let i = 0; i < m; i++) {
-      mast(q(rr(T.x0 + 1, T.x1 - 1.5)), q(rr(T.z0 + 1, T.z1 - 1.5)), top, q(rr(3, s.floorHeight * 1.1)));
-    }
-  }
+  roofOn(T, top);
+  core(placed, TW.y0);
   // risers: pipes up the outside, past a few floors
   const rs = Math.round(s.risers);
   for (let i = 0; i < rs && placed.length > 1; i++) {
@@ -1132,20 +1879,189 @@ function buildTower(ox, salt, floorsOut) {
       pipeBoxes(P, size, newGroup());
     }
   }
+  return placed;
+}
+
+// Where the towers stand, and which of them are neighbours a bridge may join.
+function towerSpots(nt) {
+  const s = settings;
+  const gx = s.width + s.towerGap, gz = s.depth + s.towerGap;
+  const spots = [], pairs = [];
+  R = rng(31);
+  switch (s.layout) {
+    case 'grid': {
+      const cols = Math.ceil(Math.sqrt(nt)), rows = Math.ceil(nt / cols);
+      for (let t = 0; t < nt; t++) {
+        const c = t % cols, r = Math.floor(t / cols);
+        spots.push([(c - (cols - 1) / 2) * gx, (r - (rows - 1) / 2) * gz]);
+        if (c > 0) pairs.push([t - 1, t]);
+        if (r > 0) pairs.push([t - cols, t]);
+      }
+      break;
+    }
+    case 'staggered':
+      for (let t = 0; t < nt; t++) {
+        spots.push([(t - (nt - 1) / 2) * gx, (t % 2 ? 1 : -1) * s.depth * 0.3]);
+        if (t) pairs.push([t - 1, t]);
+      }
+      break;
+    case 'ring': {
+      const rad_ = nt > 1 ? Math.max(gx, gz) / (2 * Math.sin(Math.PI / nt)) : 0;
+      for (let t = 0; t < nt; t++) {
+        const a = 2 * Math.PI * t / nt;
+        spots.push([rad_ * Math.cos(a), rad_ * Math.sin(a)]);
+        if (t && nt > 1) pairs.push([t - 1, t]);
+      }
+      if (nt > 2) pairs.push([nt - 1, 0]);
+      break;
+    }
+    case 'scatter': {
+      const span = Math.sqrt(nt) * Math.max(gx, gz) * 1.1;
+      for (let t = 0; t < nt; t++) {
+        let best = null;
+        for (let k = 0; k < 60; k++) {
+          const p = [rr(-span / 2, span / 2), rr(-span / 2, span / 2)];
+          const ok = spots.every(([x, z]) => Math.abs(x - p[0]) >= gx * 0.95 || Math.abs(z - p[1]) >= gz * 0.95);
+          if (ok) { best = p; break; }
+          if (!best) best = p;
+        }
+        spots.push(best);
+      }
+      for (let t = 1; t < nt; t++) {
+        let bj = 0, bd = Infinity;
+        for (let j = 0; j < t; j++) {
+          const dd = Math.hypot(spots[t][0] - spots[j][0], spots[t][1] - spots[j][1]);
+          if (dd < bd) { bd = dd; bj = j; }
+        }
+        pairs.push([bj, t]);
+      }
+      break;
+    }
+    default:
+      for (let t = 0; t < nt; t++) {
+        spots.push([(t - (nt - 1) / 2) * gx, 0]);
+        if (t) pairs.push([t - 1, t]);
+      }
+  }
+  return { spots: spots.map(([x, z]) => [q(x), q(z)]), pairs };
+}
+
+// Bridges between two neighbouring towers, at heights both of them reach, from the
+// nearest faces of two pieces that face each other.
+function bridgesBetween(PA, PB) {
+  const s = settings;
+  const bw = Math.max(1, q(s.bridgeWidth)), bh = Math.max(1, q(s.bridgeHeight));
+  const n = Math.round(s.bridges);
+  for (let k = 0; k < n; k++) {
+    for (let tries = 0; tries < 24; tries++) {
+      const Fa = pick(PA);
+      const ys = Math.max(Fa.y0, 0), ye = Fa.y1 - bh;
+      if (ye <= ys) continue;
+      const y0 = q(rr(ys, ye));
+      const Fb = PB.find(F => F.y0 <= y0 && F.y1 >= y0 + bh);
+      if (!Fb) continue;
+      let best = null;
+      for (const A of [0, 2]) {
+        const B = 2 - A;
+        for (const ra of Fa.rects) {
+          for (const rb of Fb.rects) {
+            const b0 = Math.max(lo(ra, B), lo(rb, B)) + 0.5, b1 = Math.min(hi(ra, B), hi(rb, B)) - 0.5;
+            if (b1 - b0 < bw) continue;
+            let a0, a1;
+            if (hi(ra, A) < lo(rb, A)) { a0 = hi(ra, A); a1 = lo(rb, A); }
+            else if (hi(rb, A) < lo(ra, A)) { a0 = hi(rb, A); a1 = lo(ra, A); }
+            else continue;
+            if (a1 - a0 < 1 || (best && a1 - a0 >= best.len)) continue;
+            best = { A, a0, a1, b0, b1, len: a1 - a0 };
+          }
+        }
+      }
+      if (!best) continue;
+      const b = q(rr(best.b0, best.b1 - bw));
+      bridge(best.A, best.a0 - 0.5, best.a1 + 0.5, b, b + bw, y0, bh,
+             s.bridgeKind === 'mixed' ? pick(BRIDGES.slice(0, -1)) : s.bridgeKind);
+      break;
+    }
+  }
 }
 
 function buildWorld() {
   const s = settings;
-  WB = []; WK = []; WG = []; WF = []; GROUPS = 0; CUR_FLOOR = 0;
+  WB = []; WK = []; WG = []; WF = []; WR = []; GROUPS = 0; CUR_FLOOR = 0; CUR_ROLE = 0;
   const floors = [];
   const nt = clamp(Math.round(s.towers), 1, 8);
+  const { spots, pairs } = towerSpots(nt);
+  const nf = clamp(Math.round(s.floors), 1, 40);
+  const gap = Math.max(0, q(s.gap));
+  const total = s.heightBy === 'total height';
+  const nTotal = Math.max(1, Math.round((s.totalHeight + gap) / (s.floorHeight + gap)));
+  const towers = [];
   for (let t = 0; t < nt; t++) {
-    const ox = (t - (nt - 1) / 2) * (s.width + s.towerGap);
-    buildTower(q(ox), 100 + t * 7919, floors);
+    R = rng(500 + t * 131);
+    const hk = 1 - clamp(s.towerHeights, 0, 90) / 100 * R() * (t === 0 ? 0 : 1);
+    const sk = 1 + clamp(s.towerSizes, 0, 80) / 100 * (R() * 2 - 1);
+    const n0 = total ? nTotal : nf;
+    towers.push({
+      cx: spots[t][0], cz: spots[t][1], w: s.width * sk, d: s.depth * sk,
+      floors: Math.max(1, Math.round(n0 * hk)), height: total ? s.totalHeight * hk : 0,
+      salt: 100 + t * 7919,
+    });
   }
+
+  // the podium under all of them
+  let yBase = 0, under = null;
+  const np = clamp(Math.round(s.podiumFloors), 0, 10);
+  if (np > 0) {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const T of towers) {
+      x0 = Math.min(x0, T.cx - T.w / 2); x1 = Math.max(x1, T.cx + T.w / 2);
+      z0 = Math.min(z0, T.cz - T.d / 2); z1 = Math.max(z1, T.cz + T.d / 2);
+    }
+    const gr = Math.max(0, s.podiumGrow);
+    R = rng(4242);
+    let prev = null;
+    for (let p = 0; p < np; p++) {
+      CUR_FLOOR = floors.length;
+      const sh = p * Math.max(0, s.podiumStep);
+      const F = { x0: q(x0 - gr + sh), x1: q(x1 + gr - sh), z0: q(z0 - gr + sh), z1: q(z1 + gr - sh),
+                  y0: yBase, y1: yBase + Math.max(2, q(s.podiumHeight * (1 + clamp(s.heightVar, 0, 90) / 200 * (R() * 2 - 1)))),
+                  kind: pickKind(), podium: true };
+      if (F.x1 - F.x0 < 4 || F.z1 - F.z0 < 4) break;
+      fillFloor(F, prev);
+      floors.push(F);
+      yBase = F.y1 + gap;
+      prev = under = F;
+    }
+  }
+  const placed = [];
+  for (const T of towers) {
+    T.y0 = yBase; T.under = under;
+    placed.push(buildTower(T, floors));
+  }
+  R = rng(909);
+  if (s.bridges > 0) for (const [a, b] of pairs) bridgesBetween(placed[a], placed[b]);
+
+  // the plinth: steps under everything that stands on the ground
+  const steps = clamp(Math.round(s.plinth), 0, 8);
+  if (steps > 0) {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    const ground = np > 0 && floors[0].podium ? [floors[0]] : placed.map(P => P[0]).filter(Boolean);
+    for (const F of ground) {
+      x0 = Math.min(x0, F.x0); x1 = Math.max(x1, F.x1); z0 = Math.min(z0, F.z0); z1 = Math.max(z1, F.z1);
+    }
+    if (x0 < x1) {
+      const ph = Math.max(0.25, q(s.plinthHeight)), ps = Math.max(0, q(s.plinthStep));
+      CUR_FLOOR = 0;
+      for (let i = 0; i < steps; i++) {
+        const g = ps * (i + 1);
+        slab(x0 - g, z0 - g, x1 + g, z1 + g, -(i + 1) * ph, ph);
+      }
+    }
+  }
+
   const n = WK.length;
   const BXw = Float64Array.from(WB);
-  const KD = Uint8Array.from(WK), GP = Int32Array.from(WG), FL = Int32Array.from(WF);
+  const KD = Uint8Array.from(WK), GP = Int32Array.from(WG), FL = Int32Array.from(WF), RL = Uint8Array.from(WR);
 
   // the accent, by whole elements
   const AC = new Uint8Array(n);
@@ -1162,6 +2078,11 @@ function buildWorld() {
       case 'frames': on = k === K_FRAME; break;
       case 'racks':  on = k === K_RACK; break;
       case 'details': on = k === K_DETAIL; break;
+      case 'trusses': on = k === K_TRUSS; break;
+      case 'tanks':  on = k === K_TANK; break;
+      case 'bridges': on = RL[i] === ROLE_BRIDGE; break;
+      case 'core':   on = RL[i] === ROLE_CORE; break;
+      case 'wings':  on = RL[i] === ROLE_WING; break;
       case 'one floor': on = FL[i] === redFloor; break;
       case 'every other floor': on = FL[i] % 2 === 1; break;
       case 'random parts': on = gRed[GP[i]] === 1; break;
@@ -1180,8 +2101,16 @@ function buildWorld() {
   }
   const kinds = {};
   for (const F of floors) kinds[F.kind] = (kinds[F.kind] || 0) + 1;
-  return { n, BX: BXw, KD, GP, FL, AC, MEM, groups: GROUPS, floors, kinds,
-           capped: n >= MAX_BOXES };
+  // how big it came out, in units
+  const ext = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < 3; k++) {
+      ext[k] = Math.min(ext[k], BXw[i * 6 + k]);
+      ext[3 + k] = Math.max(ext[3 + k], BXw[i * 6 + 3 + k]);
+    }
+  }
+  return { n, BX: BXw, KD, GP, FL, AC, MEM, groups: GROUPS, floors, kinds, ext,
+           towers: nt, capped: n >= MAX_BOXES };
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -1243,8 +2172,14 @@ function fitView(W) {
   if (!(x1 - x0 > 1e-9)) { x0 -= 1; x1 += 1; }
   if (!(y1 - y0 > 1e-9)) { y0 -= 1; y1 += 1; }
   const bcx = (area.x0 + area.x1) / 2, bcy = (area.y0 + area.y1) / 2;
-  const s0 = Math.min(area.w / (x1 - x0), area.h / (y1 - y0));
-  const ox0 = bcx - s0 * (x0 + x1) / 2, oy0 = bcy - s0 * (y0 + y1) / 2;
+  const s = settings;
+  let s0 = Math.min(area.w / (x1 - x0), area.h / (y1 - y0));
+  if (s.sizeMode === 'mm per unit') s0 = clamp(s.unitMm, 0.01, 100);
+  else if (s.sizeMode === 'height in mm') s0 = clamp(s.heightMm, 1, 5000) / (y1 - y0);
+  else if (s.sizeMode === 'width in mm') s0 = clamp(s.widthMm, 1, 5000) / (x1 - x0);
+  const ox0 = bcx - s0 * (x0 + x1) / 2;
+  const oy0 = s.anchor === 'bottom' ? area.y1 - s0 * y1 : s.anchor === 'top' ? area.y0 - s0 * y0
+            : bcy - s0 * (y0 + y1) / 2;
   const z = clamp(settings.zoom, MIN_ZOOM, MAX_ZOOM) / 100;
   S = z * s0;
   OX = bcx + z * (ox0 - bcx - settings.panX);
@@ -1661,8 +2596,8 @@ function shadeRole(n, sn) {
 
 function shadeWanted(kind) {
   switch (settings.shadeWho) {
-    case 'machinery': return kind === K_MACHINE || kind === K_RACK || kind === K_DETAIL;
-    case 'structure': return kind === K_STRUCT || kind === K_FRAME || kind === K_RACK;
+    case 'machinery': return kind === K_MACHINE || kind === K_RACK || kind === K_DETAIL || kind === K_TANK;
+    case 'structure': return kind === K_STRUCT || kind === K_FRAME || kind === K_RACK || kind === K_TRUSS;
     case 'fins': return kind === K_FIN;
     case 'pipes': return kind === K_PIPE;
     default: return true;
@@ -1897,7 +2832,13 @@ function buildShapes() {
     perLayer[S2.lay[i]].strokes++;
     perLayer[S2.lay[i]].pens.add(S2.ink[i]);
   }
-  COUNTS = { boxes: W.n, groups: W.groups, floors: W.floors.length, unit: S };
+  let dx0 = Infinity, dy0 = Infinity, dx1 = -Infinity, dy1 = -Infinity;
+  for (let i = 0; i < W.n; i++) {
+    const c = i * 4;
+    dx0 = Math.min(dx0, BS[c]); dy0 = Math.min(dy0, BS[c + 1]);
+    dx1 = Math.max(dx1, BS[c + 2]); dy1 = Math.max(dy1, BS[c + 3]);
+  }
+  COUNTS = { boxes: W.n, groups: W.groups, floors: W.floors.length, unit: S, drawW: dx1 - dx0, drawH: dy1 - dy0 };
   return {
     pts: Float64Array.from(S2.pts),
     off: Int32Array.from(S2.off),
@@ -2134,7 +3075,7 @@ function drawGuides(ctx) {
   ctx.strokeRect(area.x0, area.y0, area.w, area.h);
   ctx.setLineDash([0.8, 1.6]);
   if (WORLD) {
-    for (const F of WORLD.floors) {
+    for (const F of WORLD.floors.flatMap(F => (F.rects || [F]).map(r => ({ ...r, y0: F.y0 })))) {
       ctx.beginPath();
       const c = [[F.x0, F.z0], [F.x1, F.z0], [F.x1, F.z1], [F.x0, F.z1]];
       c.forEach(([x, z], k) => {
@@ -2295,6 +3236,16 @@ function attachKeys() {
       case 'k': cycle('shadeTop', SHADES, 1); break;
       case 'K': cycle('shadeTop', SHADES, -1); break;
       case 'o': case 'O': toggle('alternate'); break;
+      case 'c': cycle('core', CORES, 1); break;
+      case 'C': cycle('core', CORES, -1); break;
+      case 'l': cycle('layout', LAYOUTS, 1); break;
+      case 'L': cycle('layout', LAYOUTS, -1); break;
+      case 'v': cycle('footprint', FOOTPRINTS, 1); break;
+      case 'V': cycle('footprint', FOOTPRINTS, -1); break;
+      case 'u': cycle('roof', ROOFS, 1); break;
+      case 'U': cycle('roof', ROOFS, -1); break;
+      case 'm': cycle('sizeMode', SIZE_MODES, 1); break;
+      case 'M': cycle('sizeMode', SIZE_MODES, -1); break;
       case 's': case 'S': {
         const k = (SCENES.findIndex(sc => sc.label === lastScene) + (e.key === 'S' ? -1 : 1) +
                    SCENES.length) % SCENES.length || (e.key === 'S' ? SCENES.length - 1 : 1);
@@ -2330,6 +3281,24 @@ function syncVisibility() {
   setVisible('borderPen', s.border !== 'none');
   setVisible('towerGap', s.towers > 1);
   setVisible('columns', s.gap > 0);
+  setVisible('unitMm', s.sizeMode === 'mm per unit');
+  setVisible('heightMm', s.sizeMode === 'height in mm');
+  setVisible('widthMm', s.sizeMode === 'width in mm');
+  show(['layout', 'towerHeights', 'towerSizes', 'bridges'], s.towers > 1);
+  show(['bridgeKind', 'bridgeWidth', 'bridgeHeight'], (s.towers > 1 && s.bridges > 0) ||
+       (s.footprint !== 'rectangle' && s.footShare > 0));
+  setVisible('floors', s.heightBy === 'floors');
+  setVisible('totalHeight', s.heightBy === 'total height');
+  show(['podiumHeight', 'podiumGrow', 'podiumStep'], s.podiumFloors > 0);
+  show(['plinthStep', 'plinthHeight'], s.plinth > 0);
+  setVisible('crownScale', s.crownFloors > 0);
+  setVisible('setbackDepth', s.setback > 0);
+  setVisible('cantReach', s.cantilever > 0);
+  setVisible('leanTurn', s.lean !== 0);
+  setVisible('spiralTurn', s.spiral > 0);
+  show(['footShare', 'footCut'], s.footprint !== 'rectangle');
+  show(['wingReach', 'wingSize'], s.wings > 0);
+  show(['coreSize', 'coreAbove'], s.core !== 'none');
   show(['azimuth'], true);
   setVisible('elevation', s.projection === 'axonometric');
   setVisible('heightScale', s.projection === 'military');
@@ -2386,15 +3355,34 @@ function buildControls() {
   addNote(sec, '<b>S</b> steps through the scenes.');
   addSeedField(sec);
 
-  sec = addSection(root, 'The tower');
-  addNote(sec, 'In units of the grid — the drawing is fitted to the picture, so only how they ' +
-    'compare matters. The sheet tells how many millimetres a unit came out.');
-  addSlider(sec, 'Towers', 'towers', 1, 8, 1, 'Side by side, each of its own. <b>T</b> adds one.', resync);
+  sec = addSection(root, 'The building on the paper');
+  addSelect(sec, 'Size', 'sizeMode', SIZE_MODES, resync,
+    '<b>fit the picture</b> — as big as the margin lets it; <b>mm per unit</b> — a fixed scale, so ' +
+    'a wider tower draws wider; or the whole drawing <b>height</b> or <b>width in mm</b>. What ' +
+    'leaves the picture is cut at the margin.');
+  addSlider(sec, 'A unit is (mm)', 'unitMm', 0.1, 20, 0.05);
+  addSlider(sec, 'Drawing height (mm)', 'heightMm', 10, 2000, 1);
+  addSlider(sec, 'Drawing width (mm)', 'widthMm', 10, 2000, 1);
+  addSelect(sec, 'Stands', 'anchor', ANCHORS, update,
+    'In the <b>middle</b> of the picture, on its <b>bottom</b> edge, or hung from the <b>top</b>.');
+
+  sec = addSection(root, 'The towers');
+  addNote(sec, 'In units of the grid — 1 is the step everything is snapped to. The sheet tells ' +
+    'how big the building came out, in units and in millimetres.');
+  addSlider(sec, 'Towers', 'towers', 1, 8, 1, '<b>T</b> adds one.', resync);
+  addSelect(sec, 'Stand in', 'layout', LAYOUTS, update,
+    'A <b>row</b>, a row <b>staggered</b> back and forth, a <b>grid</b>, a <b>ring</b>, or ' +
+    '<b>scatter</b>ed.');
   addSlider(sec, 'Between the towers', 'towerGap', 0, 60, 0.5);
+  addSlider(sec, 'Towers shorter by up to (%)', 'towerHeights', 0, 90, 1, 'The first one is the tallest.');
+  addSlider(sec, 'Towers differ in size (%)', 'towerSizes', 0, 80, 1);
+  addSelect(sec, 'Height by', 'heightBy', HEIGHT_BY, resync,
+    'A number of <b>floors</b>, or a <b>total height</b> the floors are fitted into.');
   addSlider(sec, 'Floors', 'floors', 1, 40, 1, '<b>F</b> adds one, <b>shift-F</b> takes one off.');
+  addSlider(sec, 'Total height', 'totalHeight', 10, 400, 1);
   addSlider(sec, 'Width', 'width', 4, 120, 0.5);
   addSlider(sec, 'Depth', 'depth', 4, 120, 0.5);
-  addSlider(sec, 'Floor height', 'floorHeight', 3, 60, 0.5);
+  addSlider(sec, 'Floor height', 'floorHeight', 2, 60, 0.5);
   addSlider(sec, 'Heights differ (%)', 'heightVar', 0, 90, 1);
   addSlider(sec, 'Sizes differ (%)', 'sizeVar', 0, 80, 1, 'How much a floor is wider or narrower than set.');
   addSlider(sec, 'Floors stand off (units)', 'shift', 0, 20, 0.25,
@@ -2405,8 +3393,55 @@ function buildControls() {
   addSlider(sec, 'Posts across a gap', 'columns', 0, 16, 1);
   addCheckbox(sec, 'Every other floor turned a quarter', 'alternate');
   addSelect(sec, 'On the roof', 'roof', ROOFS, update,
-    'Low <b>machinery</b> and masts, <b>masts</b> only, a <b>slab</b>, or nothing.');
+    'Low <b>machinery</b>, <b>masts</b> only, a <b>slab</b>, <b>tanks</b>, a stepped <b>dome</b>, ' +
+    'a <b>crane</b>, nothing — or <b>mixed</b>, one of them for every tower.');
   addSlider(sec, 'Masts', 'masts', 0, 20, 1);
+  addSlider(sec, 'Cranes', 'cranes', 0, 6, 1, 'Tower cranes on every roof, besides what the roof has.');
+
+  sec = addSection(root, 'Massing');
+  addSlider(sec, 'Podium floors', 'podiumFloors', 0, 10, 1,
+    'Wide floors under all the towers together.', resync);
+  addSlider(sec, 'Podium floor height', 'podiumHeight', 2, 40, 0.5);
+  addSlider(sec, 'Podium stands out', 'podiumGrow', 0, 40, 0.5, 'Round the towers, in units.');
+  addSlider(sec, 'Podium steps in', 'podiumStep', 0, 10, 0.25, 'Each podium floor narrower than the one under it.');
+  addSlider(sec, 'Plinth steps', 'plinth', 0, 8, 1, 'Thin slabs under everything, each wider.', resync);
+  addSlider(sec, 'Plinth step', 'plinthStep', 0, 6, 0.25);
+  addSlider(sec, 'Plinth step height', 'plinthHeight', 0.25, 4, 0.25);
+  addSlider(sec, 'Towers lifted', 'lift', 0, 40, 0.5,
+    'Off the ground or the podium — on the core, or on legs if there is none.');
+  addSlider(sec, 'Crown floors', 'crownFloors', 0, 10, 1, 'The top floors, sized on their own.', resync);
+  addSlider(sec, 'Crown width (%)', 'crownScale', 20, 300, 1, 'Over 100 the crown hangs out over the tower.');
+  addSlider(sec, 'Terraces (%)', 'setback', 0, 100, 1,
+    'Floors stepped back from one side, and every floor above them too.', resync);
+  addSlider(sec, 'Terrace depth', 'setbackDepth', 0.5, 20, 0.25);
+  addSlider(sec, 'Slid out (%)', 'cantilever', 0, 100, 1,
+    'Floors pushed out past the one under them on one side, braced back to it.', resync);
+  addSlider(sec, 'Slid out by', 'cantReach', 1, 40, 0.5);
+  addSlider(sec, 'Lean (units a floor)', 'lean', -10, 10, 0.25, 'Each floor moved on from the one under it.');
+  addSlider(sec, 'Lean towards (°)', 'leanTurn', -180, 180, 1);
+  addSlider(sec, 'Wind round (units)', 'spiral', 0, 40, 0.25, 'The floors walk round a circle this wide.');
+  addSlider(sec, 'Wind a floor (°)', 'spiralTurn', -180, 180, 1);
+  addSelect(sec, 'Footprints', 'footprint', FOOTPRINTS, resync,
+    'The plan of a floor: a <b>rectangle</b>, an <b>L</b>, a <b>U</b>, a <b>T</b>, a <b>cross</b>, ' +
+    'round a <b>courtyard</b>, or <b>split</b> in two with a bridge — or <b>mixed</b>.');
+  addSlider(sec, 'Floors shaped (%)', 'footShare', 0, 100, 1);
+  addSlider(sec, 'Cut in by (%)', 'footCut', 10, 80, 1, 'How deep the notch, the courtyard, the split.');
+  addSlider(sec, 'Wings (%)', 'wings', 0, 100, 1,
+    'Floors with an arm standing out and a pod on its end — a cabinet, a tank or a cage.', resync);
+  addSlider(sec, 'Wing reach', 'wingReach', 1, 40, 0.5);
+  addSlider(sec, 'Wing arm', 'wingSize', 0.5, 6, 0.25);
+  addSelect(sec, 'Core', 'core', CORES, resync,
+    'Up the middle of every tower, through every floor and on above the roof: <b>solid</b>, ' +
+    '<b>banded</b>, or a <b>lattice</b> of bars. It shows in the gaps between floors.');
+  addSlider(sec, 'Core size', 'coreSize', 1, 30, 0.5);
+  addSlider(sec, 'Core above the roof', 'coreAbove', 0, 40, 0.5);
+  addSlider(sec, 'Bridges', 'bridges', 0, 8, 1, 'Between two neighbouring towers, where they face.', resync);
+  addSelect(sec, 'Bridge', 'bridgeKind', BRIDGES, update,
+    'A <b>truss</b> of chords and diagonals, a <b>tube</b> with windows, an open <b>deck</b> with ' +
+    'a railing, or <b>mixed</b>. Split floors are joined by one too.');
+  addSlider(sec, 'Bridge width', 'bridgeWidth', 1, 20, 0.25);
+  addSlider(sec, 'Bridge height', 'bridgeHeight', 1, 20, 0.25);
+  addSlider(sec, 'Braced (%)', 'gapBraces', 0, 100, 1, 'Gaps between floors and legs crossed by diagonals.');
 
   sec = addSection(root, 'Floors');
   addNote(sec, 'How often each kind of floor comes up — 0 never, the rest by share.');
@@ -2417,6 +3452,19 @@ function buildControls() {
   addSlider(sec, 'Frame', 'wFrame', 0, 10, 0.5, 'A hollow square duct round the floor, bar rings round it.');
   addSlider(sec, 'Deck', 'wDeck', 0, 10, 0.5, 'An open slab on columns, a few cabinets on it.');
   addSlider(sec, 'Pipework', 'wPipework', 0, 10, 0.5, 'A thin slab tangled in pipes.');
+  addSlider(sec, 'Lattice', 'wLattice', 0, 10, 0.5, 'A cage of bars with stepped diagonals, something inside.');
+  addSlider(sec, 'Tanks', 'wTanks', 0, 10, 0.5, 'Drums standing or lying on a slab, pipes between.');
+  addSlider(sec, 'Vault', 'wVault', 0, 10, 0.5, 'A barrel vault of arched ribs over low machinery.');
+
+  sec = addSection(root, 'Lattice, tanks, vaults');
+  addSlider(sec, 'Lattice cell', 'latticeCell', 1.5, 20, 0.25);
+  addSlider(sec, 'Bar size', 'latticeBar', 0.25, 3, 0.25, 'Of the lattice floors and the lattice core.');
+  addSlider(sec, 'Panels braced (%)', 'latticeBrace', 0, 100, 1);
+  addSlider(sec, 'Tank radius', 'tankSize', 0.75, 20, 0.25);
+  addSlider(sec, 'Tank roundness', 'tankRound', 1, 6, 1,
+    'How many steps a quarter of the round is made of — 1 is a square, 6 almost a circle.');
+  addSlider(sec, 'Domes on tanks (%)', 'domes', 0, 100, 1);
+  addSlider(sec, 'Between two ribs', 'vaultPitch', 0.5, 10, 0.25, 'Of a vault; the ribs are as thick and deep as the fins.');
 
   sec = addSection(root, 'Slabs and frames');
   addSlider(sec, 'Floors on a slab (%)', 'slabs', 0, 100, 1);
@@ -2471,6 +3519,7 @@ function buildControls() {
   addSlider(sec, 'Risers', 'risers', 0, 20, 1, 'Pipes up the outside of the tower, past a few floors.');
   addSlider(sec, 'Ladders (%)', 'ladders', 0, 100, 1);
   addSlider(sec, 'Trays (%)', 'trays', 0, 100, 1, 'Shelves standing out of a face with things on them.');
+  addSlider(sec, 'Stairs (%)', 'stairs', 0, 100, 1, 'Two flights up the outside of a floor, turning on a landing.');
 
   sec = addSection(root, 'Camera');
   addSelect(sec, 'Projection', 'projection', PROJECTIONS, resync,
@@ -2488,7 +3537,8 @@ function buildControls() {
   sec = addSection(root, 'Ink');
   addSelect(sec, 'Accent', 'accent', ACCENTS, resync,
     'What goes with the accent pen — red to start: the pipes, the fins, the frames, the racks, ' +
-    'the small details, one floor, every other floor, or parts at random. <b>A</b> steps.');
+    'the small details, the trusses (lattice, cranes, truss bridges), the tanks, the bridges, the ' +
+    'core, the wings, one floor, every other floor, or parts at random. <b>A</b> steps.');
   addSlider(sec, 'Parts in the accent (%)', 'accentShare', 0, 100, 1);
   addSlider(sec, 'Small parts under (mm)', 'smallBelow', 0, 30, 0.5,
     'Elements smaller than this on the paper go with the fine pen. 0 — none.', resync);
@@ -2567,6 +3617,7 @@ function buildControls() {
     '<div><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> move by 1 mm, with <kbd>shift</kbd> 10 · <kbd>+</kbd><kbd>−</kbd> zoom</div>' +
     '<div><kbd>S</kbd> scene · <kbd>P</kbd> projection · <kbd>Q</kbd><kbd>E</kbd> turn · <kbd>F</kbd> floors · <kbd>T</kbd> towers · <kbd>O</kbd> turn every other</div>' +
     '<div><kbd>W</kbd> fins · <kbd>A</kbd> accent · <kbd>J</kbd> <kbd>H</kbd> <kbd>K</kbd> shade left, right, top</div>' +
+    '<div><kbd>C</kbd> core · <kbd>L</kbd> layout · <kbd>V</kbd> footprints · <kbd>U</kbd> roof · <kbd>M</kbd> size on the paper</div>' +
     '<div><kbd>X</kbd> cut guides · <kbd>G</kbd> guides · <kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it</div>');
   linkDiv = createDiv('').parent(sec).class('link');
   refreshPenSelects();
@@ -2597,12 +3648,16 @@ function updateStats() {
   }
   const seconds = plan.downs * PEN_CYCLE_S + plan.ink / DRAW_SPEED + plan.travel / TRAVEL_SPEED;
   const kinds = Object.entries(WORLD.kinds).map(([k, n]) => `${n} ${k}`).join(', ');
+  const E = WORLD.ext, size = [E[3] - E[0], E[5] - E[2], E[4] - E[1]];
   let html =
     `<div class="big"><b>${groupNum(strokes)}</b> strokes, ` +
     `<b>${(plan.ink / 1000).toFixed(1)}</b> m of line</div>` +
     `<div>${groupNum(COUNTS.floors)} floors — ${kinds}</div>` +
     `<div>${groupNum(COUNTS.boxes)} boxes in ${groupNum(COUNTS.groups)} parts · a unit is ` +
     `${COUNTS.unit.toFixed(2)} mm</div>` +
+    `<div>The building is ${size.map(v => v.toFixed(0)).join(' × ')} units wide, deep and high — ` +
+    `${size.map(v => (v * COUNTS.unit).toFixed(0)).join(' × ')} mm at this scale; the drawing ` +
+    `${COUNTS.drawW.toFixed(0)} × ${COUNTS.drawH.toFixed(0)} mm</div>` +
     `<div>The pen goes down <b>${groupNum(plan.downs)}</b> times, ` +
     `${(plan.travel / 1000).toFixed(1)} m in the air</div>` +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ${lastMs.toFixed(0)} ms to draw` +
@@ -2628,6 +3683,9 @@ function updateStats() {
       s.shadeGap * 0.5 < hatchNib * 1.2) {
     html += `<div class="warn">Dense hatching ${(s.shadeGap * 0.5).toFixed(2)} mm apart runs into one ` +
       `black with a ${hatchNib} mm nib.</div>`;
+  }
+  if (s.sizeMode !== 'fit the picture' && (COUNTS.drawW > area.w + 0.5 || COUNTS.drawH > area.h + 0.5)) {
+    html += '<div class="warn">At this size the drawing is bigger than the picture and is cut at the margin.</div>';
   }
   if (s.passes > 100) {
     html += '<div class="warn">Passes over 100 % of the nib leave a hair of paper in every solid face.</div>';
