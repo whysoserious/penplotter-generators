@@ -49,7 +49,7 @@ niżej. Zanim zaczniesz pisać:
   węższy od stalówki to jedno dotknięcie.
 - **Kropki do cięcia — w każdym generatorze.** Każdy plot ma mieć opcję
   narysowania kropek na krawędziach obrazu, żeby dało się go potem równo wyciąć
-  gilotyną: checkbox `cropMarks` w sekcji papieru, do tego `cropMarkGap`
+  gilotyną: checkbox `cropMarks` w sekcji papieru, domyślnie włączony, do tego `cropMarkGap`
   (największy odstęp między kropkami) i wybór, czy kropki stoją na krawędzi
   arkusza, czy ramki rysunku. Kropka w każdym rogu, boki podzielone równo —
   przykłada się ostrze do dwóch kropek i tnie. Kropka to jedno dotknięcie pióra,
