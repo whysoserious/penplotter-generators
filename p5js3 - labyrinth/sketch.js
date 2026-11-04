@@ -45,7 +45,7 @@ let pathOverhangMm = 5;   // how far the path sticks out past the frame
 
 // Cut guides — dots to lay the guillotine's blade through, round the sheet or round the
 // picture (the sheet less the margins). They go with the walls, the first pen.
-let cropMarks = false;
+let cropMarks = true;
 let cropMarkAt = 'sheet';
 let cropMarkGap = 400;    // the most that is ever left between two dots
 

@@ -106,7 +106,7 @@ const settings = {
   customH: 400,
   margin: 15,
   penWidth: 0.3,
-  cropMarks: false,     // cut guides — dots to lay the guillotine's blade through
+  cropMarks: true,      // cut guides — dots to lay the guillotine's blade through
   cropMarkAt: 'sheet',
   cropMarkGap: 400,     // mm — the most that is ever left between two dots
 

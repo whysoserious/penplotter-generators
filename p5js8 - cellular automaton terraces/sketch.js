@@ -119,7 +119,7 @@ const settings = {
   inkColor: '#000000',
 
   // cut guides — dots on the edge of the sheet, for trimming an oversized plot back
-  cropMarks: false,
+  cropMarks: true,
   cropMarkGap: 400,     // mm — the most that is ever left between two marks
 
   // the lattice both generators live on

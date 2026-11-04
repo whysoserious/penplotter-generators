@@ -155,7 +155,7 @@ const settings = {
   customW: 600,         // mm, when the size is custom
   customH: 420,
   margin: 15,
-  cropMarks: false,        // cut guides — dots to lay the guillotine's blade through
+  cropMarks: true,         // cut guides — dots to lay the guillotine's blade through
   cropMarkAt: 'sheet',
   cropMarkGap: 400,        // mm — the most that is ever left between two dots
   paperTone: 'white',

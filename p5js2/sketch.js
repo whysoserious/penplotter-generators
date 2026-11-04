@@ -107,7 +107,7 @@ let orientationSelect;
 
 // Cut guides — dots to lay the guillotine's blade through, round the sheet or round the
 // picture inside the margins.
-let cropMarks = false;
+let cropMarks = true;
 let cropMarkAt = 'sheet';
 let cropMarkGap = 400;    // mm — the most that is ever left between two dots
 

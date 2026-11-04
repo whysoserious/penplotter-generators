@@ -93,7 +93,7 @@ const settings = {
   margin: 20,
   paperTone: 'white',
   paperColor: '#fbfaf5',   // the preview only — the files have no background
-  cropMarks: false,        // cut guides — dots to lay the guillotine's blade through
+  cropMarks: true,         // cut guides — dots to lay the guillotine's blade through
   cropMarkAt: 'sheet',
   cropMarkGap: 400,        // mm — the most that is ever left between two dots
 

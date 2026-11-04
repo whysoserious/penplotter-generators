@@ -85,7 +85,7 @@ const settings = {
   penWidth: 0.3,
 
   // cut guides — dots on the edge of the sheet, for trimming an oversized plot back
-  cropMarks: false,
+  cropMarks: true,
   cropMarkGap: 400,     // mm — the most that is ever left between two marks
 
   // the solid, in cells — only the ratios matter, the fit sizes it to the sheet

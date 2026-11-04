@@ -250,9 +250,9 @@
                     </div>
                 </div>
                 <div class="control-group">
-                    <label><input type="checkbox" id="cropMarks" onchange="setCrop()" style="width:auto;margin-right:6px">Cut guide dots</label>
+                    <label><input type="checkbox" id="cropMarks" checked onchange="setCrop()" style="width:auto;margin-right:6px">Cut guide dots</label>
                 </div>
-                <div id="crop-group" style="display:none">
+                <div id="crop-group">
                     <div class="control-group">
                         <label>Dots round</label>
                         <select id="cropMarkAt" onchange="setCrop()" style="
@@ -325,7 +325,7 @@ let P = {
 };
 
 // Cut guides — dots to lay the guillotine's blade through, round the sheet or the picture.
-let cropMarks = false;
+let cropMarks = true;
 let cropMarkAt = 'sheet';
 
 // A dot in every corner and each side split evenly, so no two dots are further apart than
@@ -743,7 +743,7 @@ function resetAll() {
     setP('margin', P.margin);
     setP('strokeMM', P.strokeMM);
     setP('cropMarkGap', P.cropMarkGap);
-    document.getElementById('cropMarks').checked = false;
+    document.getElementById('cropMarks').checked = true;
     document.getElementById('cropMarkAt').value = 'sheet';
     setCrop();
     toggleFill(P.filled);

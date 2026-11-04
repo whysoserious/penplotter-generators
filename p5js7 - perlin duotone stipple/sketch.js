@@ -135,7 +135,7 @@ const settings = {
   orientation: 'portrait',
   margin: 10,
   penWidth: 0.5,        // mm — Rotring nib size
-  cropMarks: false,     // cut guides — dots to lay the guillotine's blade through
+  cropMarks: true,      // cut guides — dots to lay the guillotine's blade through
   cropMarkAt: 'sheet',
   cropMarkGap: 400,     // mm — the most that is ever left between two dots
   pitchPercent: 85,     // cell pitch as a percentage of the pen width

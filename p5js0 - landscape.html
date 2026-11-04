@@ -382,12 +382,12 @@ proprome<head>
 
             <div class="control">
                 <label>
-                    <input type="checkbox" id="ctrlCropMarks" style="width: auto; margin-right: 6px;">
+                    <input type="checkbox" id="ctrlCropMarks" checked style="width: auto; margin-right: 6px;">
                     Kropki na krawędziach (do gilotyny)
                 </label>
             </div>
 
-            <div id="cropMarkGroup" style="display: none;">
+            <div id="cropMarkGroup" style="display: block;">
                 <div class="control">
                     <label>Kropki wokół</label>
                     <select id="ctrlCropMarkAt">
@@ -471,7 +471,7 @@ proprome<head>
             pageWidth: 297,            // Szerokość strony w mm (A4 landscape)
             pageHeight: 210,           // Wysokość strony w mm (A4 landscape)
             inverted: false,           // false = białe linie na czarnym tle
-            cropMarks: false,          // Kropki do cięcia gilotyną na krawędziach
+            cropMarks: true,           // Kropki do cięcia gilotyną na krawędziach
             cropMarkAt: 'sheet',       // 'sheet' — krawędź arkusza, 'picture' — marginesy
             cropMarkGap: 400,          // Największy odstęp między kropkami (mm)
             seed: null,                // Ziarno losowości (null = losowe)

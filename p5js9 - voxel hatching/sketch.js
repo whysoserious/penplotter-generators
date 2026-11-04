@@ -175,7 +175,7 @@ const settings = {
   shadowColor: '#000000',   // the second pen: everything a cast shadow puts on the sheet
 
   // cut guides — dots around the image, to trim it out with a guillotine or a knife
-  cutMarks: false,
+  cutMarks: true,
   cutAround: 'drawing',
   cutOffset: 5,         // mm between the image and the cut line
   cutGap: 40,           // mm — the most that is ever left between two dots

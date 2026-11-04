@@ -83,7 +83,7 @@ const settings = {
   paper: 'A4',
   orientation: 'portrait',
   margin: 15,
-  cropMarks: false,
+  cropMarks: true,
   cropMarkGap: 400,
 
   // time — the sheet is one moment of the fluid
