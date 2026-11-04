@@ -53,11 +53,13 @@ const SLOTS = 5;
 function kindRank(k) { return k.startsWith('red') ? 0 : k === 'other' ? 1 : 2; }
 
 const PROJECTIONS = ['isometric', 'axonometric', 'military'];
-const FLOOR_KINDS = ['machinery', 'racks', 'ribbed', 'frame', 'deck', 'pipework', 'lattice', 'tanks', 'vault'];
+const FLOOR_KINDS = ['machinery', 'racks', 'ribbed', 'frame', 'deck', 'pipework', 'lattice', 'tanks', 'vault',
+                     'plant', 'boilers', 'silos'];
 const WRAPS       = ['over', 'under', 'ring', 'side', 'corner', 'blades', 'mixed'];
-const ROOFS       = ['mixed', 'machinery', 'masts', 'slab', 'tanks', 'dome', 'crane', 'open'];
+const ROOFS       = ['mixed', 'machinery', 'masts', 'slab', 'tanks', 'dome', 'crane', 'chimneys', 'open'];
+const STACKS      = ['chimney', 'cooling tower', 'mixed'];
 const ACCENTS     = ['none', 'pipes', 'fins', 'frames', 'racks', 'details', 'trusses', 'tanks',
-                     'bridges', 'core', 'wings', 'one floor', 'every other floor', 'random parts'];
+                     'bridges', 'core', 'wings', 'chimneys', 'gears', 'conveyors', 'one floor', 'every other floor', 'random parts'];
 const LAYOUTS     = ['row', 'staggered', 'grid', 'ring', 'scatter'];
 const FOOTPRINTS  = ['rectangle', 'L', 'U', 'T', 'cross', 'courtyard', 'split', 'mixed'];
 const CORES       = ['none', 'solid', 'banded', 'lattice'];
@@ -75,7 +77,7 @@ const MARK_AT     = ['sheet', 'picture'];
 const K_STRUCT = 0, K_MACHINE = 1, K_FIN = 2, K_PIPE = 3, K_FRAME = 4, K_RACK = 5, K_DETAIL = 6;
 const K_TRUSS = 7, K_TANK = 8;
 // what a box belongs to beyond its kind, for the accent
-const ROLE_BRIDGE = 1, ROLE_CORE = 2, ROLE_WING = 3;
+const ROLE_BRIDGE = 1, ROLE_CORE = 2, ROLE_WING = 3, ROLE_STACK = 4, ROLE_GEAR = 5, ROLE_CONVEYOR = 6;
 
 // What goes on the sheet, each picking a pen of the drawer by number. The cut guides go
 // with the first pen in use.
@@ -202,6 +204,21 @@ const settings = {
   wLattice: 2,
   wTanks: 1.5,
   wVault: 1,
+  wPlant: 2.5,
+  wBoilers: 1.5,
+  wSilos: 1,
+
+  // factory
+  chimneys: 2,
+  stackKind: 'mixed',
+  chimneyHeight: 85,    // % of the tallest tower
+  chimneyRadius: 1.75,
+  conveyors: 1,
+  gears: 35,            // % of the floors with gears or pulleys on a face
+  gearSize: 2.5,
+  gearTooth: 1,
+  valves: 30,           // % of the pipe runs with a valve
+  gantry: 70,           // % of the halls with a travelling crane
 
   // lattice, tanks, vaults
   latticeCell: 4,
@@ -305,6 +322,8 @@ const STRUCT_KEYS = ['seed', 'towers', 'towerGap', 'layout', 'towerHeights', 'to
   'gapBraces',
   'wMachinery', 'wRacks', 'wRibbed', 'wFrame', 'wDeck', 'wPipework', 'wLattice', 'wTanks', 'wVault',
   'latticeCell', 'latticeBar', 'latticeBrace', 'tankSize', 'tankRound', 'domes', 'vaultPitch',
+  'wPlant', 'wBoilers', 'wSilos', 'chimneys', 'stackKind', 'chimneyHeight', 'chimneyRadius', 'conveyors',
+  'gears', 'gearSize', 'gearTooth', 'valves', 'gantry',
   'slabs', 'slabThick', 'overhang', 'frameWall', 'rings', 'portals', 'beams', 'beamSize', 'windows',
   'columns', 'columnSize',
   'rackSides', 'rackDepth', 'rackWidth', 'rackGap', 'rackSteps', 'rackSplit',
@@ -318,12 +337,33 @@ const STRUCT_KEYS = ['seed', 'towers', 'towerGap', 'layout', 'towerHeights', 'to
 const PLAIN = {
   towers: 1, podiumFloors: 0, plinth: 0, crownFloors: 0, setback: 0, cantilever: 0, wings: 0,
   footprint: 'rectangle', core: 'none', stairs: 0, wLattice: 0, wTanks: 0, wVault: 0, roof: 'machinery',
-  masts: 3,
+  masts: 3, wPlant: 0, wBoilers: 0, wSilos: 0, chimneys: 0, conveyors: 0, gears: 0, valves: 0,
 };
 const SCENES = [
   { label: '— select a scene —' },
   { label: 'Two towers on a podium', s: {} },
   { label: 'The plain stack', s: { ...PLAIN } },
+  { label: 'Factory floor', s: {
+      orientation: 'landscape', towers: 1, floors: 2, width: 46, depth: 26, floorHeight: 12, heightVar: 10,
+      wPlant: 8, wBoilers: 1, wMachinery: 0, wRacks: 0, wRibbed: 0, wFrame: 0, wDeck: 0, wPipework: 0,
+      wLattice: 0, wTanks: 0, wVault: 0, wSilos: 0, gantry: 100, podiumFloors: 0, crownFloors: 0,
+      setback: 0, cantilever: 0, footprint: 'rectangle', core: 'none', gap: 1, chimneys: 2,
+      stackKind: 'chimney', chimneyHeight: 160, roof: 'chimneys', accent: 'gears', seed: 7 } },
+  { label: 'Boiler house', s: {
+      towers: 2, layout: 'row', towerHeights: 50, floors: 4, wBoilers: 6, wPlant: 2, wPipework: 2,
+      chimneys: 3, stackKind: 'chimney', chimneyHeight: 130, valves: 70, pipes: 3, accent: 'pipes', seed: 33 } },
+  { label: 'Gearworks', s: {
+      towers: 1, floors: 6, gears: 100, gearSize: 3.5, wPlant: 5, wMachinery: 3, wRacks: 1, wRibbed: 0,
+      wVault: 0, wLattice: 0, wTanks: 0, wSilos: 0, wBoilers: 1, podiumFloors: 0, accent: 'gears', seed: 44 } },
+  { label: 'Silos and conveyors', s: {
+      orientation: 'landscape', towers: 3, layout: 'row', towerGap: 10, towerHeights: 50, floors: 3,
+      width: 22, depth: 14, floorHeight: 14, wSilos: 6, wTanks: 2, wPlant: 1, wMachinery: 0, wRacks: 0,
+      wRibbed: 0, wFrame: 0, wDeck: 0, wVault: 0, wLattice: 1, conveyors: 5, chimneys: 0, bridges: 1,
+      bridgeKind: 'truss', accent: 'conveyors', seed: 61 } },
+  { label: 'Power station', s: {
+      orientation: 'landscape', towers: 2, layout: 'staggered', floors: 4, wBoilers: 4, wPlant: 3,
+      wTanks: 1, chimneys: 4, stackKind: 'mixed', chimneyHeight: 110, chimneyRadius: 2.25,
+      podiumFloors: 1, podiumGrow: 14, conveyors: 2, accent: 'chimneys', seed: 72 } },
   { label: 'Arcology', s: {
       towers: 4, layout: 'grid', towerGap: 14, towerHeights: 55, podiumFloors: 2, podiumGrow: 6,
       bridges: 2, bridgeKind: 'truss', floors: 8, width: 18, depth: 16, floorHeight: 9, core: 'lattice',
@@ -1050,6 +1090,25 @@ function pipeBoxes(P, size, g) {
     lo3[ax] = Math.min(from, to); hi3[ax] = Math.max(from, to);
     addBox(lo3[0], lo3[1], lo3[2], hi3[0], hi3[1], hi3[2], K_PIPE, g);
     const L = Math.abs(b[ax] - a[ax]);
+    if (L > 4 * size + 1 && R() < s.valves / 100) {
+      // a valve: a body round the pipe, a stem, a handwheel
+      const at = q(a[ax] + (b[ax] - a[ax]) * rr(0.3, 0.7));
+      const c = [a[0], a[1], a[2]];
+      c[ax] = at;
+      const vb = q(Math.max(size * 0.8, h + 0.25)), vl = q(Math.max(0.5, size * 0.9));
+      const vl3 = [c[0] - vb, c[1] - vb, c[2] - vb], vh3 = [c[0] + vb, c[1] + vb, c[2] + vb];
+      vl3[ax] = at - vl; vh3[ax] = at + vl;
+      const gv = newGroup();
+      addBox(vl3[0], vl3[1], vl3[2], vh3[0], vh3[1], vh3[2], K_DETAIL, gv);
+      const rw = Math.max(0.75, q(size * 1.25));
+      if (ax !== 1) {
+        addBox(c[0] - 0.125, c[1] + vb, c[2] - 0.125, c[0] + 0.125, c[1] + vb + 1, c[2] + 0.125, K_DETAIL, gv);
+        upDrum(c[0], c[2], rw, c[1] + vb + 1, c[1] + vb + 1.25, K_DETAIL);
+      } else {
+        addBox(c[0] + vb, c[1] - 0.125, c[2] - 0.125, c[0] + vb + 1, c[1] + 0.125, c[2] + 0.125, K_DETAIL, gv);
+        cyl(0, c[0] + vb + 1, c[0] + vb + 1.25, c[2], c[1], rw, K_DETAIL);
+      }
+    }
     if (L > 3 * size && R() < s.flanges / 100) {
       const fh = q(Math.max(size * 0.8, size / 2 + 0.25)), ft = 0.25;
       const at = q(a[ax] + (b[ax] - a[ax]) * rr(0.25, 0.75));
@@ -1554,10 +1613,10 @@ function wing(F) {
 }
 
 // A bridge between two faces, along A from a0 to a1, across [b0, b1], from y0 up h.
-function bridge(A, a0, a1, b0, b1, y0, h, kind) {
+function bridge(A, a0, a1, b0, b1, y0, h, kind, role) {
   const s = settings;
   const was = CUR_ROLE;
-  CUR_ROLE = ROLE_BRIDGE;
+  CUR_ROLE = role === undefined ? ROLE_BRIDGE : role;
   if (a0 > a1) [a0, a1] = [a1, a0];
   const t = Math.max(0.25, q(Math.min(s.beamSize, h / 4, (b1 - b0) / 4)));
   if (kind === 'tube') {
@@ -1668,10 +1727,517 @@ function legs(F, yBase) {
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
+// Factory machinery
+//
+// Round things are boxes turned in steps (roundSteps a quarter): drums standing up
+// (upDrum), cylinders lying along x or z (cyl), rings (ringA), and from them gears,
+// flywheels, motors, presses, compressors, lathes, silos, boilers, chimneys and cooling
+// towers.
+
+function roundSteps() { return clamp(Math.round(settings.tankRound), 1, 6); }
+
+function withRole(role, fn) {
+  const was = CUR_ROLE;
+  CUR_ROLE = role;
+  try { fn(); } finally { CUR_ROLE = was; }
+}
+
+// An upright drum round (cx, cz), from y0 to y1.
+function upDrum(cx, cz, r, y0, y1, kind, g) {
+  const m = roundSteps();
+  if (g === undefined) g = newGroup();
+  let made = 0;
+  for (let i = 0; i < m; i++) {
+    const th = (i + 0.5) / m * Math.PI / 2;
+    const hx = q(r * Math.cos(th)), hz = q(r * Math.sin(th));
+    if (hx < 0.25 || hz < 0.25) continue;
+    if (addBox(cx - hx, y0, cz - hz, cx + hx, y1, cz + hz, kind, g) >= 0) made++;
+  }
+  if (!made) addBox(cx - Math.max(0.125, r), y0, cz - Math.max(0.125, r), cx + Math.max(0.125, r), y1, cz + Math.max(0.125, r), kind, g);
+  return g;
+}
+
+// A cylinder lying along Ax (0 or 2) from a0 to a1, its axis at cb across and cy up.
+function cyl(Ax, a0, a1, cb, cy, r, kind, g) {
+  const m = roundSteps();
+  if (g === undefined) g = newGroup();
+  if (a0 > a1) [a0, a1] = [a1, a0];
+  let made = 0;
+  for (let i = 0; i < m; i++) {
+    const th = (i + 0.5) / m * Math.PI / 2;
+    const hb = q(r * Math.cos(th)), hy = q(r * Math.sin(th));
+    if (hb < 0.25 || hy < 0.25) continue;
+    if (addAx(Ax, a0, a1, cb - hb, cb + hb, cy - hy, cy + hy, kind, g) >= 0) made++;
+  }
+  if (!made) {
+    const h = Math.max(0.125, r);
+    addAx(Ax, a0, a1, cb - h, cb + h, cy - h, cy + h, kind, g);
+  }
+  return g;
+}
+
+// A ring e thick round an axis along Ax, as boxes round the circle.
+function ringA(Ax, a0, a1, cb, cy, r, e, kind, g) {
+  const m = clamp(Math.round(r * 2.4), 8, 48);
+  if (g === undefined) g = newGroup();
+  for (let k = 0; k < m; k++) {
+    const f0 = k / m * 2 * Math.PI, f1 = (k + 1) / m * 2 * Math.PI;
+    let bl = Infinity, bh = -Infinity, yl = Infinity, yh = -Infinity;
+    const take = (rad_, f) => {
+      const b = cb + rad_ * Math.cos(f), y = cy + rad_ * Math.sin(f);
+      bl = Math.min(bl, b); bh = Math.max(bh, b); yl = Math.min(yl, y); yh = Math.max(yh, y);
+    };
+    for (const f of [f0, f1]) { take(r, f); take(r - e, f); }
+    for (let c = 0; c < 4; c++) {
+      const fc = c * Math.PI / 2;
+      if (fc > f0 && fc < f1) take(r, fc);
+    }
+    bl = q(bl); bh = Math.max(q(bh), bl + 0.25); yl = q(yl); yh = Math.max(q(yh), yl + 0.25);
+    addAx(Ax, a0, a1, bl, bh, yl, yh, kind, g);
+  }
+  return g;
+}
+
+// A spur gear on an axle along Ax: a disc with teeth round it and a hub standing out.
+function gear(Ax, a0, a1, cb, cy, r, kind) {
+  const s = settings;
+  withRole(ROLE_GEAR, () => {
+    const g = newGroup();
+    const was = s.tankRound;
+    s.tankRound = Math.max(4, was);
+    cyl(Ax, a0, a1, cb, cy, r, kind, g);
+    s.tankRound = was;
+    const t = Math.max(0.25, q(s.gearTooth * 0.3));
+    const n = Math.max(6, Math.round(2 * Math.PI * r / (Math.max(0.75, s.gearTooth) * 1.7)));
+    for (let k = 0; k < n; k++) {
+      const f = 2 * Math.PI * k / n;
+      const b = q(cb + (r + t) * Math.cos(f)), y = q(cy + (r + t) * Math.sin(f));
+      addAx(Ax, a0, a1, b - t, b + t, y - t, y + t, kind, g);
+    }
+    if (r >= 1.25) cyl(Ax, Math.min(a0, a1) - 0.5, Math.max(a0, a1) + 0.5, cb, cy, Math.max(0.5, r * 0.3), kind);
+  });
+}
+
+// A flywheel or pulley: a rim, spokes across it, a hub.
+function flywheel(Ax, a0, a1, cb, cy, r, kind) {
+  withRole(ROLE_GEAR, () => {
+    const g = newGroup();
+    const e = Math.max(0.5, q(r * 0.18));
+    if (r < 1.5) { cyl(Ax, a0, a1, cb, cy, r, kind, g); return; }
+    ringA(Ax, a0, a1, cb, cy, r, e, kind, g);
+    const sp = 0.25, inn = r - e + 0.125;
+    const lo_ = Math.min(a0, a1) + 0.125, hi_ = Math.max(a0, a1) - 0.125;
+    addAx(Ax, lo_, hi_, q(cb - inn), q(cb + inn), cy - sp, cy + sp, kind, g);
+    addAx(Ax, lo_, hi_, cb - sp, cb + sp, q(cy - inn), q(cy + inn), kind, g);
+    cyl(Ax, Math.min(a0, a1) - 0.5, Math.max(a0, a1) + 0.5, cb, cy, Math.max(0.5, r * 0.22), kind, g);
+  });
+}
+
+// An electric motor with its cooling fins, driving a flywheel, a gearbox or a pump.
+function motorSet(A, a0, a1, b0, b1, y, Hm) {
+  const B = 2 - A, len = a1 - a0, wid = b1 - b0;
+  const r = q(clamp(Math.min(wid / 2 - 0.75, Hm / 3, len / 5), 0.75, 4));
+  const cb = q((b0 + b1) / 2), cy = q(y + 0.75 + r);
+  const am = q(a0 + len * 0.45);
+  addAx(A, a0, am + 0.5, cb - r - 0.25, cb + r + 0.25, y, y + 0.75, K_STRUCT);
+  const g = newGroup();
+  cyl(A, a0 + 0.5, am, cb, cy, r, K_MACHINE, g);
+  for (let p = a0 + 1; p < am - 0.5; p += 0.75) cyl(A, p, p + 0.25, cb, cy, r + 0.25, K_MACHINE, g);
+  cyl(A, a0 + 0.25, a0 + 0.5, cb, cy, r * 0.75, K_MACHINE, g);
+  const tm = q((a0 + am) / 2);
+  addAx(A, tm - 0.75, tm + 0.75, cb - 0.75, cb + 0.75, cy + r, cy + r + 1, K_DETAIL);
+  const ad = q(a0 + len * 0.6);
+  cyl(A, am, ad + 0.5, cb, cy, 0.375, K_DETAIL);
+  const roll = R();
+  if (roll < 0.35) {
+    const rf = q(Math.min(r * 1.8, cy - y - 0.25, wid / 2));
+    flywheel(A, ad, ad + 0.75, cb, cy, rf, K_MACHINE);
+  } else if (roll < 0.7) {
+    const gh = q(Math.min(Hm, cy + r * 1.2 - y));
+    addAx(A, ad + 0.5, a1 - 0.75, cb - r * 1.2, cb + r * 1.2, y, y + gh, K_MACHINE);
+    if (A === 0) decorate(ad + 0.5, y, cb - r * 1.2, a1 - 0.75, y + gh, cb + r * 1.2);
+    else decorate(cb - r * 1.2, y, ad + 0.5, cb + r * 1.2, y + gh, a1 - 0.75);
+    gear(A, a1 - 0.75, a1, cb, cy, q(Math.min(r * 1.2, cy - y)), K_MACHINE);
+  } else {
+    const ap = q((ad + a1) / 2), rp = q(Math.min(r * 1.3, (a1 - ad) / 2 - 0.25, cy - y));
+    cyl(B, cb - r, cb + r, ap, cy, rp, K_MACHINE);
+    pipeBoxes([[ap, cy + rp, cb], [ap, Math.min(y + Hm, cy + rp + 3), cb], [a1 + 1, Math.min(y + Hm, cy + rp + 3), cb]]
+      .map(([a, yy, b]) => A === 0 ? [a, yy, b] : [b, yy, a]), 0.75, newGroup());
+  }
+}
+
+// A press: a bed, two columns, a crown, the ram between, a flywheel on the crown.
+function press(A, a0, a1, b0, b1, y, Hm) {
+  const B = 2 - A;
+  const w = q(Math.min(a1 - a0 - 1, 8)), ac = q((a0 + a1) / 2), t = 1;
+  if (w < 4 || Hm < 5) { motorSet(A, a0, a1, b0, b1, y, Hm); return; }
+  const c0 = q(b0 + 0.5), c1 = q(b1 - 0.5);
+  addAx(A, ac - w / 2, ac + w / 2, c0, c1, y, y + 1.5, K_MACHINE);
+  const g = newGroup(), top = q(y + Hm);
+  addAx(A, ac - w / 2, ac - w / 2 + t, c0 + 0.5, c1 - 0.5, y + 1.5, top - 1.5, K_MACHINE, g);
+  addAx(A, ac + w / 2 - t, ac + w / 2, c0 + 0.5, c1 - 0.5, y + 1.5, top - 1.5, K_MACHINE, g);
+  addAx(A, ac - w / 2 - 0.5, ac + w / 2 + 0.5, c0, c1, top - 1.5, top, K_MACHINE, g);
+  addAx(A, ac - w / 2 + t + 0.5, ac + w / 2 - t - 0.5, c0 + 1, c1 - 1, q(y + 1.5 + (Hm - 3) * rr(0.35, 0.6)),
+        top - 1.5, K_DETAIL);
+  const rf = q(Math.min(2.5, Hm / 3, w / 2));
+  flywheel(B, c1, c1 + 0.5, ac, top - rf * 0.6, rf, K_MACHINE);
+}
+
+// A compressor: a crankcase, a row of upright cylinders with heads, a manifold, a flywheel.
+function compressor(A, a0, a1, b0, b1, y, Hm) {
+  const cb = q((b0 + b1) / 2);
+  addAx(A, a0 + 0.5, a1 - 1, cb - 1.25, cb + 1.25, y, y + 2, K_MACHINE);
+  const n = clamp(Math.floor((a1 - a0 - 2) / 2.5), 1, 5);
+  const h = q(Math.max(1.5, Math.min(Hm - 2.75, 4)));
+  const pos = [];
+  for (let i = 0; i < n; i++) {
+    const ca = q(a0 + 1.5 + (a1 - a0 - 3) * (n > 1 ? i / (n - 1) : 0.5));
+    pos.push(ca);
+    const [x, z] = A === 0 ? [ca, cb] : [cb, ca];
+    const g = upDrum(x, z, 0.875, y + 2, y + 2 + h, K_MACHINE);
+    for (let yy = y + 2.5; yy < y + 2 + h - 0.5; yy += 0.75) upDrum(x, z, 1.125, yy, yy + 0.25, K_MACHINE, g);
+    upDrum(x, z, 1.125, y + 2 + h, y + 2.5 + h, K_MACHINE);
+  }
+  if (n > 1) addAx(A, pos[0] - 0.25, pos[n - 1] + 0.25, cb - 0.25, cb + 0.25, y + 2.5 + h, y + 3 + h, K_PIPE);
+  const rf = q(Math.min(2, Hm / 2.5, (b1 - b0) / 2));
+  flywheel(A, a1 - 1, a1 - 0.5, cb, y + rf + 0.25, rf, K_MACHINE);
+}
+
+// A gear train between two bearing stands: two or three gears in mesh on axles across.
+function gearTrain(A, a0, a1, b0, b1, y, Hm) {
+  const B = 2 - A, s = settings;
+  const r1 = q(clamp(Math.min(Hm * 0.38, (a1 - a0) / 4.6, s.gearSize * 1.3), 1, 8));
+  const r2 = q(Math.max(0.75, r1 * rr(0.45, 0.8)));
+  const bm = q((b0 + b1) / 2);
+  const gears = [[q(a0 + r1 + 0.75), q(y + r1 + 1), r1]];
+  const D = r1 + r2 + Math.max(0.5, s.gearTooth * 0.6);
+  const dy = Math.min(D * 0.6, (r1 - r2) * rr(0, 1.4));
+  gears.push([q(gears[0][0] + Math.sqrt(D * D - dy * dy)), q(gears[0][1] + dy), r2]);
+  if (R() < 0.5) {
+    const [ca, cy, r] = gears[1], r3 = q(Math.max(0.75, r1 * rr(0.5, 0.9))), D2 = r + r3 + 0.6;
+    const ca3 = q(ca + D2 * 0.8), cy3 = q(cy - D2 * 0.6);
+    if (ca3 + r3 < a1 && cy3 - r3 > y + 0.5) gears.push([ca3, cy3, r3]);
+  }
+  for (const [ca, cy, r] of gears) {
+    gear(B, bm - 0.375, bm + 0.375, ca, cy, r, K_MACHINE);
+    cyl(B, b0 + 0.5, b1 - 0.5, ca, cy, 0.375, K_DETAIL);
+    for (const bs of [b0 + 0.5, b1 - 1]) addAx(A, ca - 0.75, ca + 0.75, bs, bs + 0.5, y, cy + 0.75, K_STRUCT);
+  }
+}
+
+// A lathe: a bed on legs, a headstock with its chuck, the work, a carriage, a tailstock.
+function lathe(A, a0, a1, b0, b1, y, Hm) {
+  const cb = q((b0 + b1) / 2);
+  if (a1 - a0 < 9 || Hm < 5) { compressor(A, a0, a1, b0, b1, y, Hm); return; }
+  const g = newGroup();
+  addAx(A, a0 + 0.5, a0 + 2, cb - 1, cb + 1, y, y + 1.5, K_MACHINE, g);
+  addAx(A, a1 - 2, a1 - 0.5, cb - 1, cb + 1, y, y + 1.5, K_MACHINE, g);
+  addAx(A, a0 + 0.5, a1 - 0.5, cb - 1, cb + 1, y + 1.5, y + 2.25, K_MACHINE, g);
+  addAx(A, a0 + 0.5, a0 + 3, cb - 1.25, cb + 1.25, y + 2.25, y + 4.5, K_MACHINE);
+  cyl(A, a0 + 3, a0 + 3.5, cb, y + 3.5, 1, K_DETAIL);
+  cyl(A, a0 + 3.5, a1 - 2.75, cb, y + 3.5, 0.375, K_DETAIL);
+  addAx(A, a1 - 2.75, a1 - 1.25, cb - 0.75, cb + 0.75, y + 2.25, y + 4, K_MACHINE);
+  const ac = q(rr(a0 + 4.5, a1 - 4.5));
+  addAx(A, ac, ac + 1.5, cb - 1.25, cb + 1.25, y + 2.25, y + 3, K_MACHINE);
+}
+
+// A travelling crane over a hall: rails on columns along both long sides, a girder across
+// them, a trolley and a hook. Returns how high the machines under it may go.
+function gantry(F, A, yb) {
+  const B = 2 - A;
+  const H = F.y1 - yb;
+  const cs = 0.75, yr = q(yb + H - 3.25);
+  if (yr - yb < 4) return H;
+  const aLo = lo(F, A), aHi = hi(F, A), bLo = lo(F, B), bHi = hi(F, B);
+  for (const c of [bLo, bHi - cs]) {
+    const g = newGroup();
+    addAx(A, aLo, aHi, c, c + cs, yr, yr + 0.75, K_STRUCT, g);
+    const n = Math.max(1, Math.round((aHi - aLo) / 5));
+    for (let k = 0; k <= n; k++) {
+      const a = q(aLo + (aHi - aLo - cs) * k / n);
+      addAx(A, a, a + cs, c, c + cs, yb, yr, K_STRUCT, g);
+    }
+  }
+  const ab = q(rr(aLo + 1, aHi - 2.5));
+  const gg = newGroup();
+  addAx(A, ab, ab + 1.25, bLo, bHi, yr + 0.75, yr + 1.75, K_TRUSS, gg);
+  addAx(A, ab - 0.5, ab + 1.75, bLo, bLo + cs, yr + 0.75, yr + 1.5, K_TRUSS, gg);
+  addAx(A, ab - 0.5, ab + 1.75, bHi - cs, bHi, yr + 0.75, yr + 1.5, K_TRUSS, gg);
+  const bt = q(rr(bLo + 1.5, bHi - 3));
+  addAx(A, ab - 0.25, ab + 1.5, bt, bt + 1.5, yr + 1.75, Math.min(F.y1, yr + 2.75), K_DETAIL);
+  const drop = q(rr(1.5, Math.max(1.75, H * 0.45)));
+  const bc = bt + 0.625;
+  addAx(A, ab + 0.5, ab + 0.75, bc, bc + 0.25, yr + 0.75 - drop, yr + 0.75, K_DETAIL);
+  addAx(A, ab + 0.125, ab + 1.125, bc - 0.375, bc + 0.625, yr + 0.75 - drop - 1, yr + 0.75 - drop, K_DETAIL);
+  return Math.max(2, yr - yb - drop - 1.5);
+}
+
+// A factory hall: a travelling crane overhead, and down the bays a motor driving
+// something, a press, a compressor, a gear train or a lathe.
+function floorPlant(F) {
+  const s = settings;
+  const yb = floorSlab(F, true);
+  const A = F.x1 - F.x0 >= F.z1 - F.z0 ? 0 : 2, B = 2 - A;
+  let Hm = (F.y1 - yb) * 0.8;
+  if (R() < s.gantry / 100 && F.y1 - yb >= 7) Hm = Math.min(Hm, gantry(F, A, yb));
+  const aLo = lo(F, A) + 1, aHi = hi(F, A) - 1, bLo = lo(F, B) + 1.25, bHi = hi(F, B) - 1.25;
+  if (aHi - aLo < 4 || bHi - bLo < 3) { floorMachinery(F); return; }
+  // bays along the hall, and across it two rows if it is deep enough
+  const rows = bHi - bLo > 14 ? 2 : 1;
+  for (let r = 0; r < rows; r++) {
+    const r0 = q(bLo + (bHi - bLo) * r / rows), r1 = q(bLo + (bHi - bLo) * (r + 1) / rows) - (r + 1 < rows ? 0.75 : 0);
+    let a = aLo;
+    while (a < aHi - 3) {
+      let L = q(rr(6, 11));
+      if (aHi - (a + L) < 4) L = aHi - a;
+      const m = pick([motorSet, motorSet, press, compressor, gearTrain, lathe]);
+      m(A, a, a + L, r0, r1, yb, Hm);
+      a = q(a + L + 0.75);
+    }
+  }
+}
+
+// A chimney: a base, a shaft in three narrowing lengths, bands round it, a cap.
+function chimney(cx, cz, y0, H, r) {
+  withRole(ROLE_STACK, () => {
+    r = Math.max(0.75, r);
+    addBox(cx - r - 0.5, y0, cz - r - 0.5, cx + r + 0.5, y0 + 1.5, cz + r + 0.5, K_STRUCT);
+    const g = newGroup(), segs = 3, ys = y0 + 1.5;
+    let rt = r;
+    for (let i = 0; i < segs; i++) {
+      rt = r * (1 - 0.12 * i);
+      upDrum(cx, cz, rt, q(ys + (H - 1.5) * i / segs), q(ys + (H - 1.5) * (i + 1) / segs), K_STRUCT, g);
+    }
+    const top = q(y0 + H);
+    for (let y = ys + 3; y < top - 2; y += Math.max(3, H / 6)) {
+      const i = Math.min(segs - 1, Math.floor((y - ys) / ((H - 1.5) / segs)));
+      upDrum(cx, cz, r * (1 - 0.12 * i) + 0.25, q(y), q(y) + 0.5, K_STRUCT);
+    }
+    upDrum(cx, cz, rt + 0.375, top - 0.75, top + 0.25, K_STRUCT);
+  });
+}
+
+// A cooling tower: a waisted shell of drums on a ring of legs.
+function coolingTower(cx, cz, y0, H, Rr) {
+  withRole(ROLE_STACK, () => {
+    const legs = 8;
+    for (let k = 0; k < legs; k++) {
+      const f = 2 * Math.PI * k / legs;
+      const x = q(cx + (Rr - 0.75) * Math.cos(f)), z = q(cz + (Rr - 0.75) * Math.sin(f));
+      addBox(x - 0.25, y0, z - 0.25, x + 0.25, y0 + 1.5, z + 0.25, K_STRUCT);
+    }
+    const g = newGroup(), L = clamp(Math.round(H / 1.5), 6, 24);
+    for (let l = 0; l < L; l++) {
+      const t = (l + 0.5) / L;
+      const r = Rr * (0.62 + 0.38 * Math.pow((t - 0.72) / 0.72, 2));
+      upDrum(cx, cz, r, q(y0 + 1.5 + (H - 1.5) * l / L), q(y0 + 1.5 + (H - 1.5) * (l + 1) / L), K_STRUCT, g);
+    }
+  });
+}
+
+function stack(cx, cz, y0, H, r) {
+  const s = settings;
+  const kind = s.stackKind === 'mixed' ? (R() < 0.35 ? 'cooling tower' : 'chimney') : s.stackKind;
+  if (kind === 'cooling tower') coolingTower(cx, cz, y0, Math.max(6, H * 0.6), Math.max(2, r * 2.6));
+  else chimney(cx, cz, y0, H, r);
+}
+
+// A boiler house: one or two boiler drums lying on saddles, nozzles and a steam main on
+// top, a flue out of the back to a chimney standing outside.
+function floorBoilers(F) {
+  const s = settings;
+  const yb = floorSlab(F, true);
+  const H = F.y1 - yb;
+  const A = F.x1 - F.x0 >= F.z1 - F.z0 ? 0 : 2, B = 2 - A;
+  const span = hi(F, B) - lo(F, B);
+  const k = span > 13 ? 2 : 1;
+  const r = q(clamp(Math.min((H - 2.5) / 2, span / (2 * k) - 1), 1, 6));
+  if (H < 4 || r < 1) { floorMachinery(F); return; }
+  const a0 = lo(F, A) + 1, a1 = hi(F, A) - 1;
+  const side = R() < 0.5;
+  for (let i = 0; i < k; i++) {
+    const cb = q(lo(F, B) + span * (i + 0.5) / k), cy = q(yb + 1 + r);
+    {
+      cyl(A, a0 + 0.5, a1 - 0.5, cb, cy, r, K_TANK);
+      cyl(A, a0, a0 + 0.5, cb, cy, r + 0.375, K_TANK);
+      cyl(A, a1 - 0.5, a1, cb, cy, r + 0.375, K_TANK);
+      cyl(A, a0 - 0.5, a0, cb, q(cy - r * 0.3), q(r * 0.35), K_DETAIL);
+      for (const u of [0.2, 0.8]) {
+        const at = q(a0 + (a1 - a0) * u);
+        addAx(A, at - 0.5, at + 0.5, cb - q(r * 0.8), cb + q(r * 0.8), yb, cy - q(r * 0.5), K_STRUCT);
+      }
+    }
+    const noz = ri(1, 3), topY = cy + r;
+    for (let j = 0; j < noz; j++) {
+      const at = q(a0 + 1.5 + (a1 - a0 - 3) * (j + 0.5) / noz);
+      const [x, z] = A === 0 ? [at, cb] : [cb, at];
+      upDrum(x, z, 0.5, topY - 0.25, topY + 1, K_PIPE);
+      upDrum(x, z, 0.75, topY + 1, topY + 1.25, K_PIPE);
+    }
+    if (F.y1 - topY > 2.5) {
+      const ym = q(Math.min(F.y1 - 0.75, topY + 2));
+      const pts = [[a0 + 2, topY + 1.25, cb], [a0 + 2, ym, cb], [a1 - 1, ym, cb], [a1 - 1, ym, side ? hi(F, B) + 1 : lo(F, B) - 1]];
+      pipeBoxes(pts.map(([a, yy, b]) => A === 0 ? [a, yy, b] : [b, yy, a]), 0.75, newGroup());
+    }
+  }
+  // the flue and the chimney outside the far end
+  const rc = q(clamp(s.chimneyRadius, 0.75, 4));
+  const ca = q(hi(F, A) + rc + 1.5), cbm = q((lo(F, B) + hi(F, B)) / 2);
+  const fy = q(yb + Math.min(H - 1.5, 2 * r + 1));
+  addAx(A, a1 - 0.5, ca, cbm - 0.75, cbm + 0.75, fy - 1.5, fy, K_STRUCT);
+  const Hc = q(H + s.floorHeight * rr(1, 2.2));
+  const [x, z] = A === 0 ? [ca, cbm] : [cbm, ca];
+  chimney(x, z, yb, Hc, rc);
+}
+
+// A silo: legs, a stepped hopper, the bin, a cone on top.
+function silo(cx, cz, y0, r, H) {
+  const hl = q(H * 0.22), hc = q(Math.min(r * 1.1, H * 0.25)), hb = q(H - hl - hc - Math.max(0.5, r * 0.3));
+  if (hb < 1) return y0;
+  const g = newGroup();
+  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const x = q(cx + dx * (r * 0.7)), z = q(cz + dz * (r * 0.7));
+    addBox(x - 0.25, y0, z - 0.25, x + 0.25, y0 + hl + hc * 0.5, z + 0.25, K_STRUCT);
+  }
+  const L = 4;
+  for (let l = 0; l < L; l++) {
+    const rl = Math.max(0.5, r * (l + 1) / L);
+    upDrum(cx, cz, rl, q(y0 + hl + hc * l / L), q(y0 + hl + hc * (l + 1) / L), K_TANK, g);
+  }
+  upDrum(cx, cz, 0.375, y0 + hl - 0.75, y0 + hl, K_TANK, g);
+  const yb = y0 + hl + hc, yt = q(yb + hb);
+  upDrum(cx, cz, r, yb, yt, K_TANK, g);
+  for (let l = 0; l < 3; l++) {
+    upDrum(cx, cz, Math.max(0.5, r * (1 - (l + 1) / 4)), q(yt + r * 0.1 * l), q(yt + r * 0.1 * (l + 1)) + 0.25, K_TANK, g);
+  }
+  upDrum(cx, cz, r + 0.25, q(yb + hb * 0.5), q(yb + hb * 0.5) + 0.5, K_TANK);
+  return yt + r * 0.3 + 0.25;
+}
+
+// Silos in a row, a covered gallery over them, a bucket elevator at one end.
+function floorSilos(F) {
+  const s = settings;
+  const yb = floorSlab(F, true);
+  const H = F.y1 - yb;
+  const A = F.x1 - F.x0 >= F.z1 - F.z0 ? 0 : 2, B = 2 - A;
+  const span = hi(F, B) - lo(F, B), len = hi(F, A) - lo(F, A);
+  const r = q(clamp(Math.min(s.tankSize * 1.1, span / 2 - 1, (H - 2) / 3), 1, 8));
+  if (H < 6 || r < 1) { floorTanks(F); return; }
+  const n = Math.max(1, Math.floor((len - 4) / (2 * r + 0.75)));
+  const cb = q((lo(F, B) + hi(F, B)) / 2);
+  let top = yb;
+  const xs = [];
+  for (let i = 0; i < n; i++) {
+    const ca = q(lo(F, A) + 1 + r + i * (2 * r + 0.75));
+    xs.push(ca);
+    const [x, z] = A === 0 ? [ca, cb] : [cb, ca];
+    top = Math.max(top, silo(x, z, yb, r, H - 2));
+  }
+  const gy = q(Math.min(F.y1 - 1.75, top));
+  if (n > 1 && F.y1 - gy >= 1.5) {
+    bridge(A, xs[0] - r, xs[n - 1] + r + 2, cb - 0.75, cb + 0.75, gy, Math.min(1.75, F.y1 - gy), 'tube', ROLE_CONVEYOR);
+  }
+  // the bucket elevator
+  const ea = q(hi(F, A) - 2.25);
+  addAx(A, ea, ea + 1.25, cb - 0.625, cb + 0.625, yb, F.y1 - 0.5, K_MACHINE);
+  addAx(A, ea - 0.5, ea + 1.75, cb - 1, cb + 1, F.y1 - 2, F.y1, K_MACHINE);
+  pipeBoxes([[ea, yb + 1, cb], [lo(F, A) + 1 + r, yb + 1, cb]].map(([a, yy, b]) => A === 0 ? [a, yy, b] : [b, yy, a]),
+            0.75, newGroup());
+}
+
+// Gears or belt-driven pulleys on a face of the floor, standing out of it on stub axles.
+function faceGears(F) {
+  const s = settings;
+  const A = R() < 0.5 ? 0 : 2, B = 2 - A, side = R() < 0.5;
+  const face = side ? hi(F, B) : lo(F, B), out = side ? 1 : -1;
+  const h = F.y1 - F.y0, len = hi(F, A) - lo(F, A);
+  const r1 = q(clamp(s.gearSize * rr(0.7, 1.2), 0.75, Math.min(h / 2 - 0.75, len / 5)));
+  if (r1 < 0.75) return;
+  const p0 = face + out * 0.5, p1 = face + out * 1.25;
+  const g0 = Math.min(p0, p1), g1 = Math.max(p0, p1);
+  let ca = q(rr(lo(F, A) + r1 + 0.75, hi(F, A) - r1 * 3 - 1)), cy = q(rr(F.y0 + r1 + 0.5, F.y1 - r1 - 0.5));
+  if (R() < 0.3) {
+    // two pulleys and a belt
+    const r2 = q(Math.max(0.75, r1 * rr(0.4, 0.8)));
+    const ca2 = q(Math.min(hi(F, A) - r2 - 0.5, ca + r1 + r2 + rr(2, 6)));
+    flywheel(B, g0, g1, ca, cy, r1, K_MACHINE);
+    flywheel(B, g0, g1, ca2, cy, r2, K_MACHINE);
+    cyl(B, face, face + out * 1.75, ca, cy, 0.375, K_DETAIL);
+    cyl(B, face, face + out * 1.75, ca2, cy, 0.375, K_DETAIL);
+    const bb0 = Math.min(face + out * 0.75, face + out * 1), bb1 = Math.max(face + out * 0.75, face + out * 1);
+    withRole(ROLE_GEAR, () => {
+      const g = newGroup();
+      addAx(A, ca, ca2, bb0, bb1, cy + r1, cy + r1 + 0.25, K_DETAIL, g);
+      addAx(A, ca, ca2, bb0, bb1, cy - r1 - 0.25, cy - r1, K_DETAIL, g);
+    });
+    return;
+  }
+  const n = ri(1, 3);
+  let r = r1;
+  for (let i = 0; i < n; i++) {
+    if (ca + r > hi(F, A) - 0.25 || cy - r < F.y0 + 0.25 || cy + r > F.y1 - 0.25) break;
+    gear(B, g0, g1, ca, cy, r, K_MACHINE);
+    cyl(B, face, face + out * 1.75, ca, cy, 0.375, K_DETAIL);
+    const rn = q(Math.max(0.75, r * rr(0.45, 1)));
+    const D = r + rn + Math.max(0.5, s.gearTooth * 0.6), dy = D * rr(-0.6, 0.6);
+    ca = q(ca + Math.sqrt(D * D - dy * dy)); cy = q(cy + dy); r = rn;
+  }
+}
+
+// A conveyor up to a floor of a tower: a belt in steps on posts, a drum at the head, a
+// hopper at the foot, things riding it.
+function conveyor(F, groundAt) {
+  const A = R() < 0.5 ? 0 : 2, B = 2 - A, side = R() < 0.5;
+  const face = side ? hi(F, A) : lo(F, A), out = side ? 1 : -1;
+  const w = 1.5;
+  if (hi(F, B) - lo(F, B) < w + 2) return;
+  const b0 = q(rr(lo(F, B) + 0.5, hi(F, B) - 0.5 - w)), b1 = b0 + w;
+  const yTop = q(F.y0 + rr(0.75, Math.min(2.5, F.y1 - F.y0 - 1)));
+  let aFoot = 0, yFoot = 0;
+  for (let k = 0; k < 3; k++) {
+    const L = q((yTop - 0) * rr(0.9, 1.6) + 3);
+    aFoot = face + out * L;
+    const [x, z] = A === 0 ? [aFoot, (b0 + b1) / 2] : [(b0 + b1) / 2, aFoot];
+    yFoot = groundAt(x, z) + 1.5;
+    if (yTop - yFoot >= 2) break;
+  }
+  if (yTop - yFoot < 2) return;
+  withRole(ROLE_CONVEYOR, () => {
+    const g = newGroup(), t = 0.75;
+    const aHead = face - out * 0.5;
+    stepBrace(A, aFoot, yFoot, aHead, yTop, b0, b1, t, K_TRUSS, g);
+    cyl(B, b0 - 0.25, b1 + 0.25, aFoot, yFoot, 0.625, K_DETAIL);
+    // posts down to whatever is under them
+    const L = Math.abs(aFoot - aHead);
+    for (let d = 3; d < L - 1; d += 4) {
+      const a = q(aFoot - out * d), u = d / L, y = yFoot + (yTop - yFoot) * u - 0.5;
+      const [x, z] = A === 0 ? [a, (b0 + b1) / 2] : [(b0 + b1) / 2, a];
+      const yg = groundAt(x, z);
+      if (y - yg < 0.5) continue;
+      const gp = newGroup();
+      addAx(A, a, a + 0.5, b0, b0 + 0.5, yg, q(y), K_STRUCT, gp);
+      addAx(A, a, a + 0.5, b1 - 0.5, b1, yg, q(y), K_STRUCT, gp);
+      addAx(A, a, a + 0.5, b0 + 0.5, b1 - 0.5, q(y) - 0.5, q(y), K_STRUCT, gp);
+    }
+    // the hopper at its foot
+    const [hx, hz] = A === 0 ? [q(aFoot + out * 0.5), q((b0 + b1) / 2)] : [q((b0 + b1) / 2), q(aFoot + out * 0.5)];
+    const gh = newGroup(), yg = groundAt(hx, hz);
+    addBox(hx - 0.5, yg, hz - 0.5, hx + 0.5, yFoot - 0.5, hz + 0.5, K_STRUCT, gh);
+    for (let l = 0; l < 3; l++) upDrum(hx, hz, 0.75 + l * 0.5, yFoot + 0.5 + l * 0.5, yFoot + 1 + l * 0.5, K_DETAIL, gh);
+    // things riding it
+    const items = ri(2, 6);
+    for (let i = 0; i < items; i++) {
+      const u = rr(0.1, 0.9), a = q(aFoot + (aHead - aFoot) * u), y = q(yFoot + (yTop - yFoot) * u + 0.5);
+      addAx(A, a - 0.375, a + 0.375, b0 + 0.375, b1 - 0.375, y, y + 0.75, K_DETAIL);
+    }
+  });
+}
+
 function pickKind() {
   const s = settings;
   const w = [s.wMachinery, s.wRacks, s.wRibbed, s.wFrame, s.wDeck, s.wPipework, s.wLattice, s.wTanks,
-             s.wVault].map(v => Math.max(0, v));
+             s.wVault, s.wPlant, s.wBoilers, s.wSilos].map(v => Math.max(0, v));
   const sum = w.reduce((a, b) => a + b, 0);
   if (sum <= 0) return 'machinery';
   let r = R() * sum;
@@ -1695,6 +2261,9 @@ function fillKind(F) {
     case 'lattice': floorLattice(F); break;
     case 'tanks': floorTanks(F); break;
     case 'vault': floorVault(F); break;
+    case 'plant': floorPlant(F); break;
+    case 'boilers': floorBoilers(F); break;
+    case 'silos': floorSilos(F); break;
     default: floorMachinery(F);
   }
 }
@@ -1731,6 +2300,7 @@ function fillFloor(F, prev) {
   if (R() < s.ladders / 100) ladder(on());
   if (R() < s.trays / 100) tray(on());
   if (R() < s.stairs / 100) stair(on());
+  if (['machinery', 'racks', 'frame', 'plant', 'boilers', 'ribbed'].includes(F.kind) && R() < s.gears / 100) faceGears(on());
   if (R() < s.wings / 100) {
     const was = CUR_ROLE;
     CUR_ROLE = ROLE_WING;
@@ -1763,7 +2333,15 @@ function roofOn(T, top) {
   const rects = T.rects || [T];
   const big = biggest(rects);
   let roof = s.roof;
-  if (roof === 'mixed') roof = pick(['machinery', 'masts', 'tanks', 'dome', 'crane', 'machinery']);
+  if (roof === 'mixed') roof = pick(['machinery', 'masts', 'tanks', 'dome', 'crane', 'machinery', 'chimneys']);
+  if (roof === 'chimneys') {
+    const k = ri(1, 3);
+    for (let i = 0; i < k; i++) {
+      const r = pick(rects), rc = q(clamp(s.chimneyRadius * rr(0.5, 0.9), 0.75, Math.min(r.x1 - r.x0, r.z1 - r.z0) / 2 - 1));
+      if (rc < 0.75) continue;
+      chimney(q(rr(r.x0 + rc + 1, r.x1 - rc - 1)), q(rr(r.z0 + rc + 1, r.z1 - rc - 1)), top, q(s.floorHeight * rr(1, 2.5)), rc);
+    }
+  }
   if (roof === 'slab') {
     for (const r of rects) slab(r.x0 - 0.5, r.z0 - 0.5, r.x1 + 0.5, r.z1 + 0.5, T.y1, Math.max(0.25, q(s.slabThick)));
   }
@@ -2041,6 +2619,35 @@ function buildWorld() {
   R = rng(909);
   if (s.bridges > 0) for (const [a, b] of pairs) bridgesBetween(placed[a], placed[b]);
 
+  // what stands round the towers: where the podium is, on it, otherwise on the ground
+  const groundAt = (x, z) => {
+    if (under) for (const r of under.rects || [under]) {
+      if (x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1) return under.y1;
+    }
+    return 0;
+  };
+  R = rng(1717);
+  const top = Math.max(...placed.map(P => P.length ? P[P.length - 1].y1 : 0));
+  const nc = clamp(Math.round(s.chimneys), 0, 12);
+  for (let i = 0; i < nc; i++) {
+    const P = pick(placed);
+    if (!P.length) continue;
+    const F0 = P[0], rc = q(clamp(s.chimneyRadius * rr(0.8, 1.25), 0.75, 8));
+    const A = R() < 0.5 ? 0 : 2, B = 2 - A, side = R() < 0.5;
+    const ca = q(side ? hi(F0, A) + rc + rr(1.5, 4) : lo(F0, A) - rc - rr(1.5, 4));
+    const cb = q(rr(lo(F0, B), hi(F0, B)));
+    const [x, z] = A === 0 ? [ca, cb] : [cb, ca];
+    const y0 = groundAt(x, z);
+    stack(x, z, y0, q(Math.max(6, (top - y0) * clamp(s.chimneyHeight, 10, 300) / 100 * rr(0.75, 1.1))), rc);
+  }
+  const nv = clamp(Math.round(s.conveyors), 0, 12);
+  for (let i = 0; i < nv; i++) {
+    const P = pick(placed);
+    if (P.length < 1) continue;
+    const F = P[ri(Math.min(1, P.length - 1), Math.min(P.length - 1, 3))];
+    conveyor(F, groundAt);
+  }
+
   // the plinth: steps under everything that stands on the ground
   const steps = clamp(Math.round(s.plinth), 0, 8);
   if (steps > 0) {
@@ -2083,6 +2690,9 @@ function buildWorld() {
       case 'bridges': on = RL[i] === ROLE_BRIDGE; break;
       case 'core':   on = RL[i] === ROLE_CORE; break;
       case 'wings':  on = RL[i] === ROLE_WING; break;
+      case 'chimneys': on = RL[i] === ROLE_STACK; break;
+      case 'gears':  on = RL[i] === ROLE_GEAR; break;
+      case 'conveyors': on = RL[i] === ROLE_CONVEYOR; break;
       case 'one floor': on = FL[i] === redFloor; break;
       case 'every other floor': on = FL[i] % 2 === 1; break;
       case 'random parts': on = gRed[GP[i]] === 1; break;
@@ -3299,6 +3909,8 @@ function syncVisibility() {
   show(['footShare', 'footCut'], s.footprint !== 'rectangle');
   show(['wingReach', 'wingSize'], s.wings > 0);
   show(['coreSize', 'coreAbove'], s.core !== 'none');
+  show(['stackKind', 'chimneyHeight'], s.chimneys > 0);
+  show(['gearSize', 'gearTooth'], s.gears > 0 || s.wPlant > 0);
   show(['azimuth'], true);
   setVisible('elevation', s.projection === 'axonometric');
   setVisible('heightScale', s.projection === 'military');
@@ -3394,7 +4006,7 @@ function buildControls() {
   addCheckbox(sec, 'Every other floor turned a quarter', 'alternate');
   addSelect(sec, 'On the roof', 'roof', ROOFS, update,
     'Low <b>machinery</b>, <b>masts</b> only, a <b>slab</b>, <b>tanks</b>, a stepped <b>dome</b>, ' +
-    'a <b>crane</b>, nothing — or <b>mixed</b>, one of them for every tower.');
+    'a <b>crane</b>, <b>chimneys</b>, nothing — or <b>mixed</b>, one of them for every tower.');
   addSlider(sec, 'Masts', 'masts', 0, 20, 1);
   addSlider(sec, 'Cranes', 'cranes', 0, 6, 1, 'Tower cranes on every roof, besides what the roof has.');
 
@@ -3455,6 +4067,27 @@ function buildControls() {
   addSlider(sec, 'Lattice', 'wLattice', 0, 10, 0.5, 'A cage of bars with stepped diagonals, something inside.');
   addSlider(sec, 'Tanks', 'wTanks', 0, 10, 0.5, 'Drums standing or lying on a slab, pipes between.');
   addSlider(sec, 'Vault', 'wVault', 0, 10, 0.5, 'A barrel vault of arched ribs over low machinery.');
+  addSlider(sec, 'Factory hall', 'wPlant', 0, 10, 0.5,
+    'A travelling crane overhead, bays of machines under it: motors driving flywheels, gearboxes ' +
+    'and pumps, presses, compressors, gear trains, lathes.');
+  addSlider(sec, 'Boiler house', 'wBoilers', 0, 10, 0.5,
+    'Boiler drums on saddles, nozzles and a steam main, a flue to a chimney outside.');
+  addSlider(sec, 'Silos', 'wSilos', 0, 10, 0.5, 'Silos on legs over hoppers, a gallery along their tops, a bucket elevator.');
+
+  sec = addSection(root, 'Factory');
+  addSlider(sec, 'Stacks round the towers', 'chimneys', 0, 12, 1, 'On the podium or the ground beside a tower.', resync);
+  addSelect(sec, 'Stacks are', 'stackKind', STACKS, update,
+    '<b>chimney</b>s — banded, narrowing, capped; <b>cooling tower</b>s — waisted shells on legs; or <b>mixed</b>.');
+  addSlider(sec, 'Stack height (%)', 'chimneyHeight', 10, 300, 1, 'Of the tallest tower.');
+  addSlider(sec, 'Chimney radius', 'chimneyRadius', 0.75, 8, 0.25, 'Also of the boiler-house chimneys and those on roofs.');
+  addSlider(sec, 'Conveyors', 'conveyors', 0, 12, 1,
+    'Belts in steps from the ground up into a floor, on posts, a hopper at the foot, loads riding them.');
+  addSlider(sec, 'Gears on the walls (%)', 'gears', 0, 100, 1,
+    'Floors with a train of gears, or two pulleys and a belt, standing out of a face.', resync);
+  addSlider(sec, 'Gear size', 'gearSize', 0.75, 10, 0.25);
+  addSlider(sec, 'Tooth', 'gearTooth', 0.75, 3, 0.25, 'How far apart the teeth are and how big.');
+  addSlider(sec, 'Valves (%)', 'valves', 0, 100, 1, 'Pipe runs with a valve: a body, a stem and a handwheel.');
+  addSlider(sec, 'Halls with a crane (%)', 'gantry', 0, 100, 1);
 
   sec = addSection(root, 'Lattice, tanks, vaults');
   addSlider(sec, 'Lattice cell', 'latticeCell', 1.5, 20, 0.25);
@@ -3538,7 +4171,8 @@ function buildControls() {
   addSelect(sec, 'Accent', 'accent', ACCENTS, resync,
     'What goes with the accent pen — red to start: the pipes, the fins, the frames, the racks, ' +
     'the small details, the trusses (lattice, cranes, truss bridges), the tanks, the bridges, the ' +
-    'core, the wings, one floor, every other floor, or parts at random. <b>A</b> steps.');
+    'core, the wings, the chimneys and cooling towers, the gears and pulleys, the conveyors, one ' +
+    'floor, every other floor, or parts at random. <b>A</b> steps.');
   addSlider(sec, 'Parts in the accent (%)', 'accentShare', 0, 100, 1);
   addSlider(sec, 'Small parts under (mm)', 'smallBelow', 0, 30, 0.5,
     'Elements smaller than this on the paper go with the fine pen. 0 — none.', resync);

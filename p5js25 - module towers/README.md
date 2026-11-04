@@ -8,8 +8,13 @@ ground, joined by bridges. A tower is a pile of floors, and each floor is one ki
 dense **machinery** cut into cabinets, rows of tall **racks** round a slab, a **ribbed**
 sleeve of thin plates wrapped round a core, a hollow **frame** like a piece of square duct,
 an open **deck** on columns, a tangle of **pipework**, a **lattice** cage of bars with
-stepped diagonals, **tanks** standing or lying on a slab, or a barrel **vault** of arched
-ribs. A floor's plan may be an L, a U, a T, a cross, a ring round a courtyard, or two
+stepped diagonals, **tanks** standing or lying on a slab, a barrel **vault** of arched
+ribs, a factory **hall** with a travelling crane over bays of machines (motors driving
+flywheels, gearboxes and pumps, presses, compressors, gear trains, lathes), a **boiler
+house** with its drums, steam main and chimney, or a row of **silos** over hoppers with a
+gallery and a bucket elevator. Chimneys and cooling towers stand round the towers,
+conveyors climb in steps into their floors, gears and belt-driven pulleys turn on the walls,
+and the pipes have valves with handwheels. A floor's plan may be an L, a U, a T, a cross, a ring round a courtyard, or two
 blocks with a bridge between them. Floors step back into terraces, slide out on braces, lean,
 wind round a circle, grow wings with pods on their ends, and a core runs up through them.
 
@@ -43,7 +48,8 @@ browser; everything works from `file://`.
 
 1. Pick a **Scene**: two towers on a podium, the plain stack, an arcology, leaning on its
    braces, a winding tower, a ziggurat, courtyards, every plan there is, a tank farm, on
-   stilts, cranes over the site, hangars, wings and pods, twin bridges, to scale, and the
+   stilts, cranes over the site, a factory floor, a boiler house, gearworks, silos and
+   conveyors, a power station, hangars, wings and pods, twin bridges, to scale, and the
    older ones (ribbed sleeves, server stacks, a needle, red pipework, the shading scenes…).
    Or set it up in the panel.
 2. **Drag** on the sheet to turn the camera (in isometric the first drag switches to
@@ -91,7 +97,7 @@ the picture is cut at the margin, and the stats say so.
 - **Air between floors**: 0 stacks them tight; more pulls the tower apart, with **Posts
   across a gap**.
 - **Every other floor turned a quarter**, **On the roof** (machinery, masts, a slab, tanks,
-  a stepped dome, a crane, nothing, or **mixed**: one of them for each tower), **Masts**,
+  a stepped dome, a crane, chimneys, nothing, or **mixed**: one of them for each tower), **Masts**,
   **Cranes**.
 
 ### Massing
@@ -125,7 +131,23 @@ the picture is cut at the margin, and the stats say so.
 ### Floors
 
 How often each kind comes up, as shares (0 = never): **Machinery**, **Racks**,
-**Ribbed**, **Frame**, **Deck**, **Pipework**, **Lattice**, **Tanks**, **Vault**.
+**Ribbed**, **Frame**, **Deck**, **Pipework**, **Lattice**, **Tanks**, **Vault**, **Factory
+hall**, **Boiler house**, **Silos**.
+
+### Factory
+
+- **Stacks round the towers**: on the podium or the ground beside a tower, **chimney**s
+  (a base, a shaft narrowing in three lengths, bands, a cap), **cooling tower**s (a waisted
+  shell of drums on a ring of legs), or mixed. **Stack height** is a share of the tallest
+  tower; **Chimney radius** sets these, the boiler-house chimneys and the ones on roofs.
+- **Conveyors**: belts in steps from the ground or the podium up into a floor, on posts,
+  with a drum and a hopper at the foot and loads riding them.
+- **Gears on the walls**: floors with a train of meshing gears, or two pulleys and a belt,
+  standing out of a face on stub axles. **Gear size**, **Tooth** (how big the teeth are and
+  how far apart).
+- **Valves**: pipe runs with a valve body, a stem and a handwheel.
+- **Halls with a crane**: factory halls with a travelling crane: rails on columns, a
+  girder, a trolley and a hook.
 
 ### Lattice, tanks, vaults
 
@@ -183,7 +205,8 @@ floors. **Ladders**, **Trays** (shelves standing out of a face with things on th
 
 - **Accent**: what goes in the accent pen (red by default): the pipes, the fins, the
   frames, the racks, the small details, the trusses (lattice, cranes, truss bridges), the
-  tanks, the bridges, the core, the wings, one floor, every other floor, or random parts
+  tanks, the bridges, the core, the wings, the chimneys and cooling towers, the gears and
+  pulleys, the conveyors, one floor, every other floor, or random parts
   (**Parts in the accent**).
 - **Small parts under**: elements smaller than this on the paper go in the fine pen.
 - **Faces to the left**, **to the right**, **on top**: sparse, hatch, dense, cross, or
