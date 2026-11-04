@@ -42,11 +42,13 @@ niżej. Zanim zaczniesz pisać:
 - **Dużo opcji konfiguracji.** Każdy istotny parametr na suwaku albo w selekcie,
   z krótką notką, do tego gotowe sceny/presety na start, klawisze i mysz na sheecie.
   README opisuje parametry i to, jak generator działa.
-- **Pióra, które są w szufladzie:** rapidograf czarny i czerwony (cienkie linie)
-  oraz markery na tusz czerwony, srebrny i biały, 3–15 mm. Rozważ dwa kolory
-  i warstwy markerowe, chyba że generator ma być czarno-biały. Wypełnienia
-  piórem: kontur pół stalówki do środka, przejścia co 85 % stalówki, kształt
-  węższy od stalówki to jedno dotknięcie.
+- **Pióra, które są w szufladzie:** tylko rapidografy, **czarny i czerwony**,
+  każdy w czterech grubościach: **0.25, 0.35, 0.5 i 1.0 mm**. Markerów nie ma —
+  nie dawaj ich do wartości domyślnych ani scen (mogą zostać do wyboru jako
+  „other”). Rozważ dwa kolory i różne grubości (cienka do detalu i kreskowania,
+  gruba do konturów albo wypełnień), chyba że generator ma być czarno-biały.
+  Wypełnienia piórem: kontur pół stalówki do środka, przejścia co 85 % stalówki,
+  kształt węższy od stalówki to jedno dotknięcie.
 - **Kropki do cięcia — w każdym generatorze.** Każdy plot ma mieć opcję
   narysowania kropek na krawędziach obrazu, żeby dało się go potem równo wyciąć
   gilotyną: checkbox `cropMarks` w sekcji papieru, domyślnie włączony, do tego `cropMarkGap`
