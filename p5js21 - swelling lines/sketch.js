@@ -93,6 +93,9 @@ const DRAG_DEG_PX    = 0.25;
 const WHEEL_ZOOM     = 0.0015;
 const MIN_ZOOM       = 10;
 const MAX_ZOOM       = 1000;
+const MIN_VIEW       = 5;          // % — how far the drawing itself can be zoomed out
+const MAX_VIEW       = 5000;       //   and in
+const VIEW_SHIFT     = 20000;      // mm — how far the zoomed drawing can be moved
 
 const settings = {
   // paper
@@ -269,8 +272,8 @@ const settings = {
   viewSide: 0,          // ° — seen from the side
   perspective: 0,       // %
   clothFit: true,       // the cloth as seen fitted to the picture
-  clothZoom: 97,        // %
-  clothX: 0,            // mm
+  clothZoom: 100,       // % — the whole drawing zoomed, flat or on cloth
+  clothX: 0,            // mm — and moved, so any part of it can fill the sheet
   clothY: 0,
   shade: 70,            // % — the tone darker where the cloth turns from the light
   lightFrom: -45,       // ° — 0 from the top of the sheet, 90 from the right
@@ -1431,7 +1434,7 @@ function qPush(x, y) {
 
 function traceLayer(L) {
   // on cloth the lines are laid on the flat cloth, so the nib is as wide as it will be there
-  const gK = CLOTH ? CLOTH.g : 1, tone = CLOTH && CLOTH.SH ? clothTone : toneAt;
+  const gK = CLOTH ? CLOTH.g : FLATZ ? FLATZ.g : 1, tone = CLOTH && CLOTH.SH ? clothTone : toneAt;
   const s = settings, nib = penW(L.pen) / gK, A = area;
   const thin = s.thin / 100, wide = s.wide / 100, g = Math.max(0.05, s.curve / 100);
   const lift = clamp(s.liftBelow, 0, 100) / 100;
@@ -1742,6 +1745,7 @@ const CLOTH_KEYS = ['paper', 'orientation', 'customW', 'customH', 'margin', 'see
   'clothHand', 'handScale'];
 
 let CLOTH = null;            // the cloth as it is seen, or null while the sheet lies flat
+let FLATZ = null;            // the flat sheet's zoom: { g, ox, oy, cx, cy }, or null at 1:1
 let clothKeyNow = '', clothMs = 0;
 let clothTool = 'off';
 let HAND = [];               // what was shaped by hand
@@ -2496,9 +2500,9 @@ function viewCloth(C, PX, PY, PZ) {
     if (vy < y0) y0 = vy;
     if (vy > y1) y1 = vy;
   }
-  let g = clamp(s.clothZoom, 5, 1000) / 100, ox = 0, oy = 0;
+  let g = clamp(s.clothZoom, MIN_VIEW, MAX_VIEW) / 100, ox = 0, oy = 0;
   if (s.clothFit) {
-    g *= Math.min(A.w / Math.max(1e-6, x1 - x0), A.h / Math.max(1e-6, y1 - y0));
+    g *= 0.97 * Math.min(A.w / Math.max(1e-6, x1 - x0), A.h / Math.max(1e-6, y1 - y0));
     ox = (x0 + x1) / 2; oy = (y0 + y1) / 2;
   }
   const cx = (A.x0 + A.x1) / 2 + s.clothX, cy = (A.y0 + A.y1) / 2 + s.clothY;
@@ -3142,9 +3146,15 @@ function pushPoly(xs, ys, n) {
 }
 
 // On cloth the lines and the cloth's edge are carried onto it first.
+// Flat and zoomed, the lines are carried to where the zoom puts them.
 function emit(xs, ys, n) {
   if (CLOTH && (LAY === L_LINES || LAY === L_ECHO || LAY === L_EDGE)) clothEmit(xs, ys, n);
-  else emitFlat(xs, ys, n);
+  else if (FLATZ && (LAY === L_LINES || LAY === L_ECHO)) {
+    const Z = FLATZ;
+    ON = 0;
+    for (let i = 0; i < n; i++) oPush(Z.cx + (xs[i] - Z.ox) * Z.g, Z.cy + (ys[i] - Z.oy) * Z.g);
+    emitFlat(OX, OY, n);
+  } else emitFlat(xs, ys, n);
 }
 
 function emitFlat(xs, ys, n) {
@@ -3223,6 +3233,11 @@ function buildShapes() {
   ensureNoise();
   ensureField(coarse);
   ensureCloth(coarse);
+  FLATZ = null;
+  if (!CLOTH && (s.clothZoom !== 100 || s.clothX || s.clothY)) {
+    const ox = (area.x0 + area.x1) / 2, oy = (area.y0 + area.y1) / 2;
+    FLATZ = { g: clamp(s.clothZoom, MIN_VIEW, MAX_VIEW) / 100, ox, oy, cx: ox + s.clothX, cy: oy + s.clothY };
+  }
   if (CLOTH) {
     CLOTH.step = 0.8 * Math.min(CLOTH.hx, CLOTH.hy);
     CLOTH.hidden = s.hidden;
@@ -3503,7 +3518,12 @@ function drawGuides(ctx) {
   ctx.strokeRect(area.x0, area.y0, area.w, area.h);
   ctx.setLineDash([]);
   // what lies on the flat picture is shown where it has gone on the cloth
-  const at = (x, y) => { if (!CLOTH) return [x, y]; clothAt(x, y); return [CM[0], CM[1]]; };
+  const at = (x, y) => {
+    if (FLATZ) return [FLATZ.cx + (x - FLATZ.ox) * FLATZ.g, FLATZ.cy + (y - FLATZ.oy) * FLATZ.g];
+    if (!CLOTH) return [x, y];
+    clothAt(x, y);
+    return [CM[0], CM[1]];
+  };
   if (s.carrier !== 'lines') {
     const [x, y] = at(...carrierCentre());
     ctx.beginPath();
@@ -3562,8 +3582,17 @@ function attachPointer() {
   const c = canvasEl();
   c.addEventListener('contextmenu', e => e.preventDefault());
   c.addEventListener('pointerdown', e => {
-    if (e.button !== 0 && e.button !== 2) return;
+    if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
     const s = settings;
+    if (e.button === 1 || e.ctrlKey || e.metaKey) {
+      // the zoomed drawing moved over the sheet
+      drag = { mode: 'pan', x: e.clientX, y: e.clientY, p: paperPoint(e), moved: false,
+               vx: s.clothX, vy: s.clothY };
+      try { c.setPointerCapture(e.pointerId); } catch (err) { /* not a live pointer */ }
+      c.classList.add('dragging');
+      e.preventDefault();
+      return;
+    }
     if (s.cloth && CLOTH && clothTool !== 'off') {
       hand = handDown(e, paperPoint(e));
       if (hand) {
@@ -3579,10 +3608,11 @@ function attachPointer() {
       x: e.clientX, y: e.clientY, p: paperPoint(e), moved: false,
       fx: s.fieldX, fy: s.fieldY, angle: s.angle, cx: s.centreX, cy: s.centreY,
     };
-    c.setPointerCapture(e.pointerId);
+    try { c.setPointerCapture(e.pointerId); } catch (err) { /* not a live pointer */ }
     c.classList.add('dragging');
     e.preventDefault();
   });
+  c.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });   // no autoscroll
   c.addEventListener('pointermove', e => {
     if (!drag) {
       if (settings.cloth && CLOTH && clothTool !== 'off') {
@@ -3602,6 +3632,14 @@ function attachPointer() {
     if (!drag.moved && Math.hypot(dx, dy) < 3) return;
     drag.moved = true;
     const p = paperPoint(e);
+    if (drag.mode === 'pan') {
+      s.clothX = +clamp(drag.vx + p[0] - drag.p[0], -VIEW_SHIFT, VIEW_SHIFT).toFixed(2);
+      s.clothY = +clamp(drag.vy + p[1] - drag.p[1], -VIEW_SHIFT, VIEW_SHIFT).toFixed(2);
+      for (const k of ZOOM_KEYS) if (setters[k]) setters[k](s[k]);
+      liveUpdate();
+      e.preventDefault();
+      return;
+    }
     if (drag.mode === 'slide') {
       s.fieldX = +clamp(drag.fx + p[0] - drag.p[0], -1000, 1000).toFixed(1);
       s.fieldY = +clamp(drag.fy + p[1] - drag.p[1], -1000, 1000).toFixed(1);
@@ -3638,6 +3676,13 @@ function attachPointer() {
     if (drag) return;
     const raw = e.deltaY || e.deltaX;
     const delta = raw * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    if (e.ctrlKey || e.metaKey) {
+      // the drawing itself zoomed about the cursor — ctrl+wheel, or a pinch on a touchpad
+      busy = true;
+      zoomViewAbout(Math.exp(-delta * WHEEL_ZOOM * (e.ctrlKey && Math.abs(raw) < 50 ? 4 : 1)), paperPoint(e));
+      settle();
+      return;
+    }
     if (settings.cloth && CLOTH && clothTool !== 'off' && handWheel(paperPoint(e), delta, e.shiftKey)) {
       busy = true;
       liveUpdate();
@@ -3663,6 +3708,30 @@ function zoomAbout(factor, m) {
   liveUpdate();
 }
 
+// The drawing itself zoomed by a factor, keeping what is under the paper point m where it is
+// on the sheet — the picture under the lines stays as it lies.
+const ZOOM_KEYS = ['clothZoom', 'clothX', 'clothY'];
+
+function zoomViewAbout(factor, m) {
+  const s = settings, z = s.clothZoom / 100;
+  const z2 = Math.round(clamp(z * factor, MIN_VIEW / 100, MAX_VIEW / 100) * 1000) / 1000;
+  if (z2 === z) return;
+  const k = z2 / z, ox = (area.x0 + area.x1) / 2, oy = (area.y0 + area.y1) / 2;
+  const px = m ? m[0] : ox, py = m ? m[1] : oy;
+  const cx = ox + s.clothX, cy = oy + s.clothY;
+  s.clothX = +clamp(px - (px - cx) * k - ox, -VIEW_SHIFT, VIEW_SHIFT).toFixed(2);
+  s.clothY = +clamp(py - (py - cy) * k - oy, -VIEW_SHIFT, VIEW_SHIFT).toFixed(2);
+  s.clothZoom = Math.round(z2 * 1000) / 10;
+  for (const key of ZOOM_KEYS) if (setters[key]) setters[key](s[key]);
+  liveUpdate();
+}
+
+function resetZoom() {
+  for (const k of ZOOM_KEYS) settings[k] = DEFAULTS[k];
+  refreshControls();
+  update();
+}
+
 function resetView() {
   for (const k of VIEW_KEYS) settings[k] = DEFAULTS[k];
   refreshControls();
@@ -3672,8 +3741,11 @@ function resetView() {
 function attachKeys() {
   window.addEventListener('keydown', e => {
     const t = e.target;
-    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable ||
+    if (t && (t.tagName === 'TEXTAREA' || t.isContentEditable ||
         (t.tagName === 'INPUT' && !['checkbox', 'button', 'color', 'range'].includes(t.type)))) return;
+    // a list with the focus keeps its own arrows; a letter is a shortcut, not a jump to an option
+    if (t && t.tagName === 'SELECT' && (e.key.length > 1 && e.key !== 'Escape' && e.key !== 'Delete')) return;
+    if (t && t.tagName === 'SELECT') t.blur();
     if (e.metaKey || e.ctrlKey || e.altKey || drag) return;
     const s = settings;
     const cycle = (key, list, dir) => {
@@ -3729,6 +3801,9 @@ function attachKeys() {
         handSave(true);
         update();
         break;
+      case 'z': zoomViewAbout(1.25, null); break;
+      case 'Z': zoomViewAbout(1 / 1.25, null); break;
+      case 'v': case 'V': resetZoom(); break;
       case 'g': case 'G': s.showGuides = !s.showGuides; refreshControls(); drawPreview(); syncUrl(); break;
       default: return;
     }
@@ -3787,8 +3862,7 @@ function syncVisibility() {
   const cl = s.cloth;
   show(['subFolds', 'folds', 'crossFolds', 'subCrumple', 'crumple', 'creases', 'subBend', 'bow',
         'curl', 'twist', 'subHang', 'gravity', 'hangFrom', 'squeeze', 'wind', 'subView',
-        'viewTilt', 'viewTurn', 'viewSide', 'perspective', 'clothFit', 'clothZoom', 'clothX',
-        'clothY', 'subLight', 'shade', 'hollows', 'subShow', 'hidden', 'clothBack', 'clothEdge',
+        'viewTilt', 'viewTurn', 'viewSide', 'perspective', 'clothFit', 'subLight', 'shade', 'hollows', 'subShow', 'hidden', 'clothBack', 'clothEdge',
         'subHand', 'clothTool', 'handScale', 'handButtons', 'handNote', 'clothHand'], cl);
   show(['foldLen', 'foldAngle', 'foldSharp', 'foldUneven', 'foldWander', 'foldTaper', 'foldLean'],
        cl && s.folds !== 0);
@@ -3873,6 +3947,27 @@ function buildControls() {
   const resync = () => { syncVisibility(); update(); };
   let sec;
 
+  sec = addSection(root, 'Keys and mouse');
+  createDiv('').parent(sec).class('note keys').html(
+    '<div><kbd>drag</kbd> slide the picture under the lines · <kbd>wheel</kbd> enlarge it · <kbd>0</kbd> put it back</div>' +
+    '<div><kbd>ctrl</kbd>+<kbd>wheel</kbd> (or a pinch) zoom the drawing about the cursor · <kbd>Z</kbd> in, <kbd>shift</kbd>+<kbd>Z</kbd> out · <kbd>V</kbd> the whole drawing</div>' +
+    '<div><kbd>ctrl</kbd>+<kbd>drag</kbd> or the middle button: move the zoomed drawing</div>' +
+    '<div><kbd>shift</kbd>+<kbd>drag</kbd> turn the lines · <kbd>alt</kbd>+<kbd>drag</kbd> their middle</div>' +
+    '<div><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> slide the picture 1 mm, with <kbd>shift</kbd> 10 · <kbd>+</kbd><kbd>−</kbd> enlarge it</div>' +
+    '<div><kbd>S</kbd> next scene, <kbd>shift</kbd>+<kbd>S</kbd> back · <kbd>C</kbd> carrier · <kbd>F</kbd> picture · <kbd>I</kbd> ink · <kbd>E</kbd> echo (with <kbd>shift</kbd> back)</div>' +
+    '<div><kbd>X</kbd> cut guides · <kbd>G</kbd> guides · <kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it</div>' +
+    '<div><kbd>K</kbd> cloth · <kbd>T</kbd> tool on it (<kbd>shift</kbd> back) · <kbd>U</kbd> undo · <kbd>Delete</kbd> what is under the cursor · <kbd>Esc</kbd> no tool</div>' +
+    '<div>with a tool: <kbd>drag</kbd> shape · <kbd>wheel</kbd> deeper · <kbd>shift</kbd>+<kbd>wheel</kbd> wider · right-click remove</div>');
+
+  sec = addSection(root, 'Zoom');
+  addSlider(sec, 'Zoom (%)', 'clothZoom', MIN_VIEW, 2000, 1,
+    'The whole drawing — lines, nib and all — enlarged, so a part of it fills the sheet. ' +
+    '<b>ctrl</b>+wheel zooms about the cursor, <b>ctrl</b>+drag or the middle button moves it; ' +
+    'a plain drag still slides the picture under the lines.');
+  addSlider(sec, 'Moved across (mm)', 'clothX', -2000, 2000, 0.5);
+  addSlider(sec, 'Moved down (mm)', 'clothY', -2000, 2000, 0.5);
+  createButton('The whole drawing').parent(sec).mousePressed(resetZoom);
+
   sec = addSection(root, 'Scene');
   const sceneSel = createSelect().parent(createDiv('').parent(sec).class('field'));
   for (const sc of SCENES) sceneSel.option(sc.label);
@@ -3880,6 +3975,7 @@ function buildControls() {
     const sc = SCENES[sceneSel.elt.selectedIndex];
     if (sc && sc.s) applyScene(sc);
     sceneSel.elt.selectedIndex = 0;
+    sceneSel.elt.blur();
   });
   addNote(sec, '<b>S</b> steps through the scenes. The ones with a photo want one loaded under ' +
     '<b>The picture</b>.');
@@ -4031,9 +4127,6 @@ function buildControls() {
   addSlider(sec, 'From the side (°)', 'viewSide', -85, 85, 1);
   addSlider(sec, 'Perspective (%)', 'perspective', 0, 100, 1);
   addCheckbox(sec, 'Fitted to the picture', 'clothFit');
-  addSlider(sec, 'Size (%)', 'clothZoom', 5, 400, 1);
-  addSlider(sec, 'Moved across (mm)', 'clothX', -500, 500, 0.5);
-  addSlider(sec, 'Moved down (mm)', 'clothY', -500, 500, 0.5);
 
   addSub(sec, 'Light', 'subLight');
   addSlider(sec, 'Shade (%)', 'shade', 0, 300, 1,
@@ -4254,13 +4347,6 @@ function buildControls() {
   sec = addSection(root, 'The sheet');
   statsDiv = createDiv('').parent(sec).class('stats');
   penListDiv = createDiv('').parent(sec).class('stats');
-  createDiv('').parent(sec).class('note keys').html(
-    '<div><kbd>drag</kbd> slide the picture · <kbd>wheel</kbd> enlarge it · <kbd>0</kbd> put it back</div>' +
-    '<div><kbd>shift</kbd>+<kbd>drag</kbd> turn the lines · <kbd>alt</kbd>+<kbd>drag</kbd> their middle</div>' +
-    '<div><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> slide by 1 mm, with <kbd>shift</kbd> 10 · <kbd>+</kbd><kbd>−</kbd> enlarge</div>' +
-    '<div><kbd>S</kbd> scene · <kbd>C</kbd> carrier · <kbd>F</kbd> picture · <kbd>I</kbd> ink · <kbd>E</kbd> echo</div>' +
-    '<div><kbd>X</kbd> cut guides · <kbd>G</kbd> guides · <kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it</div>' +
-    '<div><kbd>K</kbd> cloth · <kbd>T</kbd> tool on it · <kbd>U</kbd> undo · <kbd>Delete</kbd> what is under the cursor · <kbd>Esc</kbd> no tool</div>');
   linkDiv = createDiv('').parent(sec).class('link');
   refreshPenSelects();
   syncVisibility();
@@ -4548,7 +4634,7 @@ function addSelect(parent, labelText, key, options, onChange, hint) {
   sel.selected(settings[key]);
   if (hint) createDiv(hint).parent(field).class('note');
   setters[key] = v => sel.selected(v);
-  sel.changed(() => { settings[key] = sel.value(); (onChange || update)(); });
+  sel.changed(() => { settings[key] = sel.value(); sel.elt.blur(); (onChange || update)(); });
   return sel;
 }
 
@@ -4562,7 +4648,7 @@ function addPenSelect(parent, labelText, key, hint) {
   sel.selected(String(settings[key]));
   if (hint) createDiv(hint).parent(field).class('note');
   setters[key] = v => sel.selected(String(v));
-  sel.changed(() => { settings[key] = Number(sel.value()); update(); });
+  sel.changed(() => { settings[key] = Number(sel.value()); sel.elt.blur(); update(); });
   penSelects.push(sel);
   return sel;
 }

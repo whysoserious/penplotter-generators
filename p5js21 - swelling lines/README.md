@@ -54,8 +54,16 @@ repository root run `python3 -m http.server 8000` and open
    middle and where the cut guides stand, <kbd>R</kbd> rolls a seed, <kbd>[</kbd>
    <kbd>]</kbd> step it. <kbd>K</kbd> switches the cloth on and off, <kbd>T</kbd> steps
    through the tools for shaping it by hand (see **By hand** below), <kbd>U</kbd> undoes,
-   <kbd>Esc</kbd> puts the tool down.
-3. **Download SVG [everything]** writes the sheet, a group per pen; **[one per pen]** a file
+   <kbd>Esc</kbd> puts the tool down. Every key and what the mouse does is listed at the
+   top of the panel.
+3. **Zoom** the whole drawing — lines, nib and all — so that a part of it fills the sheet:
+   <kbd>ctrl</kbd>+wheel (or a pinch on a touchpad) zooms about the cursor, so whatever is
+   under it stays put; <kbd>ctrl</kbd>+drag or a drag with the middle button moves the
+   zoomed drawing; <kbd>Z</kbd> zooms in about the middle, <kbd>shift</kbd>+<kbd>Z</kbd> out,
+   <kbd>V</kbd> brings back the whole drawing. A plain drag and the plain wheel still slide
+   and enlarge the picture under the lines — on the cloth too. The zoom keeps the passes of
+   a ribbon as far apart on the paper as before, and works flat or on cloth.
+4. **Download SVG [everything]** writes the sheet, a group per pen; **[one per pen]** a file
    per pass; a button per layer writes the lines, the echo, the border, the cut guides or
    the cloth's edge alone. **Download PNG** saves the preview. **Copy link** puts every setting in the
    clipboard as a URL — all but a loaded photograph, which has to be loaded again.
@@ -228,8 +236,8 @@ never still. **Hanging grid** is how fine the falling cloth is — finer folds, 
 fine shape rides on the hanging one, each point keeping its place against it.
 
 **Seen from.** **Tilted back** (seen from below its bottom edge), **turned on the sheet**,
-**from the side**, in **perspective**; **fitted to the picture** or not, at a **size**,
-**moved** across and down.
+**from the side**, in **perspective**; **fitted to the picture** or not. The zoom at the top
+of the panel enlarges and moves it as it does the flat sheet.
 
 **Light.** The tone a line swells with is darkened by **Shade** where the cloth turns from
 the light, and lightened where it turns toward it, the **light** coming **from** a
