@@ -67,14 +67,15 @@ const FORMULAS = [
 ];
 
 // What goes on the sheet: the lines, their echo in another pen, the border round the
-// picture and the dots to cut it out by.
+// picture, the dots to cut it out by and the edge of the cloth the picture is printed on.
 const LAYERS = [
   { id: 'lines',  label: 'lines',      pen: 'linePen' },
   { id: 'echo',   label: 'echo',       pen: 'echoPen' },
   { id: 'border', label: 'border',     pen: 'borderPen' },
   { id: 'guides', label: 'cut guides', pen: 'linePen' },
+  { id: 'cloth-edge', label: 'cloth edge', pen: 'edgePen' },
 ];
-const L_LINES = 0, L_ECHO = 1, L_BORDER = 2, L_GUIDES = 3;
+const L_LINES = 0, L_ECHO = 1, L_BORDER = 2, L_GUIDES = 3, L_EDGE = 4;
 
 const MAX_STROKES    = 400_000;
 const BUSY_STROKES   = 40_000;
@@ -216,6 +217,73 @@ const settings = {
   echoTurn: 0,          // °
   echoPitch: 100,       // % of the lines' pitch
 
+  // the cloth — the picture printed on a sheet that folds, crumples, hangs and blows
+  cloth: false,
+  folds: 0,             // ° — the steepest a fold's side gets; past 90 the folds lap over
+  foldLen: 45,          // mm from one fold to the next
+  foldAngle: 0,         // ° — 0: the folds run upright
+  foldSharp: 0,         // % — 0 soft waves, 100 pleats with flat sides
+  foldUneven: 40,       // %
+  foldWander: 25,       // % — drifting along their length
+  foldTaper: 0,         // % — dying out towards one end (below 0 the other)
+  foldLean: 0,          // % — one side of every fold steeper
+  crossFolds: 0,        // ° — a second set
+  crossLen: 80,         // mm
+  crossAngle: 90,       // °
+  crossSharp: 0,        // %
+  crumple: 0,           // mm deep
+  crumpleKind: 'facets',
+  crumpleSize: 40,      // mm — a facet
+  crumpleDetail: 2,     // octaves of finer crumpling
+  creases: 0,           // creases pressed in and opened out again
+  creaseKind: 'random',
+  creaseDepth: 14,      // ° the cloth is still bent at each
+  bow: 0,               // ° — each side of the sheet bowed by
+  bowAngle: 0,          // ° — 0: bowed across, its sides rising
+  curl: 0,              // ° — an edge rolled up by; below 0 rolled under
+  curlAngle: 180,       // ° — which edge: 0 the top, 90 the right, 180 the bottom
+  curlSize: 30,         // % of the sheet rolled
+  twist: 0,             // ° end to end
+  twistAngle: 0,        // ° — the axis it is twisted about; 0 across
+  gravity: 'none',      // which way it falls
+  weight: 60,           // %
+  hangFrom: 'nothing',
+  gather: 0,            // % — what it hangs from drawn together
+  squeeze: 0,           // % — pushed together from two sides, or all round
+  squeezeFrom: 'the sides',
+  under: 'nothing',     // what it lies over, falling into the sheet
+  propSize: 40,         // % of half the picture's short side
+  propX: 0,             // % of half the picture, from its middle
+  propY: 0,
+  table: true,          // a table under it, falling into the sheet
+  tableDrop: 60,        // mm below the cloth, with nothing else under it
+  wind: 0,              // %
+  windAngle: 0,         // ° over the sheet — 0 to the right, 90 down
+  windLift: 40,         // % — and out of the sheet, toward the viewer
+  gusts: 50,            // %
+  stiffness: 25,        // % — how much of its shape it keeps while it hangs
+  simTime: 160,         // steps it is let hang for
+  simRes: 56,           // points of the hanging grid along the long side
+  viewTilt: 0,          // ° — tilted back, seen from below its bottom edge
+  viewTurn: 0,          // ° — turned on the sheet
+  viewSide: 0,          // ° — seen from the side
+  perspective: 0,       // %
+  clothFit: true,       // the cloth as seen fitted to the picture
+  clothZoom: 97,        // %
+  clothX: 0,            // mm
+  clothY: 0,
+  shade: 70,            // % — the tone darker where the cloth turns from the light
+  lightFrom: -45,       // ° — 0 from the top of the sheet, 90 from the right
+  lightHigh: 40,        // ° above the cloth
+  hollows: 0,           // % — darker in the hollows
+  hidden: true,         // lines behind the folds left out
+  clothBack: 'printed through',
+  backPen: 2,
+  clothEdge: 'none',
+  edgePen: 1,
+  clothHand: '',        // what was shaped by hand on the sheet
+  handScale: 100,       // % — how deep all of that is
+
   // output
   optimiseOrder: true,
   liveUpdate: true,
@@ -279,6 +347,53 @@ const SCENES = [
   { label: 'Beats — the echo a little wider apart', s: {
       echo: 'everywhere', echoReplace: false, echoPitch: 106, echoInk: 'hairline',
       pitch: 3, wide: 70 } },
+  { label: 'Cloth — a curtain gathered on its rod', s: {
+      cloth: true, gravity: 'down the sheet', hangFrom: 'the top edge', gather: 45, stiffness: 15,
+      simTime: 200, echo: 'none', shade: 90, hollows: 60, clothEdge: 'hem', pitch: 3 } },
+  { label: 'Cloth — a flag in the wind, in red stripes', s: {
+      cloth: true, gravity: 'down the sheet', hangFrom: 'the left edge', weight: 40, wind: 120,
+      windLift: 30, gusts: 80, simTime: 140, stiffness: 20, shade: 90, angle: 90,
+      echo: 'every n-th line', echoEvery: 2, clothEdge: 'hem' } },
+  { label: 'Cloth — washing pegged on a line', s: {
+      cloth: true, gravity: 'down the sheet', hangFrom: 'pegs on a line', gather: 10, wind: 50,
+      windLift: 15, gusts: 70, simTime: 170, stiffness: 20, shade: 90, hollows: 40, echo: 'none',
+      clothEdge: 'hem' } },
+  { label: 'Cloth — a tablecloth over a ball', s: {
+      cloth: true, gravity: 'into the sheet', under: 'a ball', propSize: 45, simTime: 220,
+      stiffness: 20, viewTilt: 40, perspective: 30, shade: 90, hollows: 40,
+      clothEdge: 'hem and folds', echo: 'none' } },
+  { label: 'Cloth — a sheet thrown over a box', s: {
+      cloth: true, gravity: 'into the sheet', under: 'a box', propSize: 55, simTime: 240,
+      stiffness: 30, viewTilt: 45, viewTurn: 20, perspective: 35, shade: 100, hollows: 30,
+      clothEdge: 'hem and folds', echo: 'none', angle: 90 } },
+  { label: 'Cloth — a handkerchief picked up by the middle', s: {
+      cloth: true, gravity: 'into the sheet', hangFrom: 'the middle', tableDrop: 160,
+      simTime: 300, viewTilt: 30, shade: 100, echo: 'none', clothEdge: 'hem and folds' } },
+  { label: 'Cloth — pushed together from the sides', s: {
+      cloth: true, squeeze: 35, viewTilt: 45, shade: 100, angle: 90, echo: 'none',
+      clothEdge: 'hem and folds' } },
+  { label: 'Cloth — drapery lapping over itself', s: {
+      cloth: true, folds: 140, foldLen: 60, foldUneven: 50, foldWander: 60, foldTaper: 70,
+      shade: 90, hollows: 80, clothEdge: 'hem and folds', echo: 'none', clothFit: true } },
+  { label: 'Cloth — accordion pleats, from an angle', s: {
+      cloth: true, folds: 65, foldSharp: 90, foldLen: 40, foldUneven: 5, foldWander: 0,
+      viewTilt: 30, viewSide: 35, perspective: 30, angle: 90, pitch: 4, shade: 40,
+      clothEdge: 'hem and folds', echo: 'none' } },
+  { label: 'Cloth — crumpled paper, smoothed out', s: {
+      cloth: true, crumple: 10, crumpleSize: 75, crumpleDetail: 2, shade: 160, lightHigh: 30,
+      source: 'even', evenTone: 12, pitch: 2.6, echo: 'none', clothEdge: 'hem' } },
+  { label: 'Cloth — a letter folded in three', s: {
+      cloth: true, creases: 1, creaseKind: 'letter', creaseDepth: 40, viewTilt: 35,
+      perspective: 30, shade: 100, echo: 'none', clothEdge: 'hem and folds' } },
+  { label: 'Cloth — a scroll rolling up, its back in red', s: {
+      cloth: true, curl: 540, curlSize: 45, viewTilt: 45, perspective: 30, angle: 90,
+      clothBack: 'other pen', echo: 'none', clothEdge: 'hem' } },
+  { label: 'Cloth — a corner turned over', s: {
+      cloth: true, curl: 175, curlAngle: 135, curlSize: 30, clothBack: 'bare', shade: 80,
+      clothEdge: 'hem and folds', echo: 'none' } },
+  { label: 'Cloth — a ribbon twisted, its back in red', s: {
+      cloth: true, twist: 150, viewTilt: 25, clothBack: 'other pen', echo: 'none',
+      clothEdge: 'hem and folds' } },
   { label: 'Your photo, through upright bars — black runs together', s: {
       source: 'photo', pitch: 2.2, thin: 8, wide: 102, curve: 125, echo: 'none', contrast: 15,
       soften: 0.6, minPiece: 1.2 } },
@@ -308,6 +423,7 @@ let perLayer = null;
 let lastMs  = 0;
 let fieldMs = 0;
 let drag    = null;
+let busy    = false;         // a slider or the wheel in motion: built coarser, to keep up
 let COUNTS  = null;          // { lines, pieces, passes, widest }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -447,6 +563,8 @@ function syncUrl() {
 function refreshControls() {
   for (const k in setters) if (k in settings) setters[k](settings[k]);
   updateFnNote();
+  HAND = parseHand(settings.clothHand);
+  updateHandNote();
   refreshPenSelects();
   syncVisibility();
 }
@@ -522,6 +640,7 @@ function setup() {
   // smear into bands otherwise
   pixelDensity(2);
   createCanvas(Math.round(w * s), Math.round(h * s)).parent('sheet');
+  makeOverlay();
   applyCanvasDisplay();
   buildControls();
   attachPointer();
@@ -541,6 +660,7 @@ function applyCanvasDisplay() {
   if (!c) return;
   c.style.width  = pw * scale + 'px';
   c.style.height = ph * scale + 'px';
+  drawOverlay();
 }
 
 function resizeForPaper() {
@@ -1310,7 +1430,9 @@ function qPush(x, y) {
 }
 
 function traceLayer(L) {
-  const s = settings, nib = penW(L.pen), A = area;
+  // on cloth the lines are laid on the flat cloth, so the nib is as wide as it will be there
+  const gK = CLOTH ? CLOTH.g : 1, tone = CLOTH && CLOTH.SH ? clothTone : toneAt;
+  const s = settings, nib = penW(L.pen) / gK, A = area;
   const thin = s.thin / 100, wide = s.wide / 100, g = Math.max(0.05, s.curve / 100);
   const lift = clamp(s.liftBelow, 0, 100) / 100;
   const lean = (s.lean + L.lean) / 100, bulge = s.bulge / 100;
@@ -1334,7 +1456,7 @@ function traceLayer(L) {
       if (lean) d += lean * P * (2 * toneAt(bx, by) - 1);
       if (bulge) d += bulge * P * (toneAt(bx + nx * P, by + ny * P) - toneAt(bx - nx * P, by - ny * P));
       const x = bx + nx * d, y = by + ny * d;
-      const T = toneAt(x, y);
+      const T = tone(x, y);
       const wd = P * ((thin + (wide - thin) * (g === 1 ? T : Math.pow(T, g))) * L.widthK + L.add);
       const h = wd > nib ? (wd - nib) / 2 : 0;
       let on = mask ? flip * mask(x, y, T, j) : 1;
@@ -1357,7 +1479,7 @@ function traceLayer(L) {
     RM = 0;
     if (drew) lines++;
   });
-  return { lines, widest };
+  return { lines, widest: widest * gK };
 }
 
 // One piece of a line, as its ink asks.
@@ -1571,6 +1693,1414 @@ function simplify(xs, ys, n, tol) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
+// The cloth
+//
+// The picture can be printed on a sheet of cloth — or of paper — that is then folded,
+// crumpled, bent, hung up and blown about, and drawn as it is seen from where the viewer
+// stands. Every line is laid down on the flat cloth exactly as before; only on its way into
+// the sink is it carried to wherever its place on the cloth has gone, and cut wherever
+// another part of the cloth lies in front of it.
+//
+// The cloth is a fine grid of points over the picture, shaped in four steps:
+//   folds   — one or two sets of folds, each wound out of a slope that swings to and fro
+//             across them, so the cloth keeps its length: where it climbs it is drawn in,
+//             and past a slope of 90° it laps back over itself;
+//   relief  — crumpling, creases and whatever was shaped by hand, as heights; the cloth is
+//             then drawn in on itself until no stretch of it is longer than it was flat;
+//   bending — the whole sheet bowed, an edge or a corner rolled up, twisted end to end;
+//   hanging — a coarser grid of the same cloth let fall under its weight, held by pins,
+//             pushed together, blown by the wind and laid over what is under it; the fine
+//             shape rides on it.
+// Then it is turned to the viewer, put into perspective and fitted to the picture. A depth
+// buffer of the cloth says which part of it is in front at any point of the sheet, and the
+// light shades it: the tone a line swells with darkens where the cloth turns from the light
+// and in its hollows, so the lines themselves draw the shape of the cloth.
+
+const CLOTH_CELLS  = 64_000;      // points of the fine grid, about
+const CLOTH_PX     = 1.4e6;       // cells of the depth buffer, about
+const CLOTH_RELAX  = 40;          // rounds of drawing the relief in
+const GRAVITIES    = ['none', 'down the sheet', 'into the sheet'];
+const HANG_FROM    = ['nothing', 'the top edge', 'pegs on a line', 'two top corners',
+                      'one corner', 'the middle', 'four corners', 'the left edge'];
+const SQUEEZES     = ['the sides', 'top and bottom', 'all round'];
+const UNDER        = ['nothing', 'a ball', 'three balls', 'a box', 'a rod', 'a pole'];
+const CRUMPLES     = ['facets', 'creased', 'soft'];
+const CREASES      = ['random', 'letter', 'grid'];
+const CLOTH_BACKS  = ['printed through', 'bare', 'other pen'];
+const CLOTH_EDGES  = ['none', 'hem', 'hem and folds'];
+const CLOTH_TOOLS  = ['off', 'fold', 'pinch', 'bump', 'pin', 'erase'];
+
+const CLOTH_KEYS = ['paper', 'orientation', 'customW', 'customH', 'margin', 'seed',
+  'folds', 'foldLen', 'foldAngle', 'foldSharp', 'foldUneven', 'foldWander', 'foldTaper',
+  'foldLean', 'crossFolds', 'crossLen', 'crossAngle', 'crossSharp',
+  'crumple', 'crumpleKind', 'crumpleSize', 'crumpleDetail', 'creases', 'creaseKind',
+  'creaseDepth', 'bow', 'bowAngle', 'curl', 'curlAngle', 'curlSize', 'twist', 'twistAngle',
+  'gravity', 'weight', 'hangFrom', 'gather', 'squeeze', 'squeezeFrom', 'under', 'propSize',
+  'propX', 'propY', 'table', 'tableDrop', 'wind', 'windAngle', 'windLift', 'gusts', 'stiffness',
+  'simTime', 'simRes', 'viewTilt', 'viewTurn', 'viewSide', 'perspective', 'clothFit',
+  'clothZoom', 'clothX', 'clothY', 'shade', 'lightFrom', 'lightHigh', 'hollows',
+  'clothHand', 'handScale'];
+
+let CLOTH = null;            // the cloth as it is seen, or null while the sheet lies flat
+let clothKeyNow = '', clothMs = 0;
+let clothTool = 'off';
+let HAND = [];               // what was shaped by hand
+const HAND_UNDO = [];
+
+// What was shaped by hand rides in the link as one string: a fold is f with its two ends,
+// its depth and its width; a pinch p and a bump b their middle, radius and depth; a pin n
+// the place it holds and how far that place was moved. Places are in ten-thousandths of
+// the picture, lengths in tenths of a millimetre.
+function parseHand(str) {
+  const out = [];
+  for (const part of String(str || '').split(';')) {
+    const a = part.split(','), t = a[0], v = a.slice(1).map(Number);
+    if (!v.length || v.some(x => !Number.isFinite(x))) continue;
+    if (t === 'f' && v.length >= 6) {
+      out.push({ t, u1: v[0] / 1e4, v1: v[1] / 1e4, u2: v[2] / 1e4, v2: v[3] / 1e4,
+                 d: v[4] / 10, w: Math.max(0.5, v[5] / 10) });
+    } else if ((t === 'p' || t === 'b') && v.length >= 4) {
+      out.push({ t, u: v[0] / 1e4, v: v[1] / 1e4, r: Math.max(0.5, v[2] / 10), d: v[3] / 10 });
+    } else if (t === 'n' && v.length >= 4) {
+      out.push({ t, u: v[0] / 1e4, v: v[1] / 1e4, dx: v[2] / 10, dy: v[3] / 10, dz: (v[4] || 0) / 10 });
+    }
+  }
+  return out;
+}
+
+function handString(list) {
+  const q = x => Math.round(x * 1e4), m = x => Math.round(x * 10);
+  return list.map(h => h.t === 'f' ? `f,${q(h.u1)},${q(h.v1)},${q(h.u2)},${q(h.v2)},${m(h.d)},${m(h.w)}`
+    : h.t === 'n' ? `n,${q(h.u)},${q(h.v)},${m(h.dx)},${m(h.dy)},${m(h.dz)}`
+    : `${h.t},${q(h.u)},${q(h.v)},${m(h.r)},${m(h.d)}`).join(';');
+}
+
+// Hanging is worth working out only when something holds the cloth or stops it falling.
+function hangWanted() {
+  const s = settings, pins = s.hangFrom !== 'nothing' || HAND.some(h => h.t === 'n');
+  return pins || s.wind > 0 || s.squeeze > 0 || (s.gravity === 'into the sheet' && s.table);
+}
+
+function ensureCloth(coarse) {
+  if (!settings.cloth) { CLOTH = null; clothKeyNow = ''; clothMs = 0; return; }
+  const key = CLOTH_KEYS.map(k => settings[k]).join('|') + `|${coarse ? 1 : 0}`;
+  if (CLOTH && key === clothKeyNow) return;
+  const t0 = performance.now();
+  clothKeyNow = key;
+  CLOTH = makeCloth(coarse);
+  clothMs = performance.now() - t0;
+}
+
+function makeCloth(coarse) {
+  const s = settings, A = area;
+  const cells = coarse ? CLOTH_CELLS / 4 : CLOTH_CELLS;
+  const h0 = Math.max(0.3, Math.sqrt(A.w * A.h / cells));
+  const nx = Math.max(3, Math.round(A.w / h0) + 1), ny = Math.max(3, Math.round(A.h / h0) + 1);
+  const hx = A.w / (nx - 1), hy = A.h / (ny - 1), N = nx * ny;
+  const cu = (A.x0 + A.x1) / 2, cv = (A.y0 + A.y1) / 2;
+  const C = { nx, ny, hx, hy, x0: A.x0, y0: A.y0, cu, cv, simMs: 0, hung: false };
+  HAND = parseHand(s.clothHand);
+
+  // world mm, from the middle of the flat cloth: x right, y down the sheet, z to the viewer
+  const PX = new Float64Array(N), PY = new Float64Array(N), PZ = new Float64Array(N);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      PX[k] = A.x0 + i * hx - cu; PY[k] = A.y0 + j * hy - cv;
+    }
+  }
+
+  if (s.folds) foldSet(PX, PY, PZ, { deg: s.folds, len: s.foldLen, angle: s.foldAngle,
+    sharp: s.foldSharp, uneven: s.foldUneven, wander: s.foldWander, taper: s.foldTaper,
+    lean: s.foldLean, salt: 1.7 });
+  if (s.crossFolds) foldSet(PX, PY, PZ, { deg: s.crossFolds, len: s.crossLen,
+    angle: s.crossAngle, sharp: s.crossSharp, uneven: s.foldUneven, wander: s.foldWander,
+    taper: 0, lean: 0, salt: 23.3 });
+
+  const H = new Float64Array(N);
+  if (clothRelief(C, H)) {
+    for (let k = 0; k < N; k++) PZ[k] += H[k];
+    relaxCloth(PX, PY, PZ, nx, ny, hx, hy, coarse ? CLOTH_RELAX / 3 : CLOTH_RELAX);
+  }
+
+  bendCloth(PX, PY, PZ);
+
+  if (hangWanted()) {
+    const t0 = performance.now();
+    hangCloth(C, PX, PY, PZ, coarse);
+    C.simMs = performance.now() - t0;
+    C.hung = true;
+  }
+
+  viewCloth(C, PX, PY, PZ);
+  shadeCloth(C);
+  depthBuffer(C, coarse);
+  return C;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Folds
+
+// A set of folds. Across them the slope of the cloth swings to and fro — softly, or
+// snapping over like a pleat — and the cloth is wound out of that slope step by step, so
+// it keeps its length. Uneven folds are of unlike depth and spacing; wandering ones drift
+// along their length; tapering ones die out towards one end; leaning ones are steeper on
+// one side than the other.
+function foldSet(PX, PY, PZ, f) {
+  const N = PX.length, th = rad(f.angle);
+  const ax = Math.cos(th), ay = Math.sin(th), bx = -ay, by = ax;    // across, along
+  let s0 = Infinity, s1 = -Infinity, t0 = Infinity, t1 = -Infinity;
+  for (let k = 0; k < N; k++) {
+    const sv = PX[k] * ax + PY[k] * ay, tv = PX[k] * bx + PY[k] * by;
+    if (sv < s0) s0 = sv;
+    if (sv > s1) s1 = sv;
+    if (tv < t0) t0 = tv;
+    if (tv > t1) t1 = tv;
+  }
+  const lam = Math.max(2, f.len), kl = 1 / lam, ds = Math.min(0.5, lam / 40);
+  const i0 = Math.ceil(-s0 / ds) + 1;                   // s = 0 falls on a sample
+  const ns = i0 + Math.ceil(s1 / ds) + 2;
+  const tl = Math.max(1e-6, t1 - t0);
+  const nt = clamp(Math.ceil(tl / Math.min(lam / 3, 8)) + 1, 2, 300), dt = tl / (nt - 1);
+  const X = new Float32Array(ns * nt), Z = new Float32Array(ns * nt), TH = new Float64Array(ns);
+  const tmax = rad(clamp(f.deg, -179, 179));
+  const sk = 1 - 0.95 * clamp(f.sharp / 100, 0, 1);
+  const un = clamp(f.uneven / 100, 0, 1), wa = f.wander / 100, tp = clamp(f.taper / 100, -1, 1);
+  const ln = clamp(f.lean / 100, -1, 1) * 0.85, salt = f.salt;
+  for (let r = 0; r < nt; r++) {
+    const t = t0 + r * dt, tt = (t - (t0 + t1) / 2) / (tl / 2);
+    const taper = clamp(1 - Math.abs(tp) * (1 + Math.sign(tp) * tt) / 2, 0, 1);
+    for (let k = 0; k < ns; k++) {
+      const q = (k - i0) * ds * kl;
+      const p = q + un * 0.9 * NZW(q * 0.31, salt, 0.5) + wa * 0.6 * NZW(q * 0.5, t * kl * 0.22, salt + 3.7);
+      const amp = (1 - un * 0.75 * (0.5 + 0.5 * NZW(q * 0.43 + 11.3, salt + 7.1, 1.3))) * taper;
+      let ph = 2 * Math.PI * p;
+      ph += ln * Math.sin(ph);
+      const b = Math.sin(ph);
+      TH[k] = tmax * amp * (sk === 1 ? b : Math.sign(b) * Math.pow(Math.abs(b), sk));
+    }
+    const o = r * ns;
+    for (let k = i0 + 1; k < ns; k++) {
+      X[o + k] = X[o + k - 1] + ds * 0.5 * (Math.cos(TH[k - 1]) + Math.cos(TH[k]));
+      Z[o + k] = Z[o + k - 1] + ds * 0.5 * (Math.sin(TH[k - 1]) + Math.sin(TH[k]));
+    }
+    for (let k = i0 - 1; k >= 0; k--) {
+      X[o + k] = X[o + k + 1] - ds * 0.5 * (Math.cos(TH[k + 1]) + Math.cos(TH[k]));
+      Z[o + k] = Z[o + k + 1] - ds * 0.5 * (Math.sin(TH[k + 1]) + Math.sin(TH[k]));
+    }
+    // a cloth that would climb steadily across is levelled
+    let sx = 0, sz = 0, sxx = 0, sxz = 0;
+    for (let k = 0; k < ns; k++) {
+      const x = k - i0, z = Z[o + k];
+      sx += x; sz += z; sxx += x * x; sxz += x * z;
+    }
+    const m = (ns * sxz - sx * sz) / (ns * sxx - sx * sx || 1), c = (sz - m * sx) / ns;
+    for (let k = 0; k < ns; k++) Z[o + k] -= c + m * (k - i0);
+  }
+  for (let k = 0; k < N; k++) {
+    const sv = PX[k] * ax + PY[k] * ay, tv = PX[k] * bx + PY[k] * by;
+    const a = clamp(sv / ds + i0, 0, ns - 1.0001), b = clamp((tv - t0) / dt, 0, nt - 1.0001);
+    const i = a | 0, j = b | 0, fa = a - i, fb = b - j, o = j * ns + i;
+    const xv = (X[o] + (X[o + 1] - X[o]) * fa) * (1 - fb) + (X[o + ns] + (X[o + ns + 1] - X[o + ns]) * fa) * fb;
+    const zv = (Z[o] + (Z[o + 1] - Z[o]) * fa) * (1 - fb) + (Z[o + ns] + (Z[o + ns + 1] - Z[o + ns]) * fa) * fb;
+    const d = xv - sv;
+    PX[k] += d * ax; PY[k] += d * ay; PZ[k] += zv;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Relief
+
+// Crumpled into facets: every cell of a scatter of points is a little pyramid, raised or
+// sunk as luck has it, its rim on the creases between the cells — level there, so the
+// cells meet.
+function facetAt(x, y, salt) {
+  const gx = Math.floor(x), gy = Math.floor(y);
+  let d1 = 1e9, d2 = 1e9, ci = 0, cj = 0;
+  for (let j = -1; j <= 1; j++) {
+    for (let i = -1; i <= 1; i++) {
+      const cx = gx + i, cy = gy + j;
+      const dx = cx + 0.1 + 0.8 * hash01(cx, cy, salt) - x, dy = cy + 0.1 + 0.8 * hash01(cx, cy, salt + 1) - y;
+      const d = dx * dx + dy * dy;
+      if (d < d1) { d2 = d1; d1 = d; ci = cx; cj = cy; } else if (d < d2) d2 = d;
+    }
+  }
+  const sg = hash01(ci, cj, salt + 2) < 0.5 ? -1 : 1;
+  return sg * Math.min(1, (Math.sqrt(d2) - Math.sqrt(d1)) * 1.6);
+}
+
+// Heights laid over the cloth where it was crumpled, creased or shaped by hand, each read
+// at its point's place on the flat picture.
+function clothRelief(C, H) {
+  const s = settings, A = area, { nx, ny, hx, hy } = C, N = nx * ny;
+  let any = false;
+  const each = fn => {
+    for (let j = 0; j < ny; j++) {
+      const y = A.y0 + j * hy;
+      for (let i = 0; i < nx; i++) H[j * nx + i] += fn(A.x0 + i * hx, y);
+    }
+  };
+
+  if (s.crumple > 0) {
+    any = true;
+    const D = s.crumple, S = Math.max(2, s.crumpleSize), oct = clamp(Math.round(s.crumpleDetail), 1, 5);
+    const kind = s.crumpleKind;
+    each((x, y) => {
+      let h = 0, amp = 1, f = 1 / S;
+      for (let o = 0; o < oct; o++) {
+        const qx = x * f + o * 7.31, qy = y * f - o * 3.17;
+        h += amp * (kind === 'facets' ? facetAt(qx, qy, 401 + o * 13)
+                  : kind === 'creased' ? 1 - 2.4 * Math.abs(NZ(qx, qy, 4.7 + o))
+                  : 1.6 * NZ(qx, qy, 9.1 + o));
+        amp *= 0.45; f *= 2.1;
+      }
+      return D * h;
+    });
+  }
+
+  if (s.creases > 0) {
+    any = true;
+    const rnd = rng(733), n = clamp(Math.round(s.creases), 1, 40), lines = [];
+    const beta = rad(clamp(s.creaseDepth, 0, 80));
+    const cx = (A.x0 + A.x1) / 2, cy = (A.y0 + A.y1) / 2;
+    if (s.creaseKind === 'random') {
+      for (let k = 0; k < n; k++) {
+        const a = rnd() * Math.PI;
+        lines.push([A.x0 + rnd() * A.w, A.y0 + rnd() * A.h, Math.cos(a), Math.sin(a),
+                    (rnd() < 0.5 ? -1 : 1) * (0.4 + 0.6 * rnd())]);
+      }
+    } else {
+      // a letter is folded in three along its length and once across; a map in a grid
+      const along = A.w >= A.h, nl = s.creaseKind === 'letter' ? 2 : n, nc = s.creaseKind === 'letter' ? 1 : n;
+      for (let k = 1; k <= nl; k++) {
+        const t = k / (nl + 1) + (rnd() - 0.5) * 0.02;
+        if (along) lines.push([A.x0 + t * A.w, cy, 0, 1, k & 1 ? 1 : -1]);
+        else lines.push([cx, A.y0 + t * A.h, 1, 0, k & 1 ? 1 : -1]);
+      }
+      for (let k = 1; k <= nc; k++) {
+        const t = k / (nc + 1) + (rnd() - 0.5) * 0.02;
+        if (along) lines.push([cx, A.y0 + t * A.h, 1, 0, k & 1 ? -0.8 : 0.8]);
+        else lines.push([A.x0 + t * A.w, cy, 0, 1, k & 1 ? -0.8 : 0.8]);
+      }
+    }
+    each((x, y) => {
+      let h = 0;
+      for (const [px, py, dx, dy, sg] of lines) {
+        const d = (x - px) * dy - (y - py) * dx;
+        h += sg * Math.tan(beta / 2) * Math.sqrt(d * d + 0.09);
+      }
+      return h;
+    });
+  }
+
+  const K = clamp(s.handScale, 0, 1000) / 100;
+  for (const h of HAND) {
+    if (h.t === 'n' || !K) continue;
+    any = true;
+    if (h.t === 'f') {
+      const ax = A.x0 + h.u1 * A.w, ay = A.y0 + h.v1 * A.h, bx = A.x0 + h.u2 * A.w, by = A.y0 + h.v2 * A.h;
+      const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-9, L = Math.sqrt(L2), w = h.w, d = h.d * K;
+      each((x, y) => {
+        const t = ((x - ax) * dx + (y - ay) * dy) / L2;
+        if (t <= 0 || t >= 1) return 0;
+        const q = Math.abs((x - ax) * dy - (y - ay) * dx) / L / w;
+        return q >= 1 ? 0 : d * Math.sqrt(Math.sin(Math.PI * t)) * (0.5 + 0.5 * Math.cos(Math.PI * q));
+      });
+    } else {
+      const px = A.x0 + h.u * A.w, py = A.y0 + h.v * A.h, R = h.r, d = h.d * K;
+      const nf = clamp(Math.round(5 + R / 25), 5, 11), a0 = hash01(Math.round(px), Math.round(py), 77) * 6.28;
+      each((x, y) => {
+        const r = Math.hypot(x - px, y - py) / R;
+        if (r >= 1) return 0;
+        if (h.t === 'b') return d * (1 - r * r) * (1 - r * r);
+        const c = Math.cos(nf * Math.atan2(y - py, x - px) + a0);
+        return d * ((1 - r) * (1 - r) * (1 + 2 * r) + 0.4 * 4 * r * (1 - r) * Math.sign(c) * Math.sqrt(Math.abs(c)));
+      });
+    }
+  }
+
+  if (any) {
+    let m = 0;
+    for (let k = 0; k < N; k++) m += H[k];
+    m /= N;
+    for (let k = 0; k < N; k++) H[k] -= m;
+  }
+  return any;
+}
+
+// The cloth drawn in on itself, its heights kept: wherever a stretch between two points
+// has come to climb, the two are brought closer over the sheet until the stretch is as long
+// as it was flat — so a crumpled or creased sheet shrinks where it is steep.
+function relaxCloth(PX, PY, PZ, nx, ny, hx, hy, rounds) {
+  const hd = Math.hypot(hx, hy);
+  const pair = (a, b, R) => {
+    const dz = PZ[b] - PZ[a];
+    const want = Math.sqrt(Math.max(R * R - dz * dz, 0.0025 * R * R));
+    const dx = PX[b] - PX[a], dy = PY[b] - PY[a], d = Math.sqrt(dx * dx + dy * dy) || 1e-9;
+    const c = (d - want) / d * 0.5;
+    PX[a] += dx * c; PY[a] += dy * c; PX[b] -= dx * c; PY[b] -= dy * c;
+  };
+  for (let it = 0; it < rounds; it++) {
+    const back = it & 1;
+    for (let jj = 0; jj < ny; jj++) {
+      const j = back ? ny - 1 - jj : jj;
+      for (let ii = 0; ii < nx; ii++) {
+        const i = back ? nx - 1 - ii : ii, k = j * nx + i;
+        if (i + 1 < nx) pair(k, k + 1, hx);
+        if (j + 1 < ny) {
+          pair(k, k + nx, hy);
+          if (i + 1 < nx) pair(k, k + nx + 1, hd);
+          if (i > 0) pair(k, k + nx - 1, hd);
+        }
+      }
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Bending the whole sheet
+
+// Past a line across the sheet, the cloth is rolled round a cylinder by the angle given —
+// toward the viewer, or under, when the angle is below 0 — and beyond one turn it winds in
+// as a spiral, each turn inside the last. Its relief rides round with it. Both sides of the
+// line roll when asked: that is a bow.
+function rollCloth(PX, PY, PZ, ex, ey, w0, len, deg, both) {
+  const phiM = rad(Math.min(Math.abs(deg), 1440));
+  if (phiM < 1e-4 || len <= 1e-6) return;
+  const up = deg > 0 ? 1 : -1, c = phiM > 2 * Math.PI ? 0.18 : 0;
+  const R0 = len / (phiM - c * phiM * phiM / (4 * Math.PI)), b = R0 * c / (2 * Math.PI);
+  for (let k = 0; k < PX.length; k++) {
+    let w = PX[k] * ex + PY[k] * ey - w0, side = 1;
+    if (both && w < 0) { w = -w; side = -1; }
+    if (w <= 0) continue;
+    const arc = Math.min(w, len), extra = w - arc;
+    const phi = b ? (R0 - Math.sqrt(Math.max(0, R0 * R0 - 2 * b * arc))) / b : arc / R0;
+    const sp = Math.sin(phi), cp = Math.cos(phi);
+    const X = R0 * sp - b * (phi * sp + cp - 1) + extra * cp;
+    const Zr = R0 * (1 - cp) - b * (sp - phi * cp) + extra * sp;
+    const rz = PZ[k];
+    const along = X - up * rz * sp, dw = side * (along - w);
+    PX[k] += dw * ex; PY[k] += dw * ey;
+    PZ[k] = up * Zr + rz * cp;
+  }
+}
+
+function bendCloth(PX, PY, PZ) {
+  const s = settings, N = PX.length;
+  const extent = (ex, ey) => {
+    let lo = Infinity, hi = -Infinity;
+    for (let k = 0; k < N; k++) {
+      const w = PX[k] * ex + PY[k] * ey;
+      if (w < lo) lo = w;
+      if (w > hi) hi = w;
+    }
+    return [lo, hi];
+  };
+  if (s.curl) {
+    const a = rad(s.curlAngle), ex = Math.sin(a), ey = -Math.cos(a);
+    const [lo, hi] = extent(ex, ey), len = (hi - lo) * clamp(s.curlSize, 1, 100) / 100;
+    rollCloth(PX, PY, PZ, ex, ey, hi - len, len, s.curl, false);
+  }
+  if (s.bow) {
+    const a = rad(s.bowAngle), ex = Math.cos(a), ey = Math.sin(a);
+    const [lo, hi] = extent(ex, ey);
+    rollCloth(PX, PY, PZ, ex, ey, 0, Math.max(-lo, hi), s.bow, true);
+  }
+  if (s.twist) {
+    const a = rad(s.twistAngle), bx = Math.cos(a), by = Math.sin(a), ex = -by, ey = bx;
+    const [lo, hi] = extent(bx, by), span = Math.max(1e-6, hi - lo), tw = rad(s.twist);
+    for (let k = 0; k < N; k++) {
+      const t = PX[k] * bx + PY[k] * by, q = PX[k] * ex + PY[k] * ey, z = PZ[k];
+      const phi = tw * (t - (lo + hi) / 2) / span, c = Math.cos(phi), sn = Math.sin(phi);
+      const q2 = q * c - z * sn;
+      PZ[k] = q * sn + z * c;
+      PX[k] = bx * t + ex * q2; PY[k] = by * t + ey * q2;
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Hanging
+//
+// A coarser grid of the same cloth: every point a small weight, every neighbour held at the
+// distance it has in the shaped cloth, and every second neighbour too, as stiffly as asked
+// — that is what keeps the folds. Each step the points go on as they were going, a little
+// slower, pulled by their weight and pushed by the wind against whichever way the cloth
+// faces there; then the distances are put right, a few times over, no point is let further
+// from a pin than the cloth between them reaches, the pins are put back and the cloth is
+// pushed out of whatever it has fallen into. The fine cloth then rides on the coarse one,
+// each point keeping its place against it.
+
+function catmull(p0, p1, p2, p3, t) {
+  return p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
+}
+
+function gridCubic(G, mx, my, a, b) {
+  const i = clamp(Math.floor(a), 0, mx - 2), j = clamp(Math.floor(b), 0, my - 2);
+  const fa = a - i, fb = b - j;
+  const i0 = Math.max(0, i - 1), i3 = Math.min(mx - 1, i + 2);
+  let r = [0, 0, 0, 0];
+  for (let q = 0; q < 4; q++) {
+    const o = clamp(j - 1 + q, 0, my - 1) * mx;
+    r[q] = catmull(G[o + i0], G[o + i], G[o + i + 1], G[o + i3], fa);
+  }
+  return catmull(r[0], r[1], r[2], r[3], fb);
+}
+
+function fineAt(G, C, u, v) {
+  const a = clamp((u - C.x0) / C.hx, 0, C.nx - 1.0001), b = clamp((v - C.y0) / C.hy, 0, C.ny - 1.0001);
+  const i = a | 0, j = b | 0, fa = a - i, fb = b - j, o = j * C.nx + i, w = C.nx;
+  return (G[o] + (G[o + 1] - G[o]) * fa) * (1 - fb) + (G[o + w] + (G[o + w + 1] - G[o + w]) * fa) * fb;
+}
+
+function hangCloth(C, PX, PY, PZ, coarse) {
+  const s = settings, A = area;
+  const res = clamp(Math.round(s.simRes * (coarse ? 0.65 : 1)), 10, 200);
+  const hs = Math.max(A.w, A.h) / res;
+  const mx = Math.max(4, Math.round(A.w / hs) + 1), my = Math.max(4, Math.round(A.h / hs) + 1);
+  const gx = A.w / (mx - 1), gy = A.h / (my - 1), M = mx * my, hm = (gx + gy) / 2;
+  const X = new Float64Array(M), Y = new Float64Array(M), Z = new Float64Array(M);
+  for (let j = 0; j < my; j++) {
+    for (let i = 0; i < mx; i++) {
+      const k = j * mx + i, u = A.x0 + i * gx, v = A.y0 + j * gy;
+      X[k] = fineAt(PX, C, u, v); Y[k] = fineAt(PY, C, u, v); Z[k] = fineAt(PZ, C, u, v);
+    }
+  }
+  const IX = X.slice(), IY = Y.slice(), IZ = Z.slice();
+  // a breath of unevenness, so a cloth pushed straight together knows which way to buckle
+  for (let k = 0; k < M; k++) Z[k] += 0.04 * hm * NZW(X[k] / 60, Y[k] / 60, 41.3) + 0.01 * hm;
+
+  // the distances held: neighbours, across the cells, and every second one for stiffness
+  const CA = [], CB = [], CK = [];
+  const stiff = clamp(s.stiffness / 100, 0, 1);
+  const link = (a, b, k) => { CA.push(a); CB.push(b); CK.push(k); };
+  for (let j = 0; j < my; j++) {
+    for (let i = 0; i < mx; i++) {
+      const k = j * mx + i;
+      if (i + 1 < mx) link(k, k + 1, 1);
+      if (j + 1 < my) link(k, k + mx, 1);
+      if (i + 1 < mx && j + 1 < my) { link(k, k + mx + 1, 0.9); link(k + 1, k + mx, 0.9); }
+      if (stiff > 0 && i + 2 < mx) link(k, k + 2, stiff);
+      if (stiff > 0 && j + 2 < my) link(k, k + 2 * mx, stiff);
+    }
+  }
+  const nc = CA.length, cA = Int32Array.from(CA), cB = Int32Array.from(CB), cK = Float64Array.from(CK);
+  const cR = new Float64Array(nc);
+  for (let c = 0; c < nc; c++) {
+    const a = cA[c], b = cB[c];
+    cR[c] = Math.hypot(IX[b] - IX[a], IY[b] - IY[a], IZ[b] - IZ[a]);
+  }
+
+  // the pins, each with the place it goes to
+  const pins = new Map();
+  const groups = [];
+  const group = list => { if (list.length) groups.push(list); };
+  const node = (i, j) => clamp(j, 0, my - 1) * mx + clamp(i, 0, mx - 1);
+  const f = 1 - clamp(s.gather, 0, 95) / 100;
+  const pleated = (list, along) => {
+    // held all along an edge and gathered: the edge zigzags in pleats, keeping its length
+    const p = Math.max(2, Math.round(24 / hm)), rise = hm * Math.sqrt(Math.max(0, 1 - f * f));
+    list.forEach((k, n) => {
+      const tri = Math.abs(((n % (2 * p)) + 2 * p) % (2 * p) - p) - p / 2;
+      pins.set(k, [0, 0, rise * tri]);
+    });
+    groups.push({ list, along });
+  };
+  const edge = [];
+  switch (s.hangFrom) {
+    case 'the top edge':
+      for (let i = 0; i < mx; i++) edge.push(node(i, 0));
+      pleated(edge, 'x');
+      break;
+    case 'the left edge':
+      for (let j = 0; j < my; j++) edge.push(node(0, j));
+      pleated(edge, 'y');
+      break;
+    case 'pegs on a line': {
+      const n = clamp(Math.round(A.w / 90) + 1, 3, 9), list = [];
+      for (let q = 0; q < n; q++) list.push(node(Math.round(q * (mx - 1) / (n - 1)), 0));
+      group(list);
+      break;
+    }
+    case 'two top corners': group([node(0, 0), node(mx - 1, 0)]); break;
+    case 'one corner':      group([node(0, 0)]); break;
+    case 'the middle':      group([node(mx >> 1, my >> 1)]); break;
+    case 'four corners':    group([node(0, 0), node(mx - 1, 0), node(0, my - 1), node(mx - 1, my - 1)]); break;
+  }
+  for (const g of groups) {
+    const list = g.list || g;
+    if (!g.list) for (const k of list) pins.set(k, [0, 0, 0]);
+    if (list.length < 2 || f === 1) continue;
+    let mxx = 0, myy = 0;
+    for (const k of list) { mxx += IX[k]; myy += IY[k]; }
+    mxx /= list.length; myy /= list.length;
+    for (const k of list) {
+      const d = pins.get(k);
+      d[0] += (IX[k] - mxx) * (f - 1); d[1] += (IY[k] - myy) * (f - 1);
+    }
+  }
+  if (s.squeeze > 0) {
+    const q = clamp(s.squeeze, 0, 90) / 100;
+    const put = (i, j, sx, sy) => {
+      const k = node(i, j), d = pins.get(k) || [0, 0, 0];
+      d[0] -= IX[k] * q * sx; d[1] -= IY[k] * q * sy;
+      pins.set(k, d);
+    };
+    const all = s.squeezeFrom === 'all round';
+    if (s.squeezeFrom === 'the sides' || all) {
+      for (let j = 0; j < my; j++) { put(0, j, 1, all ? 1 : 0); put(mx - 1, j, 1, all ? 1 : 0); }
+    }
+    if (s.squeezeFrom === 'top and bottom' || all) {
+      for (let i = all ? 1 : 0; i < (all ? mx - 1 : mx); i++) { put(i, 0, all ? 1 : 0, 1); put(i, my - 1, all ? 1 : 0, 1); }
+    }
+  }
+  for (const h of HAND) {
+    if (h.t !== 'n') continue;
+    const k = node(Math.round(h.u * (mx - 1)), Math.round(h.v * (my - 1)));
+    pins.set(k, [h.dx, h.dy, h.dz]);
+  }
+  const W = new Float64Array(M).fill(1);
+  const pinK = [...pins.keys()], np = pinK.length;
+  const PT = new Float64Array(np * 3);
+  pinK.forEach((k, n) => {
+    const d = pins.get(k);
+    W[k] = 0;
+    PT[n * 3] = IX[k] + d[0]; PT[n * 3 + 1] = IY[k] + d[1]; PT[n * 3 + 2] = IZ[k] + d[2];
+  });
+  // no point gets further from its nearest pin than the flat cloth between them
+  const tetherP = new Int32Array(M).fill(-1), tetherR = new Float64Array(M);
+  if (np) {
+    for (let k = 0; k < M; k++) {
+      if (!W[k]) continue;
+      const i = k % mx, j = (k / mx) | 0;
+      let best = Infinity, bp = -1;
+      for (let n = 0; n < np; n++) {
+        const q = pinK[n], d = Math.hypot((i - q % mx) * gx, (j - ((q / mx) | 0)) * gy);
+        if (d < best) { best = d; bp = n; }
+      }
+      tetherP[k] = bp; tetherR[k] = best * 1.01;
+    }
+  }
+
+  // what pulls and pushes
+  const wt = clamp(s.weight, 0, 300) / 100 * 0.012 * hm;
+  const gvx = 0, gvy = s.gravity === 'down the sheet' ? wt : 0, gvz = s.gravity === 'into the sheet' ? -wt : 0;
+  const wa = rad(s.windAngle), wl = s.windLift / 100;
+  let wx = Math.cos(wa), wy = Math.sin(wa), wz = wl;
+  const wn = Math.hypot(wx, wy, wz) || 1;
+  wx /= wn; wy /= wn; wz /= wn;
+  const wind = clamp(s.wind, 0, 300) / 100 * 0.03 * hm, gust = clamp(s.gusts, 0, 200) / 100;
+
+  // what lies under it, when it falls into the sheet
+  const R = clamp(s.propSize, 1, 200) / 100 * Math.min(A.w, A.h) / 2;
+  const pcx = s.propX / 100 * A.w / 2, pcy = s.propY / 100 * A.h / 2;
+  const into = s.gravity === 'into the sheet';
+  const props = [];
+  let tz = -Infinity;
+  if (into) {
+    switch (s.under) {
+      case 'a ball': tz = -2 * R - 3; props.push({ k: 'ball', x: pcx, y: pcy, z: tz + R, r: R }); break;
+      case 'three balls': {
+        const r = R * 0.55, a0 = hash01(3, 5, 61) * 6.283;
+        tz = -2 * r - 3;
+        for (let q = 0; q < 3; q++) {
+          const a = a0 + q * 2.094;
+          props.push({ k: 'ball', x: pcx + Math.cos(a) * R * 1.05, y: pcy + Math.sin(a) * R * 1.05, z: tz + r, r });
+        }
+        break;
+      }
+      case 'a box': tz = -1.2 * R - 3; props.push({ k: 'box', x: pcx, y: pcy, z: tz + 0.6 * R, bx: R, by: 0.7 * R, bz: 0.6 * R }); break;
+      case 'a rod': tz = -0.7 * R - 3; props.push({ k: 'rod', y: pcy, z: tz + 0.35 * R, r: 0.35 * R }); break;
+      case 'a pole': {
+        const r = Math.max(2, 0.06 * R);
+        tz = -2.5 * R - 3;
+        props.push({ k: 'pole', x: pcx, y: pcy, z: -3, r });
+        break;
+      }
+      default: tz = -Math.max(1, s.tableDrop);
+    }
+    if (!s.table) tz = -Infinity;
+  }
+  const pad = 0.6;
+  const collide = (k, rub) => {
+    let hit = false;
+    for (const p of props) {
+      if (p.k === 'ball' || (p.k === 'pole' && Z[k] > p.z - p.r)) {
+        const cz = p.k === 'pole' ? p.z - p.r : p.z;
+        const dx = X[k] - p.x, dy = Y[k] - p.y, dz = Z[k] - cz, d = Math.hypot(dx, dy, dz), r = p.r + pad;
+        if (d < r && d > 1e-9) { X[k] = p.x + dx / d * r; Y[k] = p.y + dy / d * r; Z[k] = cz + dz / d * r; hit = true; }
+      } else if (p.k === 'pole') {
+        const dx = X[k] - p.x, dy = Y[k] - p.y, d = Math.hypot(dx, dy), r = p.r + pad;
+        if (d < r && d > 1e-9) { X[k] = p.x + dx / d * r; Y[k] = p.y + dy / d * r; hit = true; }
+      } else if (p.k === 'rod') {
+        const dy = Y[k] - p.y, dz = Z[k] - p.z, d = Math.hypot(dy, dz), r = p.r + pad;
+        if (d < r && d > 1e-9) { Y[k] = p.y + dy / d * r; Z[k] = p.z + dz / d * r; hit = true; }
+      } else if (p.k === 'box') {
+        const ox = p.bx + pad - Math.abs(X[k] - p.x), oy = p.by + pad - Math.abs(Y[k] - p.y);
+        const oz = p.bz + pad - Math.abs(Z[k] - p.z);
+        if (ox > 0 && oy > 0 && oz > 0) {
+          if (oz <= ox && oz <= oy) Z[k] = p.z + Math.sign(Z[k] - p.z || 1) * (p.bz + pad);
+          else if (ox <= oy) X[k] = p.x + Math.sign(X[k] - p.x || 1) * (p.bx + pad);
+          else Y[k] = p.y + Math.sign(Y[k] - p.y || 1) * (p.by + pad);
+          hit = true;
+        }
+      }
+    }
+    if (Z[k] < tz + pad) { Z[k] = tz + pad; hit = true; }
+    if (hit && rub) {
+      OX[k] = X[k] - (X[k] - OX[k]) * 0.4; OY[k] = Y[k] - (Y[k] - OY[k]) * 0.4; OZ[k] = Z[k] - (Z[k] - OZ[k]) * 0.4;
+    }
+  };
+
+  const OX = X.slice(), OY = Y.slice(), OZ = Z.slice();
+  const steps = clamp(Math.round(s.simTime * (coarse ? 0.6 : 1)), 1, 2000);
+  const iters = coarse ? 6 : 12, damp = 0.985, ramp = Math.max(1, Math.round(steps * 0.4));
+  const NXa = new Float64Array(M), NYa = new Float64Array(M), NZa = new Float64Array(M);
+  for (let step = 0; step < steps; step++) {
+    const ease = Math.min(1, (step + 1) / ramp);
+    for (let n = 0; n < np; n++) {
+      const k = pinK[n];
+      X[k] = OX[k] = IX[k] + (PT[n * 3] - IX[k]) * ease;
+      Y[k] = OY[k] = IY[k] + (PT[n * 3 + 1] - IY[k]) * ease;
+      Z[k] = OZ[k] = IZ[k] + (PT[n * 3 + 2] - IZ[k]) * ease;
+    }
+    if (wind) {
+      for (let j = 0; j < my; j++) {
+        for (let i = 0; i < mx; i++) {
+          const k = j * mx + i, kl = j * mx + Math.max(0, i - 1), kr = j * mx + Math.min(mx - 1, i + 1);
+          const ku = Math.max(0, j - 1) * mx + i, kd = Math.min(my - 1, j + 1) * mx + i;
+          const ux = X[kr] - X[kl], uy = Y[kr] - Y[kl], uz = Z[kr] - Z[kl];
+          const vx = X[kd] - X[ku], vy = Y[kd] - Y[ku], vz = Z[kd] - Z[ku];
+          let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+          const nn = Math.hypot(nx, ny, nz) || 1;
+          NXa[k] = nx / nn; NYa[k] = ny / nn; NZa[k] = nz / nn;
+        }
+      }
+    }
+    for (let k = 0; k < M; k++) {
+      if (!W[k]) continue;
+      let ax = gvx, ay = gvy, az = gvz;
+      if (wind) {
+        const g = 1 + gust * 1.6 * NZW(X[k] / 140 - step * 0.035, Y[k] / 140, 17.7 + step * 0.01);
+        const dn = (wx * NXa[k] + wy * NYa[k] + wz * NZa[k]) * wind * g;
+        ax += dn * NXa[k] + 0.15 * wind * g * wx;
+        ay += dn * NYa[k] + 0.15 * wind * g * wy;
+        az += dn * NZa[k] + 0.15 * wind * g * wz;
+      }
+      const vx = (X[k] - OX[k]) * damp, vy = (Y[k] - OY[k]) * damp, vz = (Z[k] - OZ[k]) * damp;
+      OX[k] = X[k]; OY[k] = Y[k]; OZ[k] = Z[k];
+      X[k] += vx + ax; Y[k] += vy + ay; Z[k] += vz + az;
+    }
+    for (let it = 0; it < iters; it++) {
+      for (let c = 0; c < nc; c++) {
+        const a = cA[c], b = cB[c], wa2 = W[a], wb = W[b], ws = wa2 + wb;
+        if (!ws) continue;
+        const dx = X[b] - X[a], dy = Y[b] - Y[a], dz = Z[b] - Z[a];
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-9;
+        const e = (d - cR[c]) / d * cK[c] / ws;
+        X[a] += dx * e * wa2; Y[a] += dy * e * wa2; Z[a] += dz * e * wa2;
+        X[b] -= dx * e * wb; Y[b] -= dy * e * wb; Z[b] -= dz * e * wb;
+      }
+      for (let k = 0; k < M; k++) {
+        const n = tetherP[k];
+        if (n >= 0) {
+          const dx = X[k] - X[pinK[n]], dy = Y[k] - Y[pinK[n]], dz = Z[k] - Z[pinK[n]];
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (d > tetherR[k]) {
+            const e = tetherR[k] / d;
+            X[k] = X[pinK[n]] + dx * e; Y[k] = Y[pinK[n]] + dy * e; Z[k] = Z[pinK[n]] + dz * e;
+          }
+        }
+        if (W[k] && into) collide(k, it === iters - 1);
+      }
+    }
+  }
+
+  // the fine cloth rides on the coarse one: each point keeps its offset in the frame the
+  // coarse cloth had under it, carried into the frame it has now
+  const { nx, ny } = C, N = nx * ny;
+  const BI = [new Float64Array(N), new Float64Array(N), new Float64Array(N)];
+  const BF = [new Float64Array(N), new Float64Array(N), new Float64Array(N)];
+  const grids = [[IX, IY, IZ], [X, Y, Z]];
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i, a = i * C.hx / gx, b = j * C.hy / gy;
+      for (let c = 0; c < 3; c++) {
+        BI[c][k] = gridCubic(grids[0][c], mx, my, a, b);
+        BF[c][k] = gridCubic(grids[1][c], mx, my, a, b);
+      }
+    }
+  }
+  const frame = (B, k, i, j, F) => {
+    const kl = j * nx + Math.max(0, i - 1), kr = j * nx + Math.min(nx - 1, i + 1);
+    const ku = Math.max(0, j - 1) * nx + i, kd = Math.min(ny - 1, j + 1) * nx + i;
+    let ux = B[0][kr] - B[0][kl], uy = B[1][kr] - B[1][kl], uz = B[2][kr] - B[2][kl];
+    const vx = B[0][kd] - B[0][ku], vy = B[1][kd] - B[1][ku], vz = B[2][kd] - B[2][ku];
+    let un = Math.hypot(ux, uy, uz) || 1;
+    ux /= un; uy /= un; uz /= un;
+    let nx2 = uy * vz - uz * vy, ny2 = uz * vx - ux * vz, nz2 = ux * vy - uy * vx;
+    const nn = Math.hypot(nx2, ny2, nz2) || 1;
+    nx2 /= nn; ny2 /= nn; nz2 /= nn;
+    F[0] = ux; F[1] = uy; F[2] = uz;
+    F[3] = ny2 * uz - nz2 * uy; F[4] = nz2 * ux - nx2 * uz; F[5] = nx2 * uy - ny2 * ux;
+    F[6] = nx2; F[7] = ny2; F[8] = nz2;
+  };
+  const F0 = new Float64Array(9), F1 = new Float64Array(9);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      frame(BI, k, i, j, F0);
+      frame(BF, k, i, j, F1);
+      const rx = PX[k] - BI[0][k], ry = PY[k] - BI[1][k], rz = PZ[k] - BI[2][k];
+      const l0 = rx * F0[0] + ry * F0[1] + rz * F0[2];
+      const l1 = rx * F0[3] + ry * F0[4] + rz * F0[5];
+      const l2 = rx * F0[6] + ry * F0[7] + rz * F0[8];
+      PX[k] = BF[0][k] + l0 * F1[0] + l1 * F1[3] + l2 * F1[6];
+      PY[k] = BF[1][k] + l0 * F1[1] + l1 * F1[4] + l2 * F1[7];
+      PZ[k] = BF[2][k] + l0 * F1[2] + l1 * F1[5] + l2 * F1[8];
+    }
+  }
+  C.sim = { mx, my, gx, gy, props, tz, pins: pinK.length };
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Seen from
+
+// Turned about the upright of the sheet, tilted back and turned to the side, put into
+// perspective if asked, and fitted to the picture: SX, SY are millimetres of the sheet, SD
+// how near the viewer a point is.
+function viewCloth(C, PX, PY, PZ) {
+  const s = settings, A = area, N = PX.length;
+  const t = rad(s.viewTurn), al = rad(s.viewTilt), be = rad(s.viewSide);
+  const ct = Math.cos(t), st = Math.sin(t), ca = Math.cos(al), sa = Math.sin(al);
+  const cb = Math.cos(be), sb = Math.sin(be);
+  // world → view, a row each: x across the sheet, y down it, z to the viewer — turned
+  // about z, tilted about x, turned to the side about y
+  const r1 = [ct, -st, 0], r2 = [st, ct, 0];
+  const y2 = [r2[0] * ca, r2[1] * ca, -sa], z2 = [r2[0] * sa, r2[1] * sa, ca];
+  const M = [r1[0] * cb + z2[0] * sb, r1[1] * cb + z2[1] * sb, r1[2] * cb + z2[2] * sb,
+             y2[0], y2[1], y2[2],
+             -r1[0] * sb + z2[0] * cb, -r1[1] * sb + z2[1] * cb, -r1[2] * sb + z2[2] * cb];
+  const persp = clamp(s.perspective, 0, 100) / 100;
+  const dist = persp > 0 ? Math.hypot(A.w, A.h) * (0.6 / persp + 0.4) : 0;
+  const VX = new Float64Array(N), VY = new Float64Array(N), VZ = new Float64Array(N);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let k = 0; k < N; k++) {
+    const x = PX[k], y = PY[k], z = PZ[k];
+    let vx = M[0] * x + M[1] * y + M[2] * z, vy = M[3] * x + M[4] * y + M[5] * z;
+    const vz = M[6] * x + M[7] * y + M[8] * z;
+    if (dist) { const f = dist / Math.max(dist * 0.05, dist - vz); vx *= f; vy *= f; }
+    VX[k] = vx; VY[k] = vy; VZ[k] = vz;
+    if (vx < x0) x0 = vx;
+    if (vx > x1) x1 = vx;
+    if (vy < y0) y0 = vy;
+    if (vy > y1) y1 = vy;
+  }
+  let g = clamp(s.clothZoom, 5, 1000) / 100, ox = 0, oy = 0;
+  if (s.clothFit) {
+    g *= Math.min(A.w / Math.max(1e-6, x1 - x0), A.h / Math.max(1e-6, y1 - y0));
+    ox = (x0 + x1) / 2; oy = (y0 + y1) / 2;
+  }
+  const cx = (A.x0 + A.x1) / 2 + s.clothX, cy = (A.y0 + A.y1) / 2 + s.clothY;
+  const SX = new Float32Array(N), SY = new Float32Array(N), SD = new Float32Array(N);
+  for (let k = 0; k < N; k++) {
+    SX[k] = cx + (VX[k] - ox) * g; SY[k] = cy + (VY[k] - oy) * g; SD[k] = VZ[k] * g;
+  }
+  Object.assign(C, { SX, SY, SD, VX, VY, VZ, M, g, ox, oy, cx, cy, dist });
+}
+
+// Light on the cloth: a point is darker by as much as it is turned further from the light
+// than the flat sheet would be, and lighter by as much as it is turned toward it; and
+// darker in the hollows — wherever it lies deeper than the cloth round it.
+function shadeCloth(C) {
+  const s = settings, { nx, ny, VX, VY, VZ } = C, N = nx * ny;
+  const k1 = s.shade / 100 * 1.4, k2 = s.hollows / 100;
+  const FACE = new Int8Array((nx - 1) * (ny - 1));
+  for (let j = 0; j + 1 < ny; j++) {
+    for (let i = 0; i + 1 < nx; i++) {
+      const a = j * nx + i, b = a + nx + 1, c = a + nx, d = a + 1;
+      const det = (C.SX[b] - C.SX[a]) * (C.SY[c] - C.SY[d]) - (C.SY[b] - C.SY[a]) * (C.SX[c] - C.SX[d]);
+      FACE[j * (nx - 1) + i] = det >= 0 ? 1 : -1;
+    }
+  }
+  C.FACE = FACE;
+  C.SH = null;
+  if (!k1 && !k2) return;
+  const SH = new Float32Array(N);
+  const la = rad(s.lightFrom), le = rad(clamp(s.lightHigh, 1, 90));
+  const lx = Math.sin(la) * Math.cos(le), ly = -Math.cos(la) * Math.cos(le), lz = Math.sin(le);
+  if (k1) {
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const k = j * nx + i, kl = j * nx + Math.max(0, i - 1), kr = j * nx + Math.min(nx - 1, i + 1);
+        const ku = Math.max(0, j - 1) * nx + i, kd = Math.min(ny - 1, j + 1) * nx + i;
+        const ux = VX[kr] - VX[kl], uy = VY[kr] - VY[kl], uz = VZ[kr] - VZ[kl];
+        const vx = VX[kd] - VX[ku], vy = VY[kd] - VY[ku], vz = VZ[kd] - VZ[ku];
+        let n1 = uy * vz - uz * vy, n2 = uz * vx - ux * vz, n3 = ux * vy - uy * vx;
+        const nn = Math.hypot(n1, n2, n3) || 1;
+        if (n3 < 0) { n1 = -n1; n2 = -n2; n3 = -n3; }
+        const lit = Math.max(0, (n1 * lx + n2 * ly + n3 * lz) / nn);
+        SH[k] = k1 * (lz - lit);
+      }
+    }
+  }
+  if (k2) {
+    // the cloth round a point: its depth blurred over a few centimetres
+    const r = Math.max(1, Math.round(Math.max(6, s.foldLen * 0.6) / Math.min(C.hx, C.hy)));
+    const B = blurGrid(Float32Array.from(VZ), nx, ny, r);
+    const depth = Math.max(2, r * Math.min(C.hx, C.hy) * 0.4);
+    for (let k = 0; k < N; k++) SH[k] += k2 * clamp((B[k] - VZ[k]) / depth, 0, 1);
+  }
+  C.SH = SH;
+}
+
+// Which part of the cloth is nearest the viewer at every cell of the sheet, and where on
+// the flat picture that part is — so a point of a line can tell whether it is the one seen.
+function depthBuffer(C, coarse) {
+  const { nx, ny, SX, SY, SD, hx, hy } = C;
+  const [W, H] = paperDims();
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let k = 0; k < SX.length; k++) {
+    if (SX[k] < x0) x0 = SX[k];
+    if (SX[k] > x1) x1 = SX[k];
+    if (SY[k] < y0) y0 = SY[k];
+    if (SY[k] > y1) y1 = SY[k];
+  }
+  x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(W, x1); y1 = Math.min(H, y1);
+  const px = Math.max(0.15, Math.sqrt(Math.max(1, (x1 - x0) * (y1 - y0)) / CLOTH_PX)) * (coarse ? 2 : 1);
+  const w = Math.max(1, Math.ceil((x1 - x0) / px) + 1), h = Math.max(1, Math.ceil((y1 - y0) / px) + 1);
+  const D = new Float32Array(w * h).fill(-Infinity);
+  const U = new Float32Array(w * h), V = new Float32Array(w * h), R = new Float32Array(w * h);
+  const tri = (a, b, c, ua, va, ub, vb, uc, vc, ratio) => {
+    const ax = (SX[a] - x0) / px - 0.5, ay = (SY[a] - y0) / px - 0.5;
+    const bx = (SX[b] - x0) / px - 0.5, by = (SY[b] - y0) / px - 0.5;
+    const cx = (SX[c] - x0) / px - 0.5, cy = (SY[c] - y0) / px - 0.5;
+    const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    if (Math.abs(area2) < 1e-12) return;
+    const i0 = Math.max(0, Math.ceil(Math.min(ax, bx, cx))), i1 = Math.min(w - 1, Math.floor(Math.max(ax, bx, cx)));
+    const j0 = Math.max(0, Math.ceil(Math.min(ay, by, cy))), j1 = Math.min(h - 1, Math.floor(Math.max(ay, by, cy)));
+    const inv = 1 / area2, da = SD[a], db = SD[b], dc = SD[c];
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const l1 = ((cx - bx) * (j - by) - (cy - by) * (i - bx)) * inv;
+        const l2 = ((ax - cx) * (j - cy) - (ay - cy) * (i - cx)) * inv;
+        const l3 = 1 - l1 - l2;
+        if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
+        const d = l1 * da + l2 * db + l3 * dc, p = j * w + i;
+        if (d <= D[p]) continue;
+        D[p] = d; U[p] = l1 * ua + l2 * ub + l3 * uc; V[p] = l1 * va + l2 * vb + l3 * vc; R[p] = ratio;
+      }
+    }
+  };
+  const cellArea = hx * hy;
+  for (let j = 0; j + 1 < ny; j++) {
+    const v0 = C.y0 + j * hy, v1 = v0 + hy;
+    for (let i = 0; i + 1 < nx; i++) {
+      const a = j * nx + i, b = a + 1, c = a + nx + 1, d = a + nx;
+      const u0 = C.x0 + i * hx, u1 = u0 + hx;
+      const scr = Math.abs((SX[c] - SX[a]) * (SY[d] - SY[b]) - (SY[c] - SY[a]) * (SX[d] - SX[b])) / 2;
+      const ratio = Math.min(30, Math.sqrt(cellArea / Math.max(1e-9, scr)));
+      tri(a, b, c, u0, v0, u1, v0, u1, v1, ratio);
+      tri(a, c, d, u0, v0, u1, v1, u0, v1, ratio);
+    }
+  }
+  C.zb = { x0, y0, w, h, px, D, U, V, R };
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// From the flat picture to the cloth
+
+// Where a place of the flat picture has gone on the sheet: CM holds x, y, how near the
+// viewer it is and which way the cloth faces there.
+const CM = new Float64Array(4);
+
+function clothAt(u, v) {
+  const C = CLOTH, nx = C.nx;
+  let a = (u - C.x0) / C.hx, b = (v - C.y0) / C.hy;
+  if (a < 0) a = 0; else if (a > nx - 1.000001) a = nx - 1.000001;
+  if (b < 0) b = 0; else if (b > C.ny - 1.000001) b = C.ny - 1.000001;
+  const i = a | 0, j = b | 0, fa = a - i, fb = b - j, o = j * nx + i;
+  const X = C.SX, Y = C.SY, D = C.SD;
+  const xa = X[o] + (X[o + 1] - X[o]) * fa, xb = X[o + nx] + (X[o + nx + 1] - X[o + nx]) * fa;
+  const ya = Y[o] + (Y[o + 1] - Y[o]) * fa, yb = Y[o + nx] + (Y[o + nx + 1] - Y[o + nx]) * fa;
+  const da = D[o] + (D[o + 1] - D[o]) * fa, db = D[o + nx] + (D[o + nx + 1] - D[o + nx]) * fa;
+  CM[0] = xa + (xb - xa) * fb; CM[1] = ya + (yb - ya) * fb; CM[2] = da + (db - da) * fb;
+  CM[3] = C.FACE[j * (nx - 1) + i];
+}
+
+// Whether the place just carried over is the part of the cloth seen there: it is, if it is
+// as near the viewer as the nearest, or if the nearest is the same place of the cloth.
+function clothSeen(u, v) {
+  const Z = CLOTH.zb;
+  const i = Math.round((CM[0] - Z.x0) / Z.px - 0.5), j = Math.round((CM[1] - Z.y0) / Z.px - 0.5);
+  if (i < 0 || j < 0 || i >= Z.w || j >= Z.h) return true;
+  const p = j * Z.w + i, d = Z.D[p];
+  if (d === -Infinity || CM[2] >= d - 0.05) return true;
+  const du = u - Z.U[p], dv = v - Z.V[p], tol = Math.max(0.9, 2.5 * Z.px * Z.R[p]);
+  return du * du + dv * dv < tol * tol;
+}
+
+// 0 — not drawn there; 1 — drawn in its own pen; 2 — in the pen of the back.
+function clothClass(u, v) {
+  clothAt(u, v);
+  if (CLOTH.hidden && !clothSeen(u, v)) return 0;
+  return CM[3] < 0 && LAY !== L_EDGE ? CLOTH.back : 1;
+}
+
+let OX = new Float64Array(4096), OY = new Float64Array(4096), ON = 0;
+
+function oPush(x, y) {
+  if (ON >= OX.length) {
+    const grow = a => { const b = new Float64Array(a.length * 2); b.set(a); return b; };
+    OX = grow(OX); OY = grow(OY);
+  }
+  OX[ON] = x; OY[ON] = y;
+  ON++;
+}
+
+// A stroke of the flat picture carried onto the cloth: read in steps finer than the cloth's
+// grid, cut where it goes behind a fold or round to the back, each end found between two
+// steps, and every piece into the sink in its pen.
+function clothEmit(xs, ys, n) {
+  const C = CLOTH, step = C.step, pen0 = PEN;
+  let cls = -1, pu = 0, pv = 0;
+  ON = 0;
+  const flush = k => {
+    if (k > 0 && ON >= 2) {
+      const m = simplify(OX, OY, ON, SIMPLIFY);
+      PEN = k === 2 ? C.backPen : pen0;
+      emitFlat(OX, OY, m);
+      PEN = pen0;
+    }
+    ON = 0;
+  };
+  const visit = (u, v) => {
+    let k = clothClass(u, v);
+    C.reads++;
+    if (k === 0) C.unseen++;
+    if (cls >= 0 && k !== cls) {
+      let lo = 0, hi = 1;
+      for (let it = 0; it < 7; it++) {
+        const t = (lo + hi) / 2;
+        if (clothClass(pu + (u - pu) * t, pv + (v - pv) * t) === cls) lo = t; else hi = t;
+      }
+      if (cls > 0) { clothAt(pu + (u - pu) * lo, pv + (v - pv) * lo); oPush(CM[0], CM[1]); }
+      flush(cls);
+      if (k > 0) { clothAt(pu + (u - pu) * hi, pv + (v - pv) * hi); oPush(CM[0], CM[1]); }
+      k = clothClass(u, v);
+    }
+    if (k > 0) oPush(CM[0], CM[1]);
+    cls = k; pu = u; pv = v;
+  };
+  visit(xs[0], ys[0]);
+  for (let i = 1; i < n; i++) {
+    const x0 = xs[i - 1], y0 = ys[i - 1], dx = xs[i] - x0, dy = ys[i] - y0;
+    const m = Math.max(1, Math.ceil(Math.hypot(dx, dy) / step));
+    for (let q = 1; q <= m; q++) visit(x0 + dx * q / m, y0 + dy * q / m);
+  }
+  flush(cls);
+}
+
+// The tone a line swells with, shaded by the cloth.
+function clothTone(x, y) {
+  const t = toneAt(x, y) + fineAt(CLOTH.SH, CLOTH, x, y);
+  return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
+// The edge of the cloth, and — if asked — where it folds out of sight: wherever it turns
+// from facing the viewer to facing away, followed through the grid as level lines.
+function clothEdges() {
+  const s = settings;
+  if (!CLOTH || s.clothEdge === 'none') return;
+  const C = CLOTH, A = area;
+  PEN = penIdx(s.edgePen); LAY = L_EDGE;
+  const e = 0.001;
+  clothEmit([A.x0 + e, A.x1 - e, A.x1 - e, A.x0 + e, A.x0 + e],
+            [A.y0 + e, A.y0 + e, A.y1 - e, A.y1 - e, A.y0 + e], 5);
+  if (s.clothEdge !== 'hem and folds') return;
+  const { nx, ny, SX, SY } = C, N = nx * ny;
+  const F = new Float64Array(N);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i, kl = j * nx + Math.max(0, i - 1), kr = j * nx + Math.min(nx - 1, i + 1);
+      const ku = Math.max(0, j - 1) * nx + i, kd = Math.min(ny - 1, j + 1) * nx + i;
+      F[k] = (SX[kr] - SX[kl]) * (SY[kd] - SY[ku]) - (SY[kr] - SY[kl]) * (SX[kd] - SX[ku]);
+      if (F[k] === 0) F[k] = 1e-12;
+    }
+  }
+  for (const line of levelLines(F, nx, ny)) {
+    const xs = line.map(p => C.x0 + p[0] * C.hx), ys = line.map(p => C.y0 + p[1] * C.hy);
+    if (xs.length >= 2) clothEmit(xs, ys, xs.length);
+  }
+}
+
+// Where a grid crosses 0, as polylines in grid units: marching squares, the pieces joined
+// end to end by the cell edges they share.
+function levelLines(F, nx, ny) {
+  const pt = new Map(), next = new Map();
+  const edgeId = (i, j, vert) => ((j * nx + i) << 1) | vert;
+  const at = (i, j, vert) => {
+    const id = edgeId(i, j, vert);
+    if (!pt.has(id)) {
+      const a = F[j * nx + i], b = vert ? F[(j + 1) * nx + i] : F[j * nx + i + 1], t = a / (a - b);
+      pt.set(id, vert ? [i, j + t] : [i + t, j]);
+    }
+    return id;
+  };
+  const join = (p, q) => {
+    if (!next.has(p)) next.set(p, []);
+    if (!next.has(q)) next.set(q, []);
+    next.get(p).push(q); next.get(q).push(p);
+  };
+  for (let j = 0; j + 1 < ny; j++) {
+    for (let i = 0; i + 1 < nx; i++) {
+      const a = F[j * nx + i] > 0, b = F[j * nx + i + 1] > 0, c = F[(j + 1) * nx + i + 1] > 0, d = F[(j + 1) * nx + i] > 0;
+      const cut = [];
+      if (a !== b) cut.push(at(i, j, 0));
+      if (b !== c) cut.push(at(i + 1, j, 1));
+      if (d !== c) cut.push(at(i, j + 1, 0));
+      if (a !== d) cut.push(at(i, j, 1));
+      if (cut.length === 2) join(cut[0], cut[1]);
+      else if (cut.length === 4) { join(cut[0], cut[1]); join(cut[2], cut[3]); }
+    }
+  }
+  const used = new Set(), lines = [];
+  const walk = start => {
+    const line = [start];
+    used.add(start);
+    let cur = start;
+    for (;;) {
+      const nb = (next.get(cur) || []).find(q => !used.has(q));
+      if (nb === undefined) break;
+      used.add(nb); line.push(nb); cur = nb;
+    }
+    return line;
+  };
+  for (const [id, nb] of next) if (nb.length === 1 && !used.has(id)) lines.push(walk(id));
+  for (const id of next.keys()) {
+    if (used.has(id)) continue;
+    const line = walk(id);
+    line.push(id);
+    lines.push(line);
+  }
+  return lines.map(l => l.map(id => pt.get(id)));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Shaping it by hand
+//
+// With a tool picked, the sheet is the cloth: a drag lays a fold along it (a ridge, or with
+// shift a valley); a pinch gathers it at a point into folds round a peak; a bump raises it
+// (with shift dents it), a drag setting how far either reaches; a pin holds the place
+// clicked and a drag moves it, the wheel over it lifts it toward the viewer or lets it
+// back. Over anything made by hand the wheel deepens or flattens it, with shift widens or
+// narrows it; a drag moves it, a right-click or the eraser takes it away.
+
+function clothPick(p) {
+  const C = CLOTH, Z = C && C.zb;
+  if (!Z) return null;
+  const i0 = Math.round((p[0] - Z.x0) / Z.px - 0.5), j0 = Math.round((p[1] - Z.y0) / Z.px - 0.5);
+  for (let r = 0; r <= 6; r++) {
+    for (let j = j0 - r; j <= j0 + r; j++) {
+      for (let i = i0 - r; i <= i0 + r; i++) {
+        if (Math.max(Math.abs(i - i0), Math.abs(j - j0)) !== r) continue;
+        if (i < 0 || j < 0 || i >= Z.w || j >= Z.h) continue;
+        const q = j * Z.w + i;
+        if (Z.D[q] !== -Infinity) return [(Z.U[q] - area.x0) / area.w, (Z.V[q] - area.y0) / area.h];
+      }
+    }
+  }
+  return null;
+}
+
+function handOnSheet(u, v) {
+  clothAt(area.x0 + u * area.w, area.y0 + v * area.h);
+  return [CM[0], CM[1]];
+}
+
+// The grips of everything made by hand, where they stand on the sheet.
+function handGrips() {
+  const out = [];
+  if (!CLOTH) return out;
+  HAND.forEach((h, n) => {
+    if (h.t === 'f') {
+      out.push({ n, g: 0, p: handOnSheet(h.u1, h.v1) }, { n, g: 1, p: handOnSheet(h.u2, h.v2) },
+               { n, g: 2, p: handOnSheet((h.u1 + h.u2) / 2, (h.v1 + h.v2) / 2) });
+    } else {
+      out.push({ n, g: 2, p: handOnSheet(h.u, h.v) });
+    }
+  });
+  return out;
+}
+
+function handHit(p, reach) {
+  let best = null, bd = reach;
+  for (const g of handGrips()) {
+    const d = Math.hypot(g.p[0] - p[0], g.p[1] - p[1]);
+    if (d < bd) { bd = d; best = g; }
+  }
+  return best;
+}
+
+function handSave(record) {
+  if (record) {
+    HAND_UNDO.push(settings.clothHand);
+    if (HAND_UNDO.length > 200) HAND_UNDO.shift();
+  }
+  settings.clothHand = handString(HAND);
+  if (setters.clothHand) setters.clothHand(settings.clothHand);
+  updateHandNote();
+}
+
+function handUndo() {
+  if (!HAND_UNDO.length) return;
+  settings.clothHand = HAND_UNDO.pop();
+  HAND = parseHand(settings.clothHand);
+  updateHandNote();
+  update();
+}
+
+function handClear() {
+  if (!HAND.length) return;
+  HAND = [];
+  handSave(true);
+  update();
+}
+
+function setClothTool(t) {
+  clothTool = CLOTH_TOOLS.includes(t) ? t : 'off';
+  if (clothToolSel) clothToolSel.selected(clothTool);
+  const c = canvasEl();
+  if (c) c.classList.toggle('shaping', clothTool !== 'off' && settings.cloth);
+  drawOverlay();
+}
+
+// A pin moved over the sheet by so many millimetres of it: as far in the cloth's own space,
+// in the plane the viewer sees.
+function pinShift(h, dx, dy, dz) {
+  const C = CLOTH, M = C.M, g = C.g || 1;
+  const vx = dx / g, vy = dy / g, vz = dz;
+  h.dx += M[0] * vx + M[3] * vy + M[6] * vz;
+  h.dy += M[1] * vx + M[4] * vy + M[7] * vz;
+  h.dz += M[2] * vx + M[5] * vy + M[8] * vz;
+}
+
+let hand = null;             // the press in hand: making something, or moving it
+let handHover = null;
+
+function handDown(e, p) {
+  const reach = 9 * paperDims()[0] / canvasEl().getBoundingClientRect().width;
+  const hit = handHit(p, reach);
+  if (hit && (clothTool === 'erase' || e.button === 2)) {
+    HAND.splice(hit.n, 1);
+    handSave(true);
+    handHover = null;
+    update();
+    return null;
+  }
+  if (clothTool === 'erase' || e.button !== 0) return null;
+  if (hit) {
+    HAND_UNDO.push(settings.clothHand);
+    const h = HAND[hit.n];
+    return { kind: 'move', hit, p0: p, last: p, m0: clothPick(p), was: { ...h } };
+  }
+  const m = clothPick(p);
+  if (!m) return null;
+  if (clothTool === 'pin') {
+    if (settings.gravity === 'none') {
+      settings.gravity = 'down the sheet';
+      if (setters.gravity) setters.gravity(settings.gravity);
+      syncVisibility();
+    }
+    HAND.push({ t: 'n', u: m[0], v: m[1], dx: 0, dy: 0, dz: 0 });
+    handSave(true);
+    return { kind: 'move', hit: { n: HAND.length - 1, g: 2 }, p0: p, last: p, m0: m, was: { ...HAND[HAND.length - 1] } };
+  }
+  return { kind: 'make', tool: clothTool, p0: p, p1: p, m0: m, shift: e.shiftKey };
+}
+
+function handMove(p) {
+  if (!hand) return false;
+  if (hand.kind === 'make') { hand.p1 = p; drawOverlay(); return false; }
+  const h = HAND[hand.hit.n];
+  if (!h) return false;
+  if (h.t === 'n') {
+    pinShift(h, p[0] - hand.last[0], p[1] - hand.last[1], 0);
+    hand.last = p;
+  } else {
+    const m = clothPick(p);
+    if (!m) return false;
+    if (h.t === 'f' && hand.hit.g === 0) { h.u1 = m[0]; h.v1 = m[1]; }
+    else if (h.t === 'f' && hand.hit.g === 1) { h.u2 = m[0]; h.v2 = m[1]; }
+    else if (h.t === 'f') {
+      if (!hand.m0) return false;
+      const du = m[0] - hand.m0[0], dv = m[1] - hand.m0[1], w = hand.was;
+      h.u1 = w.u1 + du; h.v1 = w.v1 + dv; h.u2 = w.u2 + du; h.v2 = w.v2 + dv;
+    } else { h.u = m[0]; h.v = m[1]; }
+  }
+  handSave(false);
+  return true;
+}
+
+function handUp(p) {
+  const H0 = hand;
+  hand = null;
+  if (!H0) return false;
+  if (H0.kind === 'move') return true;
+  const A = area, m1 = clothPick(p) || H0.m0;
+  const du = (m1[0] - H0.m0[0]) * A.w, dv = (m1[1] - H0.m0[1]) * A.h, len = Math.hypot(du, dv);
+  const sg = H0.shift ? -1 : 1;
+  if (H0.tool === 'fold') {
+    if (len < 3) { drawOverlay(); return false; }
+    const w = clamp(len * 0.16, 3, 40);
+    HAND.push({ t: 'f', u1: H0.m0[0], v1: H0.m0[1], u2: m1[0], v2: m1[1], d: sg * w * 0.55, w });
+  } else {
+    const r = Math.max(4, len || 12);
+    HAND.push({ t: H0.tool === 'pinch' ? 'p' : 'b', u: H0.m0[0], v: H0.m0[1], r,
+                d: sg * r * (H0.tool === 'pinch' ? 0.45 : 0.35) });
+  }
+  handSave(true);
+  return true;
+}
+
+// The wheel over something made by hand: deeper or flatter, with shift wider or narrower;
+// over a pin, nearer the viewer or further.
+function handWheel(p, delta, shift) {
+  const reach = 9 * paperDims()[0] / canvasEl().getBoundingClientRect().width;
+  const hit = handHit(p, reach);
+  if (!hit) return false;
+  const h = HAND[hit.n], k = Math.exp(-delta * 0.002);
+  if (!handWheel.rec) { HAND_UNDO.push(settings.clothHand); handWheel.rec = true; }
+  clearTimeout(handWheel.timer);
+  handWheel.timer = setTimeout(() => { handWheel.rec = false; }, 600);
+  if (h.t === 'n') pinShift(h, 0, 0, -delta * (shift ? 0.01 : 0.05));
+  else if (shift && h.t === 'f') h.w = clamp(h.w * k, 0.5, 400);
+  else if (shift) h.r = clamp(h.r * k, 1, 2000);
+  else h.d = clamp(h.d * k, -2000, 2000);
+  handSave(false);
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// The overlay: what was made by hand, drawn over the sheet and never plotted
+
+let OVERLAY = null, clothToolSel = null, handNote = null;
+
+function makeOverlay() {
+  OVERLAY = document.createElement('canvas');
+  OVERLAY.className = 'overlay';
+  document.getElementById('sheet').appendChild(OVERLAY);
+}
+
+function drawOverlay() {
+  if (!OVERLAY) return;
+  const c = canvasEl();
+  if (!c) return;
+  const r = c.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+  if (OVERLAY.width !== w || OVERLAY.height !== h) { OVERLAY.width = w; OVERLAY.height = h; }
+  OVERLAY.style.width = r.width + 'px';
+  OVERLAY.style.height = r.height + 'px';
+  const ctx = OVERLAY.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (!CLOTH || !settings.cloth || (clothTool === 'off' && !settings.showGuides)) return;
+  const [W] = paperDims(), k = w / W, px = 1 / k * dpr;   // a css pixel, in mm
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  const A = area;
+  // the hem, for knowing where the cloth is
+  ctx.strokeStyle = 'rgba(26, 109, 209, 0.55)';
+  ctx.lineWidth = px;
+  ctx.setLineDash([4 * px, 3 * px]);
+  ctx.beginPath();
+  const n = 200;
+  for (let q = 0; q <= 4 * n; q++) {
+    const side = Math.floor(q / n) % 4, t = (q % n) / n;
+    const u = side === 0 ? t : side === 1 ? 1 : side === 2 ? 1 - t : 0;
+    const v = side === 0 ? 0 : side === 1 ? t : side === 2 ? 1 : 1 - t;
+    const [x, y] = handOnSheet(u, v);
+    if (q) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const along = (u1, v1, u2, v2) => {
+    ctx.beginPath();
+    for (let q = 0; q <= 24; q++) {
+      const [x, y] = handOnSheet(u1 + (u2 - u1) * q / 24, v1 + (v2 - v1) * q / 24);
+      if (q) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  };
+  const ring = (u, v, rmm) => {
+    ctx.beginPath();
+    for (let q = 0; q <= 48; q++) {
+      const a = q / 48 * 2 * Math.PI;
+      const [x, y] = handOnSheet(u + Math.cos(a) * rmm / A.w, v + Math.sin(a) * rmm / A.h);
+      if (q) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  };
+  const dot = (p, r, fill) => {
+    ctx.beginPath();
+    ctx.arc(p[0], p[1], r, 0, 2 * Math.PI);
+    if (fill) ctx.fill();
+    ctx.stroke();
+  };
+  HAND.forEach((h, i) => {
+    const hot = handHover && handHover.n === i;
+    const col = h.t === 'n' ? '#7a3fd1' : h.d >= 0 ? '#1a6dd1' : '#d1661a';
+    ctx.strokeStyle = col;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = (hot ? 2.5 : 1.5) * px;
+    if (h.t === 'f') {
+      along(h.u1, h.v1, h.u2, h.v2);
+      dot(handOnSheet(h.u1, h.v1), 4 * px, true);
+      dot(handOnSheet(h.u2, h.v2), 4 * px, true);
+      const m = handOnSheet((h.u1 + h.u2) / 2, (h.v1 + h.v2) / 2);
+      ctx.fillRect(m[0] - 3 * px, m[1] - 3 * px, 6 * px, 6 * px);
+      ctx.strokeRect(m[0] - 3 * px, m[1] - 3 * px, 6 * px, 6 * px);
+    } else if (h.t === 'n') {
+      const p = handOnSheet(h.u, h.v);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(p[0], p[1]); ctx.lineTo(p[0] + 6 * px, p[1] - 9 * px);
+      ctx.stroke();
+      dot([p[0] + 7 * px, p[1] - 10.5 * px], 3.5 * px, true);
+    } else {
+      ctx.setLineDash(h.t === 'p' ? [3 * px, 2 * px] : []);
+      ring(h.u, h.v, h.r);
+      ctx.setLineDash([]);
+      dot(handOnSheet(h.u, h.v), 4 * px, true);
+    }
+  });
+  if (hand && hand.kind === 'make') {
+    ctx.strokeStyle = hand.shift ? '#d1661a' : '#1a6dd1';
+    ctx.lineWidth = 1.5 * px;
+    ctx.setLineDash([3 * px, 2 * px]);
+    ctx.beginPath();
+    if (hand.tool === 'fold') {
+      ctx.moveTo(hand.p0[0], hand.p0[1]); ctx.lineTo(hand.p1[0], hand.p1[1]);
+    } else {
+      ctx.arc(hand.p0[0], hand.p0[1], Math.max(1, Math.hypot(hand.p1[0] - hand.p0[0], hand.p1[1] - hand.p0[1])), 0, 2 * Math.PI);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function updateHandNote() {
+  if (!handNote) return;
+  const c = { f: 0, p: 0, b: 0, n: 0 };
+  for (const h of HAND) c[h.t]++;
+  const parts = [];
+  if (c.f) parts.push(`${c.f} fold${c.f > 1 ? 's' : ''}`);
+  if (c.p) parts.push(`${c.p} pinch${c.p > 1 ? 'es' : ''}`);
+  if (c.b) parts.push(`${c.b} bump${c.b > 1 ? 's' : ''}`);
+  if (c.n) parts.push(`${c.n} pin${c.n > 1 ? 's' : ''}`);
+  handNote.html(parts.length ? `By hand so far: ${parts.join(', ')}.` : 'Nothing shaped by hand yet.');
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
 // The sink
 //
 // Everything is drawn into one sink as polylines in millimetres, each tagged with the pen
@@ -1611,7 +3141,13 @@ function pushPoly(xs, ys, n) {
   S2.lay.push(LAY);
 }
 
+// On cloth the lines and the cloth's edge are carried onto it first.
 function emit(xs, ys, n) {
+  if (CLOTH && (LAY === L_LINES || LAY === L_ECHO || LAY === L_EDGE)) clothEmit(xs, ys, n);
+  else emitFlat(xs, ys, n);
+}
+
+function emitFlat(xs, ys, n) {
   if (n < 2 || SINK.ink.length > MAX_STROKES) return;
   const A = AREAS[PEN];
   if (A.w <= 0 || A.h <= 0) return;
@@ -1683,9 +3219,17 @@ function cropMarkDots() {
 function buildShapes() {
   area = drawArea();
   if (area.w < 2 || area.h < 2) return null;
-  const s = settings, coarse = !!drag;
+  const s = settings, coarse = !!drag || busy;
   ensureNoise();
   ensureField(coarse);
+  ensureCloth(coarse);
+  if (CLOTH) {
+    CLOTH.step = 0.8 * Math.min(CLOTH.hx, CLOTH.hy);
+    CLOTH.hidden = s.hidden;
+    CLOTH.back = { 'printed through': 1, 'bare': 0, 'other pen': 2 }[s.clothBack] ?? 1;
+    CLOTH.backPen = penIdx(s.backPen);
+    CLOTH.reads = CLOTH.unseen = 0;
+  }
   SINK = makeSink();
   AREAS = [];
   for (let i = 0; i < SLOTS; i++) AREAS.push(penArea(i));
@@ -1708,6 +3252,7 @@ function buildShapes() {
       turn: s.echoTurn, pitchK: clamp(s.echoPitch, 10, 1000) / 100, mask, flip: false, coarse,
     }).lines;
   }
+  clothEdges();
   borderLines();
   cropMarkDots();
 
@@ -1898,6 +3443,7 @@ function drawPreview() {
   ctx.setTransform(pixelDensity(), 0, 0, pixelDensity(), 0, 0);
   drawSheet(ctx, previewScale(), true);
   ctx.restore();
+  drawOverlay();
 }
 
 function drawSheet(ctx, s, guides) {
@@ -1956,8 +3502,10 @@ function drawGuides(ctx) {
   ctx.setLineDash([1.5, 1.5]);
   ctx.strokeRect(area.x0, area.y0, area.w, area.h);
   ctx.setLineDash([]);
+  // what lies on the flat picture is shown where it has gone on the cloth
+  const at = (x, y) => { if (!CLOTH) return [x, y]; clothAt(x, y); return [CM[0], CM[1]]; };
   if (s.carrier !== 'lines') {
-    const [x, y] = carrierCentre();
+    const [x, y] = at(...carrierCentre());
     ctx.beginPath();
     ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y);
     ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4);
@@ -1966,9 +3514,13 @@ function drawGuides(ctx) {
   if (s.echo === 'disc') {
     ctx.setLineDash([0.8, 1.6]);
     ctx.beginPath();
-    ctx.arc((area.x0 + area.x1) / 2 + s.echoX / 100 * area.w / 2,
-            (area.y0 + area.y1) / 2 + s.echoY / 100 * area.h / 2,
-            s.echoR / 100 * Math.min(area.w, area.h) / 2, 0, 2 * Math.PI);
+    const ex = (area.x0 + area.x1) / 2 + s.echoX / 100 * area.w / 2;
+    const ey = (area.y0 + area.y1) / 2 + s.echoY / 100 * area.h / 2;
+    const er = s.echoR / 100 * Math.min(area.w, area.h) / 2;
+    for (let q = 0; q <= 96; q++) {
+      const a = q / 96 * 2 * Math.PI, [x, y] = at(ex + er * Math.cos(a), ey + er * Math.sin(a));
+      if (q) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
     ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -1994,7 +3546,7 @@ let settleTimer = null;
 
 function settle() {
   if (settleTimer) clearTimeout(settleTimer);
-  settleTimer = setTimeout(() => { settleTimer = null; update(); }, 250);
+  settleTimer = setTimeout(() => { settleTimer = null; busy = false; update(); }, 250);
 }
 
 function paperPoint(e) {
@@ -2012,6 +3564,16 @@ function attachPointer() {
   c.addEventListener('pointerdown', e => {
     if (e.button !== 0 && e.button !== 2) return;
     const s = settings;
+    if (s.cloth && CLOTH && clothTool !== 'off') {
+      hand = handDown(e, paperPoint(e));
+      if (hand) {
+        drag = { mode: 'hand', moved: false };
+        try { c.setPointerCapture(e.pointerId); } catch (err) { /* not a live pointer */ }
+        drawOverlay();
+      }
+      e.preventDefault();
+      return;
+    }
     drag = {
       mode: e.altKey ? 'centre' : (e.shiftKey || e.button === 2) ? 'turn' : 'slide',
       x: e.clientX, y: e.clientY, p: paperPoint(e), moved: false,
@@ -2022,7 +3584,19 @@ function attachPointer() {
     e.preventDefault();
   });
   c.addEventListener('pointermove', e => {
-    if (!drag) return;
+    if (!drag) {
+      if (settings.cloth && CLOTH && clothTool !== 'off') {
+        const reach = 9 * paperDims()[0] / c.getBoundingClientRect().width;
+        const hv = handHit(paperPoint(e), reach);
+        if ((hv && hv.n) !== (handHover && handHover.n)) { handHover = hv; drawOverlay(); }
+      }
+      return;
+    }
+    if (drag.mode === 'hand') {
+      if (handMove(paperPoint(e))) { drag.moved = true; liveUpdate(); }
+      e.preventDefault();
+      return;
+    }
     const s = settings;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 3) return;
@@ -2043,6 +3617,14 @@ function attachPointer() {
   });
   const end = e => {
     if (!drag) return;
+    if (drag.mode === 'hand') {
+      const made = e.type === 'pointerup' ? handUp(paperPoint(e)) : (hand = null, false);
+      const moved = drag.moved;
+      drag = null;
+      try { c.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+      if (made || moved) update(); else drawOverlay();
+      return;
+    }
     const moved = drag.moved;
     drag = null;
     c.classList.remove('dragging');
@@ -2054,7 +3636,14 @@ function attachPointer() {
   c.addEventListener('wheel', e => {
     e.preventDefault();
     if (drag) return;
-    const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    const raw = e.deltaY || e.deltaX;
+    const delta = raw * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    if (settings.cloth && CLOTH && clothTool !== 'off' && handWheel(paperPoint(e), delta, e.shiftKey)) {
+      busy = true;
+      liveUpdate();
+      settle();
+      return;
+    }
     zoomAbout(Math.exp(-delta * WHEEL_ZOOM), paperPoint(e));
   }, { passive: false });
 }
@@ -2124,6 +3713,22 @@ function attachKeys() {
       case '-': case '_': zoomAbout(1 / 1.1, null); break;
       case '0': resetView(); break;
       case 'x': case 'X': s.cropMarks = !s.cropMarks; refreshControls(); update(); break;
+      case 'k': case 'K': s.cloth = !s.cloth; refreshControls(); update(); setClothTool(clothTool); break;
+      case 't': case 'T': {
+        const k = CLOTH_TOOLS.indexOf(clothTool) + (e.key === 'T' ? -1 : 1);
+        if (!s.cloth) { s.cloth = true; refreshControls(); update(); }
+        setClothTool(CLOTH_TOOLS[(k + CLOTH_TOOLS.length) % CLOTH_TOOLS.length]);
+        break;
+      }
+      case 'Escape': setClothTool('off'); break;
+      case 'u': case 'U': handUndo(); break;
+      case 'Delete': case 'Backspace':
+        if (!handHover || !s.cloth || clothTool === 'off' || !HAND[handHover.n]) return;
+        HAND.splice(handHover.n, 1);
+        handHover = null;
+        handSave(true);
+        update();
+        break;
       case 'g': case 'G': s.showGuides = !s.showGuides; refreshControls(); drawPreview(); syncUrl(); break;
       default: return;
     }
@@ -2178,6 +3783,36 @@ function syncVisibility() {
   show(['echoFrom', 'echoTo'], s.echo === 'tone band');
   setVisible('echoEvery', s.echo === 'every n-th line');
   show(['echoX', 'echoY', 'echoR'], s.echo === 'disc');
+
+  const cl = s.cloth;
+  show(['subFolds', 'folds', 'crossFolds', 'subCrumple', 'crumple', 'creases', 'subBend', 'bow',
+        'curl', 'twist', 'subHang', 'gravity', 'hangFrom', 'squeeze', 'wind', 'subView',
+        'viewTilt', 'viewTurn', 'viewSide', 'perspective', 'clothFit', 'clothZoom', 'clothX',
+        'clothY', 'subLight', 'shade', 'hollows', 'subShow', 'hidden', 'clothBack', 'clothEdge',
+        'subHand', 'clothTool', 'handScale', 'handButtons', 'handNote', 'clothHand'], cl);
+  show(['foldLen', 'foldAngle', 'foldSharp', 'foldUneven', 'foldWander', 'foldTaper', 'foldLean'],
+       cl && s.folds !== 0);
+  show(['crossLen', 'crossAngle', 'crossSharp'], cl && s.crossFolds !== 0);
+  show(['crumpleKind', 'crumpleSize', 'crumpleDetail'], cl && s.crumple > 0);
+  show(['creaseKind', 'creaseDepth'], cl && s.creases > 0);
+  setVisible('bowAngle', cl && s.bow !== 0);
+  show(['curlAngle', 'curlSize'], cl && s.curl !== 0);
+  setVisible('twistAngle', cl && s.twist !== 0);
+  setVisible('weight', cl && s.gravity !== 'none');
+  setVisible('gather', cl && ['the top edge', 'pegs on a line', 'two top corners', 'four corners',
+                              'the left edge'].includes(s.hangFrom));
+  setVisible('squeezeFrom', cl && s.squeeze > 0);
+  const into = cl && s.gravity === 'into the sheet';
+  show(['under', 'table'], into);
+  setVisible('tableDrop', into && s.table && s.under === 'nothing');
+  show(['propSize', 'propX', 'propY'], into && s.under !== 'nothing');
+  show(['windAngle', 'windLift', 'gusts'], cl && s.wind > 0);
+  const hung = s.gravity !== 'none' || s.wind > 0 || s.squeeze > 0 || s.hangFrom !== 'nothing' ||
+               /(^|;)n,/.test(s.clothHand);
+  show(['stiffness', 'simTime', 'simRes'], cl && hung);
+  show(['lightFrom', 'lightHigh'], cl && s.shade !== 0);
+  setVisible('backPen', cl && s.clothBack === 'other pen');
+  setVisible('edgePen', cl && s.clothEdge !== 'none');
   refreshPenList();
 }
 
@@ -2307,6 +3942,151 @@ function buildControls() {
   addSlider(sec, 'Wobble (mm)', 'wobble', 0, 20, 0.05, 'A slow shake of the hand.');
   addSlider(sec, 'Wobble size (mm)', 'wobbleScale', 3, 300, 1);
 
+
+  sec = addSection(root, 'Cloth');
+  addCheckbox(sec, 'The picture printed on a sheet of cloth', 'cloth', () => {
+    setClothTool(clothTool);
+    resync();
+  });
+  addNote(sec, 'The lines are laid on the flat cloth as ever; then the cloth is folded, ' +
+    'crumpled, bent, hung up and blown about, and drawn as it is seen — the lines behind a fold ' +
+    'left out, and fatter where the cloth turns from the light. <b>K</b> switches it.');
+  addSub(sec, 'Folds', 'subFolds');
+  addSlider(sec, 'Folds (° of slope)', 'folds', 0, 178, 1,
+    'How steep the side of a fold gets. The cloth keeps its length, so it is drawn in as it ' +
+    'climbs; past 90 every fold laps over the next.');
+  addSlider(sec, 'Fold to fold (mm)', 'foldLen', 4, 400, 1);
+  addSlider(sec, 'Running at (°)', 'foldAngle', -90, 90, 1, '0 — upright, 90 — level.');
+  addSlider(sec, 'Sharp (%)', 'foldSharp', 0, 100, 1,
+    '0 — soft waves; 100 — pleats with flat sides that snap over at the crest.');
+  addSlider(sec, 'Uneven (%)', 'foldUneven', 0, 100, 1, 'Unlike in depth and spacing.');
+  addSlider(sec, 'Wandering (%)', 'foldWander', 0, 300, 1, 'Drifting sideways along their length.');
+  addSlider(sec, 'Dying out (%)', 'foldTaper', -100, 100, 1,
+    'Flat at one end, deep at the other — below 0 the other way round.');
+  addSlider(sec, 'Leaning (%)', 'foldLean', -100, 100, 1, 'One side of every fold steeper than the other.');
+  addSlider(sec, 'Folds across (° of slope)', 'crossFolds', 0, 178, 1, 'A second set.');
+  addSlider(sec, 'Across, fold to fold (mm)', 'crossLen', 4, 400, 1);
+  addSlider(sec, 'Across, running at (°)', 'crossAngle', -90, 90, 1);
+  addSlider(sec, 'Across, sharp (%)', 'crossSharp', 0, 100, 1);
+
+  addSub(sec, 'Crumpled and creased', 'subCrumple');
+  addSlider(sec, 'Crumpled (mm deep)', 'crumple', 0, 60, 0.1,
+    'Crushed in the hand and smoothed out again: the cloth shrinks where it is steep.');
+  addSelect(sec, 'Into', 'crumpleKind', CRUMPLES, resync,
+    '<b>facets</b> — little pyramids raised and sunk, as paper crumples; <b>creased</b> — ' +
+    'winding ridges; <b>soft</b> — lumps, as cloth.');
+  addSlider(sec, 'Facet size (mm)', 'crumpleSize', 4, 300, 1);
+  addSlider(sec, 'Finer crumpling', 'crumpleDetail', 1, 5, 1);
+  addSlider(sec, 'Creases', 'creases', 0, 40, 1, 'Folded flat and opened out again.');
+  addSelect(sec, 'Laid', 'creaseKind', CREASES, resync,
+    '<b>random</b>; a <b>letter</b> — in three and once across; a <b>grid</b> — as a map, ' +
+    'mountain and valley by turns.');
+  addSlider(sec, 'Still bent at each (°)', 'creaseDepth', 0, 80, 0.5);
+
+  addSub(sec, 'Bent as a whole', 'subBend');
+  addSlider(sec, 'Bowed (°)', 'bow', -180, 180, 1, 'Each side turned up by so much — below 0, down.');
+  addSlider(sec, 'Bowed across (°)', 'bowAngle', -90, 90, 1, '0 — its left and right sides rise.');
+  addSlider(sec, 'Rolled up (°)', 'curl', -1440, 1440, 5,
+    'An edge rolled round a cylinder, toward the viewer — below 0, under. Past 360 it winds ' +
+    'into a scroll.');
+  addSlider(sec, 'The edge rolled (°)', 'curlAngle', -180, 180, 1,
+    '0 — the top, 90 — the right, 180 — the bottom; 45 rolls a corner.');
+  addSlider(sec, 'How much of it (%)', 'curlSize', 1, 100, 1);
+  addSlider(sec, 'Twisted (°)', 'twist', -720, 720, 1, 'End to end.');
+  addSlider(sec, 'Twisted about (°)', 'twistAngle', -90, 90, 1, '0 — an axis across the sheet.');
+
+  addSub(sec, 'Hanging', 'subHang');
+  addSelect(sec, 'It falls', 'gravity', GRAVITIES, resync,
+    '<b>down the sheet</b> — it hangs before the viewer, as a curtain or a flag; <b>into the ' +
+    'sheet</b> — seen from above, it falls onto a table and over what is under it.');
+  addSlider(sec, 'Weight (%)', 'weight', 0, 300, 1);
+  addSelect(sec, 'Hangs from', 'hangFrom', HANG_FROM, resync);
+  addSlider(sec, 'Gathered (%)', 'gather', 0, 90, 1,
+    'What it hangs from drawn together: a curtain gathered on its rod, in pleats.');
+  addSlider(sec, 'Pushed together (%)', 'squeeze', 0, 80, 1,
+    'Its edges held and pushed in, so it buckles.');
+  addSelect(sec, 'From', 'squeezeFrom', SQUEEZES, resync);
+  addSelect(sec, 'Lies over', 'under', UNDER, resync);
+  addSlider(sec, 'Its size (%)', 'propSize', 1, 200, 1);
+  addSlider(sec, 'Its place, across (%)', 'propX', -100, 100, 1);
+  addSlider(sec, 'Its place, down (%)', 'propY', -100, 100, 1);
+  addCheckbox(sec, 'A table under it all', 'table');
+  addSlider(sec, 'The table below it (mm)', 'tableDrop', 1, 600, 1,
+    'With nothing else under the cloth. Over a ball, a box or a rod the table is where they stand.');
+  addSlider(sec, 'Wind (%)', 'wind', 0, 300, 1, 'Pushes against whichever way the cloth faces.');
+  addSlider(sec, 'Blowing toward (°)', 'windAngle', -180, 180, 1, '0 — the right, 90 — down the sheet.');
+  addSlider(sec, 'And out of the sheet (%)', 'windLift', -200, 200, 1, 'Toward the viewer; below 0, away.');
+  addSlider(sec, 'Gusts (%)', 'gusts', 0, 200, 1);
+  addSlider(sec, 'Stiff (%)', 'stiffness', 0, 100, 1,
+    'How much of its shape — the folds above — it keeps while it hangs. 0 is silk.');
+  addSlider(sec, 'Let hang for (steps)', 'simTime', 1, 800, 1,
+    'Short, and it is caught still falling; a flag in the wind is never still, so this is ' +
+    'the moment it is drawn.');
+  addSlider(sec, 'Hanging grid (points)', 'simRes', 12, 160, 1,
+    'Along the long side. Finer folds, slower.');
+
+  addSub(sec, 'Seen from', 'subView');
+  addSlider(sec, 'Tilted back (°)', 'viewTilt', -85, 85, 1, 'Seen from below its bottom edge.');
+  addSlider(sec, 'Turned on the sheet (°)', 'viewTurn', -180, 180, 1);
+  addSlider(sec, 'From the side (°)', 'viewSide', -85, 85, 1);
+  addSlider(sec, 'Perspective (%)', 'perspective', 0, 100, 1);
+  addCheckbox(sec, 'Fitted to the picture', 'clothFit');
+  addSlider(sec, 'Size (%)', 'clothZoom', 5, 400, 1);
+  addSlider(sec, 'Moved across (mm)', 'clothX', -500, 500, 0.5);
+  addSlider(sec, 'Moved down (mm)', 'clothY', -500, 500, 0.5);
+
+  addSub(sec, 'Light', 'subLight');
+  addSlider(sec, 'Shade (%)', 'shade', 0, 300, 1,
+    'The lines swell where the cloth turns from the light and thin where it turns to it.');
+  addSlider(sec, 'Light from (°)', 'lightFrom', -180, 180, 1, '0 — the top of the sheet, 90 — the right.');
+  addSlider(sec, 'Light high (°)', 'lightHigh', 1, 90, 1);
+  addSlider(sec, 'Dark in the hollows (%)', 'hollows', 0, 300, 1);
+
+  addSub(sec, 'What shows', 'subShow');
+  addCheckbox(sec, 'Lines behind the folds left out', 'hidden');
+  addSelect(sec, 'The back of the cloth', 'clothBack', CLOTH_BACKS, resync,
+    'Where a fold or a roll turns it over: the lines <b>printed through</b>, the back left ' +
+    '<b>bare</b>, or drawn in an <b>other pen</b>.');
+  addPenSelect(sec, 'The back in', 'backPen');
+  addSelect(sec, 'Outlined', 'clothEdge', CLOTH_EDGES, resync,
+    'The <b>hem</b> round the cloth; and the <b>folds</b> — wherever it turns out of sight. ' +
+    'A layer of its own.');
+  addPenSelect(sec, 'Outlined with', 'edgePen');
+
+  addSub(sec, 'By hand', 'subHand');
+  {
+    const field = createDiv('').parent(sec).class('field');
+    fieldDivs.clothTool = field;
+    createSpan('Tool on the sheet').parent(field).class('label');
+    clothToolSel = createSelect().parent(field);
+    for (const t of CLOTH_TOOLS) clothToolSel.option(t);
+    clothToolSel.selected(clothTool);
+    clothToolSel.changed(() => setClothTool(clothToolSel.value()));
+    createDiv('<b>fold</b> — drag along the cloth: a ridge, with <b>shift</b> a valley; ' +
+      '<b>pinch</b> — gathered at a point into folds round a peak; <b>bump</b> — raised, with ' +
+      '<b>shift</b> dented; the drag sets how far either reaches; <b>pin</b> — holds the place ' +
+      'clicked, a drag moves it, the wheel lifts it (it hangs). Over anything made: the ' +
+      '<b>wheel</b> deepens it, <b>shift</b>+wheel widens it, a drag moves it, a right-click or ' +
+      '<b>Delete</b> takes it away. <b>T</b> steps the tools, <b>Esc</b> puts it down, ' +
+      '<b>U</b> undoes.').parent(field).class('note');
+  }
+  addSlider(sec, 'All of it as deep as (%)', 'handScale', 0, 400, 1);
+  {
+    const row = createDiv('').parent(sec).class('btn-row');
+    fieldDivs.handButtons = row;
+    createButton('Undo').parent(row).mousePressed(handUndo);
+    createButton('Clear what was made').parent(row).mousePressed(handClear);
+  }
+  handNote = addNote(sec, '');
+  fieldDivs.handNote = handNote;
+  addTextField(sec, 'As it rides in the link', 'clothHand', '', v => {
+    settings.clothHand = v;
+    HAND = parseHand(v);
+    updateHandNote();
+    update();
+  });
+  updateHandNote();
+
   sec = addSection(root, 'The picture');
   addSelect(sec, 'Made of', 'source', SOURCES, resync,
     '<b>pillows</b> — soft boxes in an uneven grid, each with a dark rim; <b>blobs</b>; ' +
@@ -2425,6 +4205,7 @@ function buildControls() {
     '<b>Echo</b>. Changing the kind sets its colour and a usual width.');
   addPenSelect(sec, 'Lines', 'linePen', 'The cut guides are dotted with this pen too.');
   addPenSelect(sec, 'Border', 'borderPen');
+  addNote(sec, 'The cloth\'s back and its edge pick theirs under <b>Cloth</b>.');
   for (let i = 0; i < SLOTS; i++) addPenSlot(sec, i);
 
   sec = addSection(root, 'Paper');
@@ -2478,7 +4259,8 @@ function buildControls() {
     '<div><kbd>shift</kbd>+<kbd>drag</kbd> turn the lines · <kbd>alt</kbd>+<kbd>drag</kbd> their middle</div>' +
     '<div><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> slide by 1 mm, with <kbd>shift</kbd> 10 · <kbd>+</kbd><kbd>−</kbd> enlarge</div>' +
     '<div><kbd>S</kbd> scene · <kbd>C</kbd> carrier · <kbd>F</kbd> picture · <kbd>I</kbd> ink · <kbd>E</kbd> echo</div>' +
-    '<div><kbd>X</kbd> cut guides · <kbd>G</kbd> guides · <kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it</div>');
+    '<div><kbd>X</kbd> cut guides · <kbd>G</kbd> guides · <kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it</div>' +
+    '<div><kbd>K</kbd> cloth · <kbd>T</kbd> tool on it · <kbd>U</kbd> undo · <kbd>Delete</kbd> what is under the cursor · <kbd>Esc</kbd> no tool</div>');
   linkDiv = createDiv('').parent(sec).class('link');
   refreshPenSelects();
   syncVisibility();
@@ -2584,6 +4366,12 @@ function updateStats() {
     `${(plan.travel / 1000).toFixed(1)} m in the air</div>` +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ${lastMs.toFixed(0)} ms to build` +
     `${fieldMs ? ` (the picture ${fieldMs.toFixed(0)} ms)` : ''}</div>`;
+  if (s.cloth && CLOTH) {
+    const hid = CLOTH.reads ? Math.round(CLOTH.unseen / CLOTH.reads * 100) : 0;
+    html += `<div>On cloth${CLOTH.hung ? `, hung over ${CLOTH.sim.mx}×${CLOTH.sim.my} points` : ''}` +
+      `${HAND.length ? `, ${HAND.length} shaped by hand` : ''} — ${hid} % of the lines behind ` +
+      `its folds · ${clothMs.toFixed(0)} ms${CLOTH.hung ? ` (hanging ${CLOTH.simMs.toFixed(0)})` : ''}</div>`;
+  }
   if (s.cropMarks && perLayer && perLayer[L_GUIDES].strokes) {
     html += `<div>${perLayer[L_GUIDES].strokes} cut guide dots round the ${s.cropMarkAt}, ` +
       `in the pen of the lines</div>`;
@@ -2623,14 +4411,15 @@ function metaComment() {
   for (let i = 0; i < SLOTS; i++) if (perPen && perPen[i].strokes) pens.push(penLabel(i));
   return `swelling lines — ${s.carrier} pitch=${s.pitch}mm angle=${s.angle} ${sourceName()} ` +
     `ink=${s.ink} wide=${s.wide}% echo=${s.echo}${s.echo !== 'none' ? '/' + s.echoInk : ''} ` +
-    `${s.cropMarks ? `cutguides=${s.cropMarkAt}<=${s.cropMarkGap}mm ` : ''}seed=${s.seed} ` +
+    `${s.cropMarks ? `cutguides=${s.cropMarkAt}<=${s.cropMarkGap}mm ` : ''}` +
+    `${s.cloth ? `cloth folds=${s.folds} crumple=${s.crumple} gravity=${s.gravity} hand=${HAND.length} ` : ''}seed=${s.seed} ` +
     `pens=[${pens.join('; ')}] strokes=${strokes}`;
 }
 
 function fileStem() {
   const s = settings;
   const paper = s.paper === 'custom' ? `${s.customW}x${s.customH}mm` : `${s.paper}-${s.orientation}`;
-  return `swelling lines ${s.carrier} ${s.source} ${s.ink} seed${s.seed} ${paper}`;
+  return `swelling lines ${s.carrier} ${s.source} ${s.ink}${s.cloth ? ' cloth' : ''} seed${s.seed} ${paper}`;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -2665,7 +4454,11 @@ function addSection(parent, title, folded) {
   return body;
 }
 
-function addSub(parent, title) { createDiv(title).parent(parent).class('sub'); }
+function addSub(parent, title, key) {
+  const d = createDiv(title).parent(parent).class('sub');
+  if (key) fieldDivs[key] = d;
+  return d;
+}
 
 function addNote(parent, html) { return createDiv(html).parent(parent).class('note'); }
 
@@ -2733,9 +4526,9 @@ function addSlider(parent, labelText, key, min, max, step, hint, onChange) {
   sl.input(() => {
     settings[key] = Number(sl.value());
     num.value(String(settings[key]));
-    if (settings.liveUpdate && !onChange) liveUpdate();
+    if (settings.liveUpdate && !onChange) { busy = true; liveUpdate(); }
   });
-  sl.changed(() => done());
+  sl.changed(() => { busy = false; done(); });
   num.input(() => {
     const v = parseNum(num.value());
     if (v === null) return;

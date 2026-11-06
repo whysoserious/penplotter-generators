@@ -14,6 +14,12 @@ ripples, a formula you type in, a word or a photograph; the lines that carry it 
 straight, rings, rays or one spiral. A second set of lines — the **echo** — goes down in
 another pen. The sheet is mostly black; the red is the echo.
 
+The picture can also be printed on a **cloth**: the lines are laid on it flat, and then the
+cloth is folded, crumpled, creased, bowed, rolled up, twisted, hung from pins, pushed
+together, blown by the wind and laid over a ball or a box — and drawn as it is seen, the
+lines behind a fold left out and fatter wherever the cloth turns from the light. Folds,
+pinches, bumps and pins can be put on it by hand, on the sheet.
+
 ## Running it
 
 No build step and no install — p5.js is bundled in `libraries/`.
@@ -32,7 +38,11 @@ repository root run `python3 -m http.server 8000` and open
    level lines over terraces of noise, rings over blobs, a sunburst over ripples, one
    spiral, an egg crate, a pinwheel in rings, a word, a curtain, two kinds of moiré, three
    photo scenes — upright bars whose black runs together, as in the picture this came from,
-   level lines and one spiral — and markers on black paper — or set it up in the panel.
+   level lines and one spiral — markers on black paper, and fourteen on cloth: a curtain on
+   its rod, a flag, washing on a line, a tablecloth over a ball, a sheet over a box, a
+   handkerchief picked up by the middle, cloth pushed together, drapery lapping over
+   itself, accordion pleats, crumpled paper, a letter folded in three, a scroll, a corner
+   turned over and a twisted ribbon — or set it up in the panel.
    Each section folds away under its heading.
 2. **Drag** on the sheet to slide the picture under the lines; the **wheel** enlarges it
    about the cursor and <kbd>0</kbd> puts it back. **Shift-drag** (or a right-drag) turns
@@ -42,10 +52,12 @@ repository root run `python3 -m http.server 8000` and open
    <kbd>F</kbd> through the pictures, <kbd>I</kbd> through the inks, <kbd>E</kbd> through
    the echoes; <kbd>X</kbd> switches the cut guides, <kbd>G</kbd> shows the margin, the
    middle and where the cut guides stand, <kbd>R</kbd> rolls a seed, <kbd>[</kbd>
-   <kbd>]</kbd> step it.
+   <kbd>]</kbd> step it. <kbd>K</kbd> switches the cloth on and off, <kbd>T</kbd> steps
+   through the tools for shaping it by hand (see **By hand** below), <kbd>U</kbd> undoes,
+   <kbd>Esc</kbd> puts the tool down.
 3. **Download SVG [everything]** writes the sheet, a group per pen; **[one per pen]** a file
-   per pass; a button per layer writes the lines, the echo, the border or the cut guides
-   alone. **Download PNG** saves the preview. **Copy link** puts every setting in the
+   per pass; a button per layer writes the lines, the echo, the border, the cut guides or
+   the cloth's edge alone. **Download PNG** saves the preview. **Copy link** puts every setting in the
    clipboard as a URL — all but a loaded photograph, which has to be loaded again.
 
 The paper is any of A0–A5 and B0–B5, either way round, or **custom**. The picture is the
@@ -170,6 +182,91 @@ is **as wide as the lines** by a percentage and **wider by** a share of the pitc
 **slid across** (50 % puts it between the lines), has **its own lean**, and can be
 **turned** by a few degrees or given a slightly different **pitch** — both make the two
 sets beat against each other: moiré.
+
+### Cloth
+
+**The picture printed on a sheet of cloth** turns it all into cloth. Every line is laid down
+on the flat cloth exactly as before; then the cloth is shaped, and each stroke is carried to
+wherever its place on the cloth went. The cloth is a grid of points over the picture, about
+a millimetre apart, shaped in four steps.
+
+**Folds.** Across a set of folds the slope of the cloth swings to and fro, and the cloth is
+wound out of that slope step by step — so it keeps its length: where it climbs it is drawn
+in, and past 90° every fold laps over the next. **Folds** is that steepest slope; **Fold to
+fold** the spacing; **Running at** the direction (0 upright); **Sharp** goes from soft waves
+to pleats with flat sides; **Uneven** varies the depth and spacing, **Wandering** lets the
+folds drift along their length, **Dying out** flattens them towards one end — a skirt, a
+fan — and **Leaning** makes one side of every fold steeper. **Folds across** is a second set
+with its own spacing, direction and sharpness.
+
+**Crumpled and creased.** **Crumpled** crushes the cloth to so many mm: into **facets** —
+little pyramids raised and sunk, the way paper crumples — **creased** winding ridges, or
+**soft** lumps, a **facet size** across, with **finer crumpling** on top. **Creases** are
+folds pressed flat and opened again, **still bent** by a few degrees: **random**, a
+**letter** (in three and once across), or a **grid** like a map, mountain and valley by
+turns. After this relief is laid on, the cloth is drawn in on itself until no stretch of it
+is longer than it was flat, so a crumpled sheet shrinks where it is steep.
+
+**Bent as a whole.** **Bowed** turns each side up by so many degrees (below 0, down),
+**across** or along; **Rolled up** rolls an edge round a cylinder toward the viewer (below
+0, under) — past 360° it winds into a scroll, each turn inside the last; **The edge rolled**
+picks it (0 the top, 90 the right, 180 the bottom; 45 a corner) and **How much of it** how
+far in the roll reaches; **Twisted** turns the sheet end to end about an axis.
+
+**Hanging.** A coarser grid of the same cloth is let fall under its weight. **It falls**
+**down the sheet** — it hangs before the viewer, a curtain or a flag — or **into the
+sheet**: seen from above, onto **a table** (**The table below it**) and over what it **lies
+over**: a ball, three balls, a box, a rod or a pole, of a **size** and in a **place**. It
+**hangs from** the top edge, pegs on a line, two top corners, one corner, the middle, four
+corners or the left edge, **Gathered** draws those together (a curtain on its rod, in
+pleats); **Pushed together** holds two edges, or all of them, and pushes them in, so the
+cloth buckles. **Wind** pushes against whichever way the cloth faces, **toward** a
+direction on the sheet and **out of** it, in **gusts**. **Stiff** is how much of its shape
+— the folds and bends above — the cloth keeps while it hangs (0 is silk). **Let hang for**
+is the moment it is drawn: short, and it is caught still falling, and a flag in the wind is
+never still. **Hanging grid** is how fine the falling cloth is — finer folds, slower. The
+fine shape rides on the hanging one, each point keeping its place against it.
+
+**Seen from.** **Tilted back** (seen from below its bottom edge), **turned on the sheet**,
+**from the side**, in **perspective**; **fitted to the picture** or not, at a **size**,
+**moved** across and down.
+
+**Light.** The tone a line swells with is darkened by **Shade** where the cloth turns from
+the light, and lightened where it turns toward it, the **light** coming **from** a
+direction on the sheet and so **high** above it; **Dark in the hollows** darkens wherever
+the cloth lies deeper than the cloth round it. So the lines themselves draw the shape.
+
+**What shows.** **Lines behind the folds** are left out: a depth buffer of the cloth says
+which part of it is nearest the viewer at every tenth of a millimetre or so of the sheet,
+and a point of a line is drawn only if it is that part. Where a fold or a roll turns the
+cloth over, **the back** is the lines **printed through**, left **bare**, or in an **other
+pen**. **Outlined** draws the **hem** round the cloth, and the **folds** — wherever it
+turns out of sight — in a pen of its own, as a layer of its own.
+
+**By hand.** Pick a **tool on the sheet** (or step through them with <kbd>T</kbd>) and the
+mouse shapes the cloth instead of sliding the picture:
+
+- **fold** — drag along the cloth: a ridge, or with <kbd>shift</kbd> a valley;
+- **pinch** — the cloth gathered at a point into folds round a peak, as far as the drag
+  reaches;
+- **bump** — raised, with <kbd>shift</kbd> dented, as far as the drag reaches;
+- **pin** — holds the place clicked, and a drag moves it; the wheel over it lifts it toward
+  the viewer or lets it back. A pin makes the cloth hang (and lets it fall down the sheet if
+  nothing else was falling);
+- **erase** — a click takes away what is under it.
+
+Over anything made by hand the **wheel** deepens or flattens it, <kbd>shift</kbd>+wheel
+widens or narrows it, a drag moves it (a fold by either end or its middle), a right-click
+or <kbd>Delete</kbd> takes it away, <kbd>U</kbd> or **Undo** brings back what was before.
+What was made is drawn over the sheet while a tool is in hand (or the guides are shown) —
+folds blue as ridges and orange as valleys, pins violet — and is never plotted. **All of it
+as deep as** scales every fold, pinch and bump at once. It all rides in the link as one
+string, shown under **As it rides in the link**, and can be edited there.
+
+The pitch, the nib and the passes are kept as they are on the flat cloth: the passes of a
+ribbon are as far apart on the paper as where the cloth faces the viewer, and closer where
+it turns away. A cloth that hangs or is crumpled costs a second or so to build; while a
+slider or a tool is moving it is built coarser.
 
 ### Pens
 
