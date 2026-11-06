@@ -795,12 +795,14 @@ const FIELD_KEYS = ['paper', 'orientation', 'customW', 'customH', 'margin', 'see
   'invert', 'level', 'contrast', 'gamma', 'bands', 'soften', 'rims', 'rimWidth',
   'echo', 'echoShare'];
 
+// The picture for the settings in hand — the fine one is kept on while a drag asks for coarse.
 function ensureField(coarse) {
-  const key = FIELD_KEYS.map(k => settings[k]).join('|') + `|${photoVer}|${coarse ? 1 : 0}`;
-  if (FIELD && key === fieldKeyNow) return;
+  const key = FIELD_KEYS.map(k => settings[k]).join('|') + `|${photoVer}`;
+  if (FIELD && key === fieldKeyNow && (coarse || !FIELD.coarse)) return;
   const t0 = performance.now();
   fieldKeyNow = key;
   FIELD = makeField(coarse);
+  FIELD.coarse = coarse;
   fieldMs = performance.now() - t0;
 }
 
@@ -1434,7 +1436,7 @@ function qPush(x, y) {
 
 function traceLayer(L) {
   // on cloth the lines are laid on the flat cloth, so the nib is as wide as it will be there
-  const gK = CLOTH ? CLOTH.g : FLATZ ? FLATZ.g : 1, tone = CLOTH && CLOTH.SH ? clothTone : toneAt;
+  const gK = CLOTH ? CLOTH.g : FLATZ ? FLATZ.g : 1, tone = CF && CF.SH ? clothTone : toneAt;
   const s = settings, nib = penW(L.pen) / gK, A = area;
   const thin = s.thin / 100, wide = s.wide / 100, g = Math.max(0.05, s.curve / 100);
   const lift = clamp(s.liftBelow, 0, 100) / 100;
@@ -1674,15 +1676,19 @@ function simplify(xs, ys, n, tol) {
     if (b - a < 2) continue;
     const ax = xs[a], ay = ys[a], dx = xs[b] - ax, dy = ys[b] - ay, dd = dx * dx + dy * dy;
     let worst = -1, wd = tol2;
-    for (let i = a + 1; i < b; i++) {
-      const qx = xs[i] - ax, qy = ys[i] - ay;
-      let d;
-      if (dd < 1e-18) d = qx * qx + qy * qy;
-      else {
-        const t = clamp((qx * dx + qy * dy) / dd, 0, 1), ex = qx - t * dx, ey = qy - t * dy;
-        d = ex * ex + ey * ey;
+    if (dd < 1e-18) {
+      for (let i = a + 1; i < b; i++) {
+        const qx = xs[i] - ax, qy = ys[i] - ay, d = qx * qx + qy * qy;
+        if (d > wd) { wd = d; worst = i; }
       }
-      if (d > wd) { wd = d; worst = i; }
+    } else {
+      for (let i = a + 1; i < b; i++) {
+        const qx = xs[i] - ax, qy = ys[i] - ay;
+        let t = (qx * dx + qy * dy) / dd;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const ex = qx - t * dx, ey = qy - t * dy, d = ex * ex + ey * ey;
+        if (d > wd) { wd = d; worst = i; }
+      }
     }
     if (worst < 0) continue;
     KEEP[worst] = 1;
@@ -1733,20 +1739,24 @@ const CLOTH_BACKS  = ['printed through', 'bare', 'other pen'];
 const CLOTH_EDGES  = ['none', 'hem', 'hem and folds'];
 const CLOTH_TOOLS  = ['off', 'fold', 'pinch', 'bump', 'pin', 'erase'];
 
-const CLOTH_KEYS = ['paper', 'orientation', 'customW', 'customH', 'margin', 'seed',
+// What the shape of the cloth depends on, and what only the way it is seen and lit does —
+// so turning it to the viewer, zooming or moving the light never lets it fall again.
+const SHAPE_KEYS = ['paper', 'orientation', 'customW', 'customH', 'margin', 'seed',
   'folds', 'foldLen', 'foldAngle', 'foldSharp', 'foldUneven', 'foldWander', 'foldTaper',
   'foldLean', 'crossFolds', 'crossLen', 'crossAngle', 'crossSharp',
   'crumple', 'crumpleKind', 'crumpleSize', 'crumpleDetail', 'creases', 'creaseKind',
   'creaseDepth', 'bow', 'bowAngle', 'curl', 'curlAngle', 'curlSize', 'twist', 'twistAngle',
   'gravity', 'weight', 'hangFrom', 'gather', 'squeeze', 'squeezeFrom', 'under', 'propSize',
   'propX', 'propY', 'table', 'tableDrop', 'wind', 'windAngle', 'windLift', 'gusts', 'stiffness',
-  'simTime', 'simRes', 'viewTilt', 'viewTurn', 'viewSide', 'perspective', 'clothFit',
-  'clothZoom', 'clothX', 'clothY', 'shade', 'lightFrom', 'lightHigh', 'hollows',
-  'clothHand', 'handScale'];
+  'simTime', 'simRes', 'clothHand', 'handScale'];
+const SEEN_KEYS = ['viewTilt', 'viewTurn', 'viewSide', 'perspective', 'clothFit',
+  'clothZoom', 'clothX', 'clothY', 'shade', 'lightFrom', 'lightHigh', 'hollows'];
+const SHAPES_KEPT = 6;       // shapes kept, so going back to one is instant
 
 let CLOTH = null;            // the cloth as it is seen, or null while the sheet lies flat
 let FLATZ = null;            // the flat sheet's zoom: { g, ox, oy, cx, cy }, or null at 1:1
 let clothKeyNow = '', clothMs = 0;
+const SHAPE_CACHE = [];       // the latest shapes, newest last: { key, coarse, ms, ... }
 let clothTool = 'off';
 let HAND = [];               // what was shaped by hand
 const HAND_UNDO = [];
@@ -1785,27 +1795,45 @@ function hangWanted() {
   return pins || s.wind > 0 || s.squeeze > 0 || (s.gravity === 'into the sheet' && s.table);
 }
 
+// The cloth for the settings in hand. A shape already worked out is used again — the fine
+// one even while a drag asks for a coarse one — and so is the view of it, so only what
+// changed is done again.
 function ensureCloth(coarse) {
   if (!settings.cloth) { CLOTH = null; clothKeyNow = ''; clothMs = 0; return; }
-  const key = CLOTH_KEYS.map(k => settings[k]).join('|') + `|${coarse ? 1 : 0}`;
-  if (CLOTH && key === clothKeyNow) return;
   const t0 = performance.now();
-  clothKeyNow = key;
-  CLOTH = makeCloth(coarse);
+  const skey = SHAPE_KEYS.map(k => settings[k]).join('|');
+  let sh = null;
+  for (const c of SHAPE_CACHE) if (c.key === skey && (!c.coarse || (coarse && !sh))) sh = c;
+  if (!sh || !CLOTH || CLOTH.shape !== sh) HAND = parseHand(settings.clothHand);
+  if (!sh) {
+    sh = shapeCloth(coarse);
+    sh.key = skey;
+    for (let i = SHAPE_CACHE.length - 1; i >= 0; i--) if (SHAPE_CACHE[i].key === skey) SHAPE_CACHE.splice(i, 1);
+    SHAPE_CACHE.push(sh);
+    if (SHAPE_CACHE.length > SHAPES_KEPT) SHAPE_CACHE.shift();
+  } else {
+    SHAPE_CACHE.splice(SHAPE_CACHE.indexOf(sh), 1);
+    SHAPE_CACHE.push(sh);
+  }
+  const vkey = SEEN_KEYS.map(k => settings[k]).join('|');
+  if (CLOTH && CLOTH.shape === sh && CLOTH.vkey === vkey && (coarse || !CLOTH.coarse)) return;
+  clothKeyNow = skey + '#' + vkey;
+  CLOTH = seeCloth(sh, coarse);
+  CLOTH.vkey = vkey;
   clothMs = performance.now() - t0;
 }
 
-function makeCloth(coarse) {
-  const s = settings, A = area;
+// The shape: points of the fine grid in world mm, from the middle of the flat cloth — x
+// right, y down the sheet, z to the viewer.
+function shapeCloth(coarse) {
+  const s = settings, A = area, t0 = performance.now();
   const cells = coarse ? CLOTH_CELLS / 4 : CLOTH_CELLS;
   const h0 = Math.max(0.3, Math.sqrt(A.w * A.h / cells));
   const nx = Math.max(3, Math.round(A.w / h0) + 1), ny = Math.max(3, Math.round(A.h / h0) + 1);
   const hx = A.w / (nx - 1), hy = A.h / (ny - 1), N = nx * ny;
   const cu = (A.x0 + A.x1) / 2, cv = (A.y0 + A.y1) / 2;
-  const C = { nx, ny, hx, hy, x0: A.x0, y0: A.y0, cu, cv, simMs: 0, hung: false };
-  HAND = parseHand(s.clothHand);
+  const C = { nx, ny, hx, hy, x0: A.x0, y0: A.y0, cu, cv, simMs: 0, hung: false, coarse };
 
-  // world mm, from the middle of the flat cloth: x right, y down the sheet, z to the viewer
   const PX = new Float64Array(N), PY = new Float64Array(N), PZ = new Float64Array(N);
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
@@ -1830,15 +1858,24 @@ function makeCloth(coarse) {
   bendCloth(PX, PY, PZ);
 
   if (hangWanted()) {
-    const t0 = performance.now();
+    const t1 = performance.now();
     hangCloth(C, PX, PY, PZ, coarse);
-    C.simMs = performance.now() - t0;
+    C.simMs = performance.now() - t1;
     C.hung = true;
   }
+  Object.assign(C, { PX, PY, PZ, ms: performance.now() - t0 });
+  return C;
+}
 
-  viewCloth(C, PX, PY, PZ);
+// The shape seen: turned, put into perspective, fitted, lit, and its depth buffer.
+function seeCloth(sh, coarse) {
+  const t0 = performance.now(), C = Object.assign({}, sh);
+  C.shape = sh;
+  C.coarse = coarse || sh.coarse;
+  viewCloth(C, sh.PX, sh.PY, sh.PZ);
   shadeCloth(C);
   depthBuffer(C, coarse);
+  C.viewMs = performance.now() - t0;
   return C;
 }
 
@@ -2139,18 +2176,6 @@ function catmull(p0, p1, p2, p3, t) {
   return p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
 }
 
-function gridCubic(G, mx, my, a, b) {
-  const i = clamp(Math.floor(a), 0, mx - 2), j = clamp(Math.floor(b), 0, my - 2);
-  const fa = a - i, fb = b - j;
-  const i0 = Math.max(0, i - 1), i3 = Math.min(mx - 1, i + 2);
-  let r = [0, 0, 0, 0];
-  for (let q = 0; q < 4; q++) {
-    const o = clamp(j - 1 + q, 0, my - 1) * mx;
-    r[q] = catmull(G[o + i0], G[o + i], G[o + i + 1], G[o + i3], fa);
-  }
-  return catmull(r[0], r[1], r[2], r[3], fb);
-}
-
 function fineAt(G, C, u, v) {
   const a = clamp((u - C.x0) / C.hx, 0, C.nx - 1.0001), b = clamp((v - C.y0) / C.hy, 0, C.ny - 1.0001);
   const i = a | 0, j = b | 0, fa = a - i, fb = b - j, o = j * C.nx + i, w = C.nx;
@@ -2325,100 +2350,181 @@ function hangCloth(C, PX, PY, PZ, coarse) {
     }
     if (!s.table) tz = -Infinity;
   }
+  // The points side by side, x, y and z, as they are and as they were a step before; the
+  // links that have a free end, each with the share of the error its two ends take; the
+  // points held to a pin; what lies under the cloth as plain numbers, a kind at a time —
+  // all so the loops below are nothing but arithmetic.
+  const P = new Float64Array(M * 3), O = new Float64Array(M * 3);
+  for (let k = 0; k < M; k++) { P[k * 3] = X[k]; P[k * 3 + 1] = Y[k]; P[k * 3 + 2] = Z[k]; }
+  O.set(P);
+  let nl = 0;
+  const LA = new Int32Array(nc), LB = new Int32Array(nc), LR = new Float64Array(nc);
+  const LK = new Float64Array(nc), LWA = new Float64Array(nc), LWB = new Float64Array(nc);
+  for (let c = 0; c < nc; c++) {
+    const wa2 = W[cA[c]], wb = W[cB[c]], ws = wa2 + wb;
+    if (!ws) continue;
+    // the error is shared out as (d - rest) / d × stiffness / (wa + wb) × the end's weight;
+    // the weights are 0 or 1, so the shares are the same numbers to the last bit
+    LA[nl] = cA[c] * 3; LB[nl] = cB[c] * 3; LR[nl] = cR[c]; LK[nl] = cK[c] / ws;
+    LWA[nl] = wa2; LWB[nl] = wb; nl++;
+  }
+  // Put right one after another, each link waits for the one before; but a link only needs
+  // the links before it that share a point with it to be done. So each is put one level
+  // past the last of those, and the links go level by level: within a level none shares a
+  // point with another, the processor works on many at once, and every point still sees
+  // the very same sums in the very same order — the cloth falls exactly as it did.
+  {
+    const last = new Int32Array(M).fill(-1), lev = new Int32Array(nl);
+    let nlev = 0;
+    for (let c = 0; c < nl; c++) {
+      const a = LA[c] / 3, b = LB[c] / 3, l = Math.max(last[a], last[b]) + 1;
+      lev[c] = l; last[a] = last[b] = l;
+      if (l >= nlev) nlev = l + 1;
+    }
+    const at = new Int32Array(nlev + 1), ord = new Int32Array(nl);
+    for (let c = 0; c < nl; c++) at[lev[c] + 1]++;
+    for (let l = 0; l < nlev; l++) at[l + 1] += at[l];
+    for (let c = 0; c < nl; c++) ord[at[lev[c]]++] = c;
+    for (const arr of [LA, LB, LR, LK, LWA, LWB]) {
+      const was = arr.slice(0, nl);
+      for (let t = 0; t < nl; t++) arr[t] = was[ord[t]];
+    }
+  }
+  let nt = 0;
+  const TK = new Int32Array(M), TP = new Int32Array(M), TR = new Float64Array(M);
+  for (let k = 0; k < M; k++) {
+    if (tetherP[k] < 0) continue;
+    TK[nt] = k * 3; TP[nt] = pinK[tetherP[k]] * 3; TR[nt] = tetherR[k]; nt++;
+  }
+  let nf = 0;
+  const FK = new Int32Array(M);
+  for (let k = 0; k < M; k++) if (W[k]) FK[nf++] = k * 3;
   const pad = 0.6;
-  const collide = (k, rub) => {
-    let hit = false;
-    for (const p of props) {
-      if (p.k === 'ball' || (p.k === 'pole' && Z[k] > p.z - p.r)) {
-        const cz = p.k === 'pole' ? p.z - p.r : p.z;
-        const dx = X[k] - p.x, dy = Y[k] - p.y, dz = Z[k] - cz, d = Math.hypot(dx, dy, dz), r = p.r + pad;
-        if (d < r && d > 1e-9) { X[k] = p.x + dx / d * r; Y[k] = p.y + dy / d * r; Z[k] = cz + dz / d * r; hit = true; }
-      } else if (p.k === 'pole') {
-        const dx = X[k] - p.x, dy = Y[k] - p.y, d = Math.hypot(dx, dy), r = p.r + pad;
-        if (d < r && d > 1e-9) { X[k] = p.x + dx / d * r; Y[k] = p.y + dy / d * r; hit = true; }
-      } else if (p.k === 'rod') {
-        const dy = Y[k] - p.y, dz = Z[k] - p.z, d = Math.hypot(dy, dz), r = p.r + pad;
-        if (d < r && d > 1e-9) { Y[k] = p.y + dy / d * r; Z[k] = p.z + dz / d * r; hit = true; }
-      } else if (p.k === 'box') {
-        const ox = p.bx + pad - Math.abs(X[k] - p.x), oy = p.by + pad - Math.abs(Y[k] - p.y);
-        const oz = p.bz + pad - Math.abs(Z[k] - p.z);
+  const balls = [], boxes = [], rods = [], poles = [];
+  for (const p of props) {
+    if (p.k === 'ball') balls.push(p.x, p.y, p.z, p.r + pad);
+    else if (p.k === 'box') boxes.push(p.x, p.y, p.z, p.bx + pad, p.by + pad, p.bz + pad);
+    else if (p.k === 'rod') rods.push(p.y, p.z, p.r + pad);
+    else if (p.k === 'pole') poles.push(p.x, p.y, p.z, p.r);
+  }
+  const floor = tz + pad, NEAR = 1 + 1e-9;
+  // pushed out of what it has fallen into; rubbing against it slows it, on the last round
+  const collide = rub => {
+    for (let f = 0; f < nf; f++) {
+      const q = FK[f];
+      let x = P[q], y = P[q + 1], z = P[q + 2], hit = false;
+      // the squared distance first, a little generous: only what may touch is measured
+      // exactly, as it always was
+      for (let b = 0; b < balls.length; b += 4) {
+        const dx = x - balls[b], dy = y - balls[b + 1], dz = z - balls[b + 2], r = balls[b + 3];
+        if (dx * dx + dy * dy + dz * dz > r * r * NEAR) continue;
+        const d = Math.hypot(dx, dy, dz);
+        if (d < r && d > 1e-9) { x = balls[b] + dx / d * r; y = balls[b + 1] + dy / d * r; z = balls[b + 2] + dz / d * r; hit = true; }
+      }
+      for (let b = 0; b < poles.length; b += 4) {
+        const px = poles[b], py = poles[b + 1], pz = poles[b + 2], pr = poles[b + 3], r = pr + pad;
+        if (z > pz - pr) {
+          // over its top, a pole is a ball
+          const cz = pz - pr, dx = x - px, dy = y - py, dz = z - cz;
+          if (dx * dx + dy * dy + dz * dz > r * r * NEAR) continue;
+          const d = Math.hypot(dx, dy, dz);
+          if (d < r && d > 1e-9) { x = px + dx / d * r; y = py + dy / d * r; z = cz + dz / d * r; hit = true; }
+        } else {
+          const dx = x - px, dy = y - py;
+          if (dx * dx + dy * dy > r * r * NEAR) continue;
+          const d = Math.hypot(dx, dy);
+          if (d < r && d > 1e-9) { x = px + dx / d * r; y = py + dy / d * r; hit = true; }
+        }
+      }
+      for (let b = 0; b < rods.length; b += 3) {
+        const dy = y - rods[b], dz = z - rods[b + 1], r = rods[b + 2];
+        if (dy * dy + dz * dz > r * r * NEAR) continue;
+        const d = Math.hypot(dy, dz);
+        if (d < r && d > 1e-9) { y = rods[b] + dy / d * r; z = rods[b + 1] + dz / d * r; hit = true; }
+      }
+      for (let b = 0; b < boxes.length; b += 6) {
+        const ox = boxes[b + 3] - Math.abs(x - boxes[b]), oy = boxes[b + 4] - Math.abs(y - boxes[b + 1]);
+        const oz = boxes[b + 5] - Math.abs(z - boxes[b + 2]);
         if (ox > 0 && oy > 0 && oz > 0) {
-          if (oz <= ox && oz <= oy) Z[k] = p.z + Math.sign(Z[k] - p.z || 1) * (p.bz + pad);
-          else if (ox <= oy) X[k] = p.x + Math.sign(X[k] - p.x || 1) * (p.bx + pad);
-          else Y[k] = p.y + Math.sign(Y[k] - p.y || 1) * (p.by + pad);
+          if (oz <= ox && oz <= oy) z = boxes[b + 2] + Math.sign(z - boxes[b + 2] || 1) * boxes[b + 5];
+          else if (ox <= oy) x = boxes[b] + Math.sign(x - boxes[b] || 1) * boxes[b + 3];
+          else y = boxes[b + 1] + Math.sign(y - boxes[b + 1] || 1) * boxes[b + 4];
           hit = true;
         }
       }
-    }
-    if (Z[k] < tz + pad) { Z[k] = tz + pad; hit = true; }
-    if (hit && rub) {
-      OX[k] = X[k] - (X[k] - OX[k]) * 0.4; OY[k] = Y[k] - (Y[k] - OY[k]) * 0.4; OZ[k] = Z[k] - (Z[k] - OZ[k]) * 0.4;
+      if (z < floor) { z = floor; hit = true; }
+      if (!hit) continue;
+      P[q] = x; P[q + 1] = y; P[q + 2] = z;
+      if (rub) {
+        O[q] = x - (x - O[q]) * 0.4; O[q + 1] = y - (y - O[q + 1]) * 0.4; O[q + 2] = z - (z - O[q + 2]) * 0.4;
+      }
     }
   };
 
-  const OX = X.slice(), OY = Y.slice(), OZ = Z.slice();
   const steps = clamp(Math.round(s.simTime * (coarse ? 0.6 : 1)), 1, 2000);
   const iters = coarse ? 6 : 12, damp = 0.985, ramp = Math.max(1, Math.round(steps * 0.4));
-  const NXa = new Float64Array(M), NYa = new Float64Array(M), NZa = new Float64Array(M);
+  const NN = new Float64Array(M * 3);
   for (let step = 0; step < steps; step++) {
     const ease = Math.min(1, (step + 1) / ramp);
     for (let n = 0; n < np; n++) {
-      const k = pinK[n];
-      X[k] = OX[k] = IX[k] + (PT[n * 3] - IX[k]) * ease;
-      Y[k] = OY[k] = IY[k] + (PT[n * 3 + 1] - IY[k]) * ease;
-      Z[k] = OZ[k] = IZ[k] + (PT[n * 3 + 2] - IZ[k]) * ease;
+      const q = pinK[n] * 3;
+      P[q] = O[q] = IX[pinK[n]] + (PT[n * 3] - IX[pinK[n]]) * ease;
+      P[q + 1] = O[q + 1] = IY[pinK[n]] + (PT[n * 3 + 1] - IY[pinK[n]]) * ease;
+      P[q + 2] = O[q + 2] = IZ[pinK[n]] + (PT[n * 3 + 2] - IZ[pinK[n]]) * ease;
     }
     if (wind) {
       for (let j = 0; j < my; j++) {
+        const ju = Math.max(0, j - 1) * mx, jd = Math.min(my - 1, j + 1) * mx;
         for (let i = 0; i < mx; i++) {
-          const k = j * mx + i, kl = j * mx + Math.max(0, i - 1), kr = j * mx + Math.min(mx - 1, i + 1);
-          const ku = Math.max(0, j - 1) * mx + i, kd = Math.min(my - 1, j + 1) * mx + i;
-          const ux = X[kr] - X[kl], uy = Y[kr] - Y[kl], uz = Z[kr] - Z[kl];
-          const vx = X[kd] - X[ku], vy = Y[kd] - Y[ku], vz = Z[kd] - Z[ku];
-          let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-          const nn = Math.hypot(nx, ny, nz) || 1;
-          NXa[k] = nx / nn; NYa[k] = ny / nn; NZa[k] = nz / nn;
+          const kl = (j * mx + Math.max(0, i - 1)) * 3, kr = (j * mx + Math.min(mx - 1, i + 1)) * 3;
+          const ku = (ju + i) * 3, kd = (jd + i) * 3;
+          const ux = P[kr] - P[kl], uy = P[kr + 1] - P[kl + 1], uz = P[kr + 2] - P[kl + 2];
+          const vx = P[kd] - P[ku], vy = P[kd + 1] - P[ku + 1], vz = P[kd + 2] - P[ku + 2];
+          const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+          const nn = Math.hypot(nx, ny, nz) || 1, q = (j * mx + i) * 3;
+          NN[q] = nx / nn; NN[q + 1] = ny / nn; NN[q + 2] = nz / nn;
         }
       }
     }
-    for (let k = 0; k < M; k++) {
-      if (!W[k]) continue;
+    for (let f = 0; f < nf; f++) {
+      const q = FK[f];
       let ax = gvx, ay = gvy, az = gvz;
       if (wind) {
-        const g = 1 + gust * 1.6 * NZW(X[k] / 140 - step * 0.035, Y[k] / 140, 17.7 + step * 0.01);
-        const dn = (wx * NXa[k] + wy * NYa[k] + wz * NZa[k]) * wind * g;
-        ax += dn * NXa[k] + 0.15 * wind * g * wx;
-        ay += dn * NYa[k] + 0.15 * wind * g * wy;
-        az += dn * NZa[k] + 0.15 * wind * g * wz;
+        const g = 1 + gust * 1.6 * NZW(P[q] / 140 - step * 0.035, P[q + 1] / 140, 17.7 + step * 0.01);
+        const n1 = NN[q], n2 = NN[q + 1], n3 = NN[q + 2];
+        const dn = (wx * n1 + wy * n2 + wz * n3) * wind * g;
+        ax += dn * n1 + 0.15 * wind * g * wx;
+        ay += dn * n2 + 0.15 * wind * g * wy;
+        az += dn * n3 + 0.15 * wind * g * wz;
       }
-      const vx = (X[k] - OX[k]) * damp, vy = (Y[k] - OY[k]) * damp, vz = (Z[k] - OZ[k]) * damp;
-      OX[k] = X[k]; OY[k] = Y[k]; OZ[k] = Z[k];
-      X[k] += vx + ax; Y[k] += vy + ay; Z[k] += vz + az;
+      const vx = (P[q] - O[q]) * damp, vy = (P[q + 1] - O[q + 1]) * damp, vz = (P[q + 2] - O[q + 2]) * damp;
+      O[q] = P[q]; O[q + 1] = P[q + 1]; O[q + 2] = P[q + 2];
+      P[q] += vx + ax; P[q + 1] += vy + ay; P[q + 2] += vz + az;
     }
     for (let it = 0; it < iters; it++) {
-      for (let c = 0; c < nc; c++) {
-        const a = cA[c], b = cB[c], wa2 = W[a], wb = W[b], ws = wa2 + wb;
-        if (!ws) continue;
-        const dx = X[b] - X[a], dy = Y[b] - Y[a], dz = Z[b] - Z[a];
+      for (let c = 0; c < nl; c++) {
+        const a = LA[c], b = LB[c];
+        const dx = P[b] - P[a], dy = P[b + 1] - P[a + 1], dz = P[b + 2] - P[a + 2];
         const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-9;
-        const e = (d - cR[c]) / d * cK[c] / ws;
-        X[a] += dx * e * wa2; Y[a] += dy * e * wa2; Z[a] += dz * e * wa2;
-        X[b] -= dx * e * wb; Y[b] -= dy * e * wb; Z[b] -= dz * e * wb;
+        const e = (d - LR[c]) / d * LK[c], wa2 = LWA[c], wb = LWB[c];
+        P[a] += dx * e * wa2; P[a + 1] += dy * e * wa2; P[a + 2] += dz * e * wa2;
+        P[b] -= dx * e * wb; P[b + 1] -= dy * e * wb; P[b + 2] -= dz * e * wb;
       }
-      for (let k = 0; k < M; k++) {
-        const n = tetherP[k];
-        if (n >= 0) {
-          const dx = X[k] - X[pinK[n]], dy = Y[k] - Y[pinK[n]], dz = Z[k] - Z[pinK[n]];
-          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          if (d > tetherR[k]) {
-            const e = tetherR[k] / d;
-            X[k] = X[pinK[n]] + dx * e; Y[k] = Y[pinK[n]] + dy * e; Z[k] = Z[pinK[n]] + dz * e;
-          }
+      // no point further from its pin than the cloth between them reaches — each point on
+      // its own, so all the tethers can go before all the pushing out
+      for (let t = 0; t < nt; t++) {
+        const q = TK[t], r = TP[t];
+        const dx = P[q] - P[r], dy = P[q + 1] - P[r + 1], dz = P[q + 2] - P[r + 2];
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > TR[t]) {
+          const e = TR[t] / d;
+          P[q] = P[r] + dx * e; P[q + 1] = P[r + 1] + dy * e; P[q + 2] = P[r + 2] + dz * e;
         }
-        if (W[k] && into) collide(k, it === iters - 1);
       }
+      if (into) collide(it === iters - 1);
     }
   }
+  for (let k = 0; k < M; k++) { X[k] = P[k * 3]; Y[k] = P[k * 3 + 1]; Z[k] = P[k * 3 + 2]; }
 
   // the fine cloth rides on the coarse one: each point keeps its offset in the frame the
   // coarse cloth had under it, carried into the frame it has now
@@ -2426,12 +2532,27 @@ function hangCloth(C, PX, PY, PZ, coarse) {
   const BI = [new Float64Array(N), new Float64Array(N), new Float64Array(N)];
   const BF = [new Float64Array(N), new Float64Array(N), new Float64Array(N)];
   const grids = [[IX, IY, IZ], [X, Y, Z]];
-  for (let j = 0; j < ny; j++) {
-    for (let i = 0; i < nx; i++) {
-      const k = j * nx + i, a = i * C.hx / gx, b = j * C.hy / gy;
-      for (let c = 0; c < 3; c++) {
-        BI[c][k] = gridCubic(grids[0][c], mx, my, a, b);
-        BF[c][k] = gridCubic(grids[1][c], mx, my, a, b);
+  // the coarse grid read at every fine point, a curve through four of its points each way:
+  // first along every coarse row at the fine columns, then down those at the fine rows
+  const across = new Float64Array(my * nx);
+  for (let g = 0; g < 2; g++) {
+    for (let c = 0; c < 3; c++) {
+      const G = grids[g][c], out = (g ? BF : BI)[c];
+      for (let i = 0; i < nx; i++) {
+        const a = i * C.hx / gx, ci = clamp(Math.floor(a), 0, mx - 2), fa = a - ci;
+        const i0 = Math.max(0, ci - 1), i3 = Math.min(mx - 1, ci + 2);
+        for (let r = 0; r < my; r++) {
+          const o = r * mx;
+          across[r * nx + i] = catmull(G[o + i0], G[o + ci], G[o + ci + 1], G[o + i3], fa);
+        }
+      }
+      for (let j = 0; j < ny; j++) {
+        const b = j * C.hy / gy, cj = clamp(Math.floor(b), 0, my - 2), fb = b - cj;
+        const r0 = clamp(cj - 1, 0, my - 1) * nx, r1 = cj * nx, r2 = clamp(cj + 1, 0, my - 1) * nx;
+        const r3 = clamp(cj + 2, 0, my - 1) * nx;
+        for (let i = 0; i < nx; i++) {
+          out[j * nx + i] = catmull(across[r0 + i], across[r1 + i], across[r2 + i], across[r3 + i], fb);
+        }
       }
     }
   }
@@ -2573,8 +2694,11 @@ function depthBuffer(C, coarse) {
   x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(W, x1); y1 = Math.min(H, y1);
   const px = Math.max(0.15, Math.sqrt(Math.max(1, (x1 - x0) * (y1 - y0)) / CLOTH_PX)) * (coarse ? 2 : 1);
   const w = Math.max(1, Math.ceil((x1 - x0) / px) + 1), h = Math.max(1, Math.ceil((y1 - y0) / px) + 1);
-  const D = new Float32Array(w * h).fill(-Infinity);
-  const U = new Float32Array(w * h), V = new Float32Array(w * h), R = new Float32Array(w * h);
+  // a cell is four numbers side by side — depth, then u and v on the flat picture, then how
+  // many millimetres of the picture a millimetre of the sheet holds there — so one reading
+  // of it is one trip to memory
+  const B = new Float32Array(w * h * 4);
+  for (let p = 0; p < B.length; p += 4) B[p] = -Infinity;
   const tri = (a, b, c, ua, va, ub, vb, uc, vc, ratio) => {
     const ax = (SX[a] - x0) / px - 0.5, ay = (SY[a] - y0) / px - 0.5;
     const bx = (SX[b] - x0) / px - 0.5, by = (SY[b] - y0) / px - 0.5;
@@ -2583,16 +2707,21 @@ function depthBuffer(C, coarse) {
     if (Math.abs(area2) < 1e-12) return;
     const i0 = Math.max(0, Math.ceil(Math.min(ax, bx, cx))), i1 = Math.min(w - 1, Math.floor(Math.max(ax, bx, cx)));
     const j0 = Math.max(0, Math.ceil(Math.min(ay, by, cy))), j1 = Math.min(h - 1, Math.floor(Math.max(ay, by, cy)));
+    if (i0 > i1 || j0 > j1) return;
     const inv = 1 / area2, da = SD[a], db = SD[b], dc = SD[c];
+    const e1x = cx - bx, e1y = cy - by, e2x = ax - cx, e2y = ay - cy;
     for (let j = j0; j <= j1; j++) {
-      for (let i = i0; i <= i1; i++) {
-        const l1 = ((cx - bx) * (j - by) - (cy - by) * (i - bx)) * inv;
-        const l2 = ((ax - cx) * (j - cy) - (ay - cy) * (i - cx)) * inv;
+      const r1 = e1x * (j - by), r2 = e2x * (j - cy);
+      let p = (j * w + i0) * 4;
+      for (let i = i0; i <= i1; i++, p += 4) {
+        const l1 = (r1 - e1y * (i - bx)) * inv;
+        if (l1 < -1e-6) continue;
+        const l2 = (r2 - e2y * (i - cx)) * inv;
         const l3 = 1 - l1 - l2;
-        if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
-        const d = l1 * da + l2 * db + l3 * dc, p = j * w + i;
-        if (d <= D[p]) continue;
-        D[p] = d; U[p] = l1 * ua + l2 * ub + l3 * uc; V[p] = l1 * va + l2 * vb + l3 * vc; R[p] = ratio;
+        if (l2 < -1e-6 || l3 < -1e-6) continue;
+        const d = l1 * da + l2 * db + l3 * dc;
+        if (d <= B[p]) continue;
+        B[p] = d; B[p + 1] = l1 * ua + l2 * ub + l3 * uc; B[p + 2] = l1 * va + l2 * vb + l3 * vc; B[p + 3] = ratio;
       }
     }
   };
@@ -2608,7 +2737,7 @@ function depthBuffer(C, coarse) {
       tri(a, c, d, u0, v0, u1, v1, u0, v1, ratio);
     }
   }
-  C.zb = { x0, y0, w, h, px, D, U, V, R };
+  C.zb = { x0, y0, w, h, px, B };
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -2618,8 +2747,24 @@ function depthBuffer(C, coarse) {
 // viewer it is and which way the cloth faces there.
 const CM = new Float64Array(4);
 
+// What the lines read of the cloth at every step, in one object made at once: the cloth
+// itself gathers so many fields one by one that the engine stops keeping them quick to read.
+let CF = null;
+
+function clothFast(C) {
+  const s = settings, Z = C.zb;
+  return {
+    nx: C.nx, ny: C.ny, x0: C.x0, y0: C.y0, hx: C.hx, hy: C.hy,
+    SX: C.SX, SY: C.SY, SD: C.SD, FACE: C.FACE, SH: C.SH,
+    zx0: Z.x0, zy0: Z.y0, zpx: Z.px, zw: Z.w, zh: Z.h, ZB: Z.B,
+    step: 0.8 * Math.min(C.hx, C.hy), hidden: !!s.hidden,
+    back: { 'printed through': 1, 'bare': 0, 'other pen': 2 }[s.clothBack] ?? 1,
+    backPen: penIdx(s.backPen), reads: 0, unseen: 0,
+  };
+}
+
 function clothAt(u, v) {
-  const C = CLOTH, nx = C.nx;
+  const C = CF, nx = C.nx;
   let a = (u - C.x0) / C.hx, b = (v - C.y0) / C.hy;
   if (a < 0) a = 0; else if (a > nx - 1.000001) a = nx - 1.000001;
   if (b < 0) b = 0; else if (b > C.ny - 1.000001) b = C.ny - 1.000001;
@@ -2635,20 +2780,20 @@ function clothAt(u, v) {
 // Whether the place just carried over is the part of the cloth seen there: it is, if it is
 // as near the viewer as the nearest, or if the nearest is the same place of the cloth.
 function clothSeen(u, v) {
-  const Z = CLOTH.zb;
-  const i = Math.round((CM[0] - Z.x0) / Z.px - 0.5), j = Math.round((CM[1] - Z.y0) / Z.px - 0.5);
-  if (i < 0 || j < 0 || i >= Z.w || j >= Z.h) return true;
-  const p = j * Z.w + i, d = Z.D[p];
+  const Z = CF;
+  const i = Math.round((CM[0] - Z.zx0) / Z.zpx - 0.5), j = Math.round((CM[1] - Z.zy0) / Z.zpx - 0.5);
+  if (i < 0 || j < 0 || i >= Z.zw || j >= Z.zh) return true;
+  const B = Z.ZB, p = (j * Z.zw + i) * 4, d = B[p];
   if (d === -Infinity || CM[2] >= d - 0.05) return true;
-  const du = u - Z.U[p], dv = v - Z.V[p], tol = Math.max(0.9, 2.5 * Z.px * Z.R[p]);
+  const du = u - B[p + 1], dv = v - B[p + 2], tol = Math.max(0.9, 2.5 * Z.zpx * B[p + 3]);
   return du * du + dv * dv < tol * tol;
 }
 
 // 0 — not drawn there; 1 — drawn in its own pen; 2 — in the pen of the back.
 function clothClass(u, v) {
   clothAt(u, v);
-  if (CLOTH.hidden && !clothSeen(u, v)) return 0;
-  return CM[3] < 0 && LAY !== L_EDGE ? CLOTH.back : 1;
+  if (CF.hidden && !clothSeen(u, v)) return 0;
+  return CM[3] < 0 && LAY !== L_EDGE ? CF.back : 1;
 }
 
 let OX = new Float64Array(4096), OY = new Float64Array(4096), ON = 0;
@@ -2664,50 +2809,56 @@ function oPush(x, y) {
 
 // A stroke of the flat picture carried onto the cloth: read in steps finer than the cloth's
 // grid, cut where it goes behind a fold or round to the back, each end found between two
-// steps, and every piece into the sink in its pen.
+// steps, and every piece into the sink in its pen. One loop and no closures over the
+// numbers that change at every step — the engine would box each of them anew otherwise.
 function clothEmit(xs, ys, n) {
-  const C = CLOTH, step = C.step, pen0 = PEN;
-  let cls = -1, pu = 0, pv = 0;
+  const C = CF, step = C.step, pen0 = PEN;
+  let cls = -1, pu = 0, pv = 0, reads = 0, unseen = 0;
   ON = 0;
-  const flush = k => {
-    if (k > 0 && ON >= 2) {
-      const m = simplify(OX, OY, ON, SIMPLIFY);
-      PEN = k === 2 ? C.backPen : pen0;
-      emitFlat(OX, OY, m);
-      PEN = pen0;
+  for (let i = 0; i < n; i++) {
+    let m = 1, x0 = 0, y0 = 0, dx = 0, dy = 0;
+    if (i > 0) {
+      x0 = xs[i - 1]; y0 = ys[i - 1]; dx = xs[i] - x0; dy = ys[i] - y0;
+      m = Math.max(1, Math.ceil(Math.hypot(dx, dy) / step));
     }
-    ON = 0;
-  };
-  const visit = (u, v) => {
-    let k = clothClass(u, v);
-    C.reads++;
-    if (k === 0) C.unseen++;
-    if (cls >= 0 && k !== cls) {
-      let lo = 0, hi = 1;
-      for (let it = 0; it < 7; it++) {
-        const t = (lo + hi) / 2;
-        if (clothClass(pu + (u - pu) * t, pv + (v - pv) * t) === cls) lo = t; else hi = t;
+    for (let q = 1; q <= m; q++) {
+      const u = i > 0 ? x0 + dx * q / m : xs[0], v = i > 0 ? y0 + dy * q / m : ys[0];
+      const k = clothClass(u, v);
+      reads++;
+      if (k === 0) unseen++;
+      if (cls >= 0 && k !== cls) {
+        const x = CM[0], y = CM[1];
+        let lo = 0, hi = 1;
+        for (let it = 0; it < 7; it++) {
+          const t = (lo + hi) / 2;
+          if (clothClass(pu + (u - pu) * t, pv + (v - pv) * t) === cls) lo = t; else hi = t;
+        }
+        if (cls > 0) { clothAt(pu + (u - pu) * lo, pv + (v - pv) * lo); oPush(CM[0], CM[1]); }
+        clothFlush(cls, pen0);
+        if (k > 0) { clothAt(pu + (u - pu) * hi, pv + (v - pv) * hi); oPush(CM[0], CM[1]); }
+        CM[0] = x; CM[1] = y;
       }
-      if (cls > 0) { clothAt(pu + (u - pu) * lo, pv + (v - pv) * lo); oPush(CM[0], CM[1]); }
-      flush(cls);
-      if (k > 0) { clothAt(pu + (u - pu) * hi, pv + (v - pv) * hi); oPush(CM[0], CM[1]); }
-      k = clothClass(u, v);
+      if (k > 0) oPush(CM[0], CM[1]);
+      cls = k; pu = u; pv = v;
     }
-    if (k > 0) oPush(CM[0], CM[1]);
-    cls = k; pu = u; pv = v;
-  };
-  visit(xs[0], ys[0]);
-  for (let i = 1; i < n; i++) {
-    const x0 = xs[i - 1], y0 = ys[i - 1], dx = xs[i] - x0, dy = ys[i] - y0;
-    const m = Math.max(1, Math.ceil(Math.hypot(dx, dy) / step));
-    for (let q = 1; q <= m; q++) visit(x0 + dx * q / m, y0 + dy * q / m);
   }
-  flush(cls);
+  clothFlush(cls, pen0);
+  C.reads += reads; C.unseen += unseen;
+}
+
+function clothFlush(k, pen0) {
+  if (k > 0 && ON >= 2) {
+    const m = simplify(OX, OY, ON, SIMPLIFY);
+    PEN = k === 2 ? CF.backPen : pen0;
+    emitFlat(OX, OY, m);
+    PEN = pen0;
+  }
+  ON = 0;
 }
 
 // The tone a line swells with, shaded by the cloth.
 function clothTone(x, y) {
-  const t = toneAt(x, y) + fineAt(CLOTH.SH, CLOTH, x, y);
+  const t = toneAt(x, y) + fineAt(CF.SH, CF, x, y);
   return t < 0 ? 0 : t > 1 ? 1 : t;
 }
 
@@ -2809,8 +2960,8 @@ function clothPick(p) {
       for (let i = i0 - r; i <= i0 + r; i++) {
         if (Math.max(Math.abs(i - i0), Math.abs(j - j0)) !== r) continue;
         if (i < 0 || j < 0 || i >= Z.w || j >= Z.h) continue;
-        const q = j * Z.w + i;
-        if (Z.D[q] !== -Infinity) return [(Z.U[q] - area.x0) / area.w, (Z.V[q] - area.y0) / area.h];
+        const q = (j * Z.w + i) * 4;
+        if (Z.B[q] !== -Infinity) return [(Z.B[q + 1] - area.x0) / area.w, (Z.B[q + 2] - area.y0) / area.h];
       }
     }
   }
@@ -2986,7 +3137,8 @@ function handWheel(p, delta, shift) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
-// The overlay: what was made by hand, drawn over the sheet and never plotted
+// The overlay: what was made by hand, and the guides while the card draws the strokes —
+// drawn over the sheet and never plotted
 
 let OVERLAY = null, clothToolSel = null, handNote = null;
 
@@ -3005,12 +3157,18 @@ function drawOverlay() {
   if (OVERLAY.width !== w || OVERLAY.height !== h) { OVERLAY.width = w; OVERLAY.height = h; }
   OVERLAY.style.width = r.width + 'px';
   OVERLAY.style.height = r.height + 'px';
+  const onCard = GLS && GLS.canvas.style.display !== 'none';
+  if (GLS) { GLS.canvas.style.width = r.width + 'px'; GLS.canvas.style.height = r.height + 'px'; }
   const ctx = OVERLAY.getContext('2d');
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  if (!CLOTH || !settings.cloth || (clothTool === 'off' && !settings.showGuides)) return;
+  const guides = onCard && (settings.showGuides || drag), shaping = CLOTH && settings.cloth &&
+    (clothTool !== 'off' || settings.showGuides);
+  if (!guides && !shaping) return;
   const [W] = paperDims(), k = w / W, px = 1 / k * dpr;   // a css pixel, in mm
   ctx.setTransform(k, 0, 0, k, 0, 0);
+  if (guides) drawGuides(ctx);
+  if (!shaping) return;
   const A = area;
   // the hem, for knowing where the cloth is
   ctx.strokeStyle = 'rgba(26, 109, 209, 0.55)';
@@ -3238,13 +3396,7 @@ function buildShapes() {
     const ox = (area.x0 + area.x1) / 2, oy = (area.y0 + area.y1) / 2;
     FLATZ = { g: clamp(s.clothZoom, MIN_VIEW, MAX_VIEW) / 100, ox, oy, cx: ox + s.clothX, cy: oy + s.clothY };
   }
-  if (CLOTH) {
-    CLOTH.step = 0.8 * Math.min(CLOTH.hx, CLOTH.hy);
-    CLOTH.hidden = s.hidden;
-    CLOTH.back = { 'printed through': 1, 'bare': 0, 'other pen': 2 }[s.clothBack] ?? 1;
-    CLOTH.backPen = penIdx(s.backPen);
-    CLOTH.reads = CLOTH.unseen = 0;
-  }
+  CF = CLOTH ? clothFast(CLOTH) : null;
   SINK = makeSink();
   AREAS = [];
   for (let i = 0; i < SLOTS; i++) AREAS.push(penArea(i));
@@ -3452,11 +3604,23 @@ function measurePlan(sh, order, flip) {
 ////////////////////////////////////////////////////////////////////////////////////////
 // Preview
 
+// The strokes are drawn by the graphics card when there is one to draw with — tens of
+// thousands of them, of hundreds of points each on a cloth, are a long wait for the canvas
+// otherwise. They lie on a layer of their own over the paper, so nothing has to be copied
+// back from the card; the guides go on the overlay above them. The PNG is drawn as before.
 function drawPreview() {
-  const ctx = drawingContext;
+  const ctx = drawingContext, s = previewScale(), d = pixelDensity();
   ctx.save();
-  ctx.setTransform(pixelDensity(), 0, 0, pixelDensity(), 0, 0);
-  drawSheet(ctx, previewScale(), true);
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  const G = shapes && plan ? glStrokes(ctx.canvas.width, ctx.canvas.height, s * d) : null;
+  if (G) {
+    const [W, H] = paperDims();
+    ctx.fillStyle = settings.paperColor;
+    ctx.fillRect(0, 0, W * s, H * s);
+  } else {
+    if (GLS) GLS.canvas.style.display = 'none';
+    drawSheet(ctx, s, true);
+  }
   ctx.restore();
   drawOverlay();
 }
@@ -3504,6 +3668,222 @@ function drawStrokes(ctx, s) {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+// Strokes on the graphics card. Every piece between two points is a little box round it, as
+// long as the piece and as wide as the pen, and the card works out how far each pixel of
+// the box is from the piece — so its ends are round and the pieces join round, as on paper.
+// A pen at a time, the nearest of all its pieces is kept, at four places in every pixel;
+// then the pen's ink goes down by how many of the four lie within half a pen of some piece,
+// each softened over a quarter of a pixel. So it is the edge of all the pen's pieces
+// together that is softened — as the canvas does, stroking them as one path — and two
+// passes that overlap by less than a pixel leave no lighter seam between them. Pen after
+// pen, in the order they draw, each over the ones before.
+let GLS = undefined;         // { canvas, gl, ... } once made, or null when there is no card to use
+
+const GLS_SEG_VERT = `#version 300 es
+in vec2 corner;
+in vec4 seg;
+uniform vec2 uSize;
+uniform float uScale;
+uniform float uHalf;
+out vec2 vP;
+flat out vec4 vSeg;
+void main() {
+  float hw = max(uHalf, 0.5) + 1.0;
+  vec2 a = seg.xy * uScale, b = seg.zw * uScale, d = b - a;
+  float L = length(d);
+  vec2 t = L > 1e-6 ? d / L : vec2(1.0, 0.0), n = vec2(-t.y, t.x);
+  vec2 p = mix(a - t * hw, b + t * hw, corner.x) + n * hw * (corner.y * 2.0 - 1.0);
+  vP = p; vSeg = vec4(a, b);
+  gl_Position = vec4(p.x / uSize.x * 2.0 - 1.0, 1.0 - p.y / uSize.y * 2.0, 0.0, 1.0);
+}`;
+
+// how far outside the pen's edge each of four places of the pixel is, in quarters of a
+// pixel, offset by half and kept between 0 and 1
+const GLS_SEG_FRAG = `#version 300 es
+precision highp float;
+in vec2 vP;
+flat in vec4 vSeg;
+uniform float uHalf;
+out vec4 o;
+float far(vec2 p) {
+  vec2 pa = p - vSeg.xy, ba = vSeg.zw - vSeg.xy;
+  float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-12), 0.0, 1.0);
+  return length(pa - ba * h);
+}
+void main() {
+  float hw = max(uHalf, 0.5);
+  vec4 d = vec4(far(vP + vec2(0.125, 0.375)), far(vP + vec2(0.375, -0.125)),
+                far(vP + vec2(-0.125, -0.375)), far(vP + vec2(-0.375, 0.125)));
+  vec4 v = clamp((d - hw) * 4.0 + 0.5, 0.0, 1.0);
+  if (min(min(v.x, v.y), min(v.z, v.w)) >= 1.0) discard;
+  o = v;
+}`;
+
+const GLS_INK_VERT = `#version 300 es
+in vec2 corner;
+void main() { gl_Position = vec4(corner * 4.0 - 1.0, 0.0, 1.0); }`;
+
+const GLS_INK_FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uNear;
+uniform vec3 uCol;
+uniform float uThin;
+out vec4 o;
+void main() {
+  float cov = (1.0 - dot(texelFetch(uNear, ivec2(gl_FragCoord.xy), 0), vec4(0.25))) * uThin;
+  if (cov <= 0.0) discard;
+  o = vec4(uCol * cov, cov);
+}`;
+
+function glsMake() {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.className = 'overlay strokes';
+    const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false,
+                                              preserveDrawingBuffer: true, depth: false, stencil: false });
+    if (!gl) return null;
+    const program = (vs, fs) => {
+      const prog = gl.createProgram();
+      for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+        gl.attachShader(prog, sh);
+      }
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+      return prog;
+    };
+    const seg = program(GLS_SEG_VERT, GLS_SEG_FRAG), ink = program(GLS_INK_VERT, GLS_INK_FRAG);
+    const quad = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    const segVao = gl.createVertexArray();
+    gl.bindVertexArray(segVao);
+    const lc = gl.getAttribLocation(seg, 'corner');
+    gl.enableVertexAttribArray(lc);
+    gl.vertexAttribPointer(lc, 2, gl.FLOAT, false, 0, 0);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    const ls = gl.getAttribLocation(seg, 'seg');
+    gl.enableVertexAttribArray(ls);
+    gl.vertexAttribDivisor(ls, 1);
+    const inkVao = gl.createVertexArray();
+    gl.bindVertexArray(inkVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    const li = gl.getAttribLocation(ink, 'corner');
+    gl.enableVertexAttribArray(li);
+    gl.vertexAttribPointer(li, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    const near = gl.createTexture(), fbo = gl.createFramebuffer();
+    const G = { canvas, gl, seg, ink, segVao, inkVao, buf, ls, near, fbo, nw: 0, nh: 0,
+      data: new Float32Array(4 * 65536), lost: false,
+      uSize: gl.getUniformLocation(seg, 'uSize'), uScale: gl.getUniformLocation(seg, 'uScale'),
+      uHalf: gl.getUniformLocation(seg, 'uHalf'), uNear: gl.getUniformLocation(ink, 'uNear'),
+      uCol: gl.getUniformLocation(ink, 'uCol'), uThin: gl.getUniformLocation(ink, 'uThin') };
+    canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); G.lost = true; drawPreview(); });
+    const sheet = document.getElementById('sheet');
+    if (sheet) sheet.insertBefore(canvas, OVERLAY && OVERLAY.parentNode === sheet ? OVERLAY : null);
+    return G;
+  } catch (err) {
+    console.warn('strokes drawn without the graphics card:', err.message);
+    return null;
+  }
+}
+
+// The strokes, drawn on the card into a canvas of w × h pixels at k pixels a millimetre;
+// null when there is no card to draw with, and the canvas draws them itself.
+function glStrokes(w, h, k) {
+  if (GLS === undefined) GLS = glsMake();
+  if (!GLS || GLS.lost) return null;
+  const G = GLS, gl = G.gl, { pts, off } = shapes, { order, flip } = plan;
+  let n = 0, data = G.data;
+  const put = (x0, y0, x1, y1) => {
+    if (n * 4 + 4 > data.length) { const b = new Float32Array(data.length * 2); b.set(data); data = G.data = b; }
+    const o = n * 4;
+    data[o] = x0; data[o + 1] = y0; data[o + 2] = x1; data[o + 3] = y1;
+    n++;
+  };
+  // as drawStrokes does: the hops the pen stays down over are drawn too
+  const runs = [];
+  let t = 0;
+  while (t < order.length) {
+    const id = shapes.ink[order[t]], reach = settings.penDown / 100 * penW(id), first = n;
+    let held = 0, lx = NaN, ly = NaN;
+    while (t < order.length && shapes.ink[order[t]] === id) {
+      const i = order[t], rev = flip[t] === 1;
+      t++;
+      const a = off[i], b = off[i + 1], step = rev ? -1 : 1;
+      let q = rev ? b - 1 : a, x = pts[q * 2], y = pts[q * 2 + 1];
+      if (Math.hypot(x - lx, y - ly) <= reach) put(lx, ly, x, y);
+      for (let m = 1; m < b - a; m++) {
+        q += step;
+        const x2 = pts[q * 2], y2 = pts[q * 2 + 1];
+        put(x, y, x2, y2);
+        x = x2; y = y2;
+      }
+      lx = x; ly = y;
+      if (++held >= 4000) { held = 0; lx = ly = NaN; }
+    }
+    runs.push({ id, first, count: n - first });
+  }
+  if (G.canvas.width !== w || G.canvas.height !== h) { G.canvas.width = w; G.canvas.height = h; }
+  if (G.nw !== w || G.nh !== h) {
+    gl.bindTexture(gl.TEXTURE_2D, G.near);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, G.fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, G.near, 0);
+    G.nw = w; G.nh = h;
+  }
+  gl.viewport(0, 0, w, h);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.bindBuffer(gl.ARRAY_BUFFER, G.buf);
+  gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, n * 4), gl.STREAM_DRAW);
+  gl.enable(gl.BLEND);
+  for (const r of runs) {
+    if (!r.count) continue;
+    // the nearest piece of this pen at every pixel
+    gl.bindFramebuffer(gl.FRAMEBUFFER, G.fbo);
+    gl.clearColor(1, 1, 1, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(G.seg);
+    gl.uniform2f(G.uSize, w, h);
+    gl.uniform1f(G.uScale, k);
+    gl.uniform1f(G.uHalf, penW(r.id) * k / 2);
+    gl.blendEquation(gl.MIN);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.bindVertexArray(G.segVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, G.buf);
+    gl.vertexAttribPointer(G.ls, 4, gl.FLOAT, false, 16, r.first * 16);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, r.count);
+    // and its ink, over what is there
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(G.ink);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, G.near);
+    gl.uniform1i(G.uNear, 0);
+    gl.uniform3fv(G.uCol, hexRgb(penCol(r.id)).map(c => c / 255));
+    // a pen finer than a pixel is drawn a pixel wide, as faint as it is fine
+    gl.uniform1f(G.uThin, Math.min(1, penW(r.id) * k));
+    gl.blendEquation(gl.FUNC_ADD);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(G.inkVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    // the next pen clears the same texture: some cards would clear it before this ink has
+    // been read from it, unless told to finish what they have
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.flush();
+  }
+  gl.bindVertexArray(null);
+  G.canvas.style.display = '';
+  return G.canvas;
 }
 
 // The margin, the middle the lines go round, the echo's disc and where the cut guides
@@ -4453,10 +4833,11 @@ function updateStats() {
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ${lastMs.toFixed(0)} ms to build` +
     `${fieldMs ? ` (the picture ${fieldMs.toFixed(0)} ms)` : ''}</div>`;
   if (s.cloth && CLOTH) {
-    const hid = CLOTH.reads ? Math.round(CLOTH.unseen / CLOTH.reads * 100) : 0;
+    const hid = CF && CF.reads ? Math.round(CF.unseen / CF.reads * 100) : 0;
     html += `<div>On cloth${CLOTH.hung ? `, hung over ${CLOTH.sim.mx}×${CLOTH.sim.my} points` : ''}` +
       `${HAND.length ? `, ${HAND.length} shaped by hand` : ''} — ${hid} % of the lines behind ` +
-      `its folds · ${clothMs.toFixed(0)} ms${CLOTH.hung ? ` (hanging ${CLOTH.simMs.toFixed(0)})` : ''}</div>`;
+      `its folds · shaped in ${CLOTH.ms.toFixed(0)} ms${CLOTH.hung ? ` (hanging ${CLOTH.simMs.toFixed(0)})` : ''}, ` +
+      `seen in ${CLOTH.viewMs.toFixed(0)}</div>`;
   }
   if (s.cropMarks && perLayer && perLayer[L_GUIDES].strokes) {
     html += `<div>${perLayer[L_GUIDES].strokes} cut guide dots round the ${s.cropMarkAt}, ` +
