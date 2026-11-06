@@ -1877,9 +1877,9 @@ let shaperUrl = null, shaperKey = null, SHAPE_NOW = false;
 function shaperSource() {
   const fns = [clamp, rad, mulberry32, rng, hash01, fade3, grad3, makePerlin3, ensureNoise,
                hangWanted, shapeCloth, foldSet, facetAt, clothRelief, relaxCloth, rollCloth,
-               bendCloth, catmull, fineAt, hangCloth, linksWasm];
+               bendCloth, catmull, fineAt, hangCloth, clothWasm, clothWasmFor, levelOrder];
   return `let settings = null, area = null, HAND = [], SEED_MIX = 0, NZ = null, NZW = null, nzSeedNow = null;
-let LINKS_WASM = undefined;
+let CLOTH_WASM = undefined;
 const CLOTH_CELLS = ${CLOTH_CELLS}, CLOTH_RELAX = ${CLOTH_RELAX};
 ${fns.map(f => f.toString()).join('\n\n')}
 onmessage = e => {
@@ -2201,16 +2201,17 @@ function clothRelief(C, H) {
 // has come to climb, the two are brought closer over the sheet until the stretch is as long
 // as it was flat — so a crumpled or creased sheet shrinks where it is steep.
 function relaxCloth(PX, PY, PZ, nx, ny, hx, hy, rounds) {
-  const hd = Math.hypot(hx, hy);
-  const pair = (a, b, R) => {
-    const dz = PZ[b] - PZ[a];
-    const want = Math.sqrt(Math.max(R * R - dz * dz, 0.0025 * R * R));
-    const dx = PX[b] - PX[a], dy = PY[b] - PY[a], d = Math.sqrt(dx * dx + dy * dy) || 1e-9;
-    const c = (d - want) / d * 0.5;
-    PX[a] += dx * c; PY[a] += dy * c; PX[b] -= dx * c; PY[b] -= dy * c;
-  };
-  for (let it = 0; it < rounds; it++) {
-    const back = it & 1;
+  const N = nx * ny, hd = Math.hypot(hx, hy);
+  // The heights stay, so the length each pair is to have over the sheet is worked out once.
+  // The rounds sweep forward and back by turns; each sweep's pairs, in the order it puts them
+  // right, are then put into levels — the very same sums, many at once.
+  const sweep = back => {
+    const A = new Int32Array(4 * N), B = new Int32Array(4 * N), WANT = new Float64Array(4 * N);
+    let n = 0;
+    const pair = (a, b, R) => {
+      const dz = PZ[b] - PZ[a];
+      A[n] = a; B[n] = b; WANT[n] = Math.sqrt(Math.max(R * R - dz * dz, 0.0025 * R * R)); n++;
+    };
     for (let jj = 0; jj < ny; jj++) {
       const j = back ? ny - 1 - jj : jj;
       for (let ii = 0; ii < nx; ii++) {
@@ -2222,6 +2223,34 @@ function relaxCloth(PX, PY, PZ, nx, ny, hx, hy, rounds) {
           if (i > 0) pair(k, k + nx - 1, hd);
         }
       }
+    }
+    const ord = levelOrder(N, A, B, n, 1), out = { n, A: new Int32Array(n), B: new Int32Array(n), W: new Float64Array(n) };
+    for (let t = 0; t < n; t++) { const c = ord[t]; out.A[t] = A[c]; out.B[t] = B[c]; out.W[t] = WANT[c]; }
+    return out;
+  };
+  const S = [sweep(false), sweep(true)];
+  const WA = clothWasmFor(N * 16 + (S[0].n + S[1].n) * 16);
+  if (WA) {
+    // the points as x, y side by side, then the records of the forward sweep and the back one
+    const F = new Float64Array(WA.mem.buffer), I = new Int32Array(WA.mem.buffer);
+    for (let k = 0; k < N; k++) { F[k * 2] = PX[k]; F[k * 2 + 1] = PY[k]; }
+    let o = N * 16;
+    const at = S.map(sw => {
+      const r0 = o;
+      for (let t = 0; t < sw.n; t++, o += 16) { I[o >> 2] = sw.A[t] * 16; I[(o >> 2) + 1] = sw.B[t] * 16; F[(o >> 3) + 1] = sw.W[t]; }
+      return r0;
+    });
+    for (let it = 0; it < rounds; it++) WA.pairs(S[it & 1].n, at[it & 1]);
+    for (let k = 0; k < N; k++) { PX[k] = F[k * 2]; PY[k] = F[k * 2 + 1]; }
+    return;
+  }
+  for (let it = 0; it < rounds; it++) {
+    const { n, A, B, W } = S[it & 1];
+    for (let t = 0; t < n; t++) {
+      const a = A[t], b = B[t];
+      const dx = PX[b] - PX[a], dy = PY[b] - PY[a], d = Math.sqrt(dx * dx + dy * dy) || 1e-9;
+      const c = (d - W[t]) / d * 0.5;
+      PX[a] += dx * c; PY[a] += dy * c; PX[b] -= dx * c; PY[b] -= dy * c;
     }
   }
 }
@@ -2302,53 +2331,105 @@ function bendCloth(PX, PY, PZ) {
 
 // The links are put right by a few lines of WebAssembly when the browser has it — the same
 // sums in the same order, so the cloth falls to the last bit as the script would let it
-// fall, only two or three times as fast in some browsers. It is written out here op by op:
-// each link is a record of 40 bytes — where its two ends lie (byte offsets of their x, y, z),
-// its length, its share of the error, and the weights of its ends.
-let LINKS_WASM = undefined;  // the compiled module, or null when there is no WebAssembly
+// fall, only two or three times as fast in some browsers. It is written out here op by op.
+// links: each link a record of 40 bytes — where its two ends lie (byte offsets of their x, y,
+//   z), its length, its share of the error and the weights of its ends;
+// pairs: the same over the sheet only, for drawing a relief in — 16 bytes, the offsets of
+//   the two ends' x, y and the length the pair is to have over the sheet.
+let CLOTH_WASM = undefined;  // the compiled module, or null when there is no WebAssembly
 
-function linksWasm() {
-  if (LINKS_WASM !== undefined) return LINKS_WASM;
+function clothWasm() {
+  if (CLOTH_WASM !== undefined) return CLOTH_WASM;
   try {
     const uleb = n => { const o = []; do { let b = n & 127; n >>>= 7; if (n) b |= 128; o.push(b); } while (n); return o; };
     const f64 = x => [...new Uint8Array(new Float64Array([x]).buffer)];
     const OP = { get: 0x20, set: 0x21, tee: 0x22, ld32: 0x28, ld: 0x2b, st: 0x39, i32: 0x41, f64: 0x44,
       add32: 0x6a, mul32: 0x6c, or32: 0x72, geu: 0x4f, ltu: 0x49, eq: 0x61, ne: 0x62, add: 0xa0,
       sub: 0xa1, mul: 0xa2, div: 0xa3, sqrt: 0x9f, block: 0x02, loop: 0x03, if: 0x04, end: 0x0b, brif: 0x0d };
-    const code = [], op = (name, ...imm) => { code.push(OP[name]); for (const x of imm) code.push(...x); };
-    const get = i => op('get', uleb(i)), set = i => op('set', uleb(i));
-    const ld = (at, off) => { get(at); op('ld', uleb(3), uleb(off)); };
-    // locals: 0 how many links, 1 the link in hand, 2 past the last, 3 a, 4 b, 5–7 dx dy dz, 8 d, 9 e
-    get(1); get(0); op('i32', [40]); op('mul32'); op('add32'); set(2);
-    op('block', [0x40]); get(1); get(2); op('geu'); op('brif', [0]);
-    op('loop', [0x40]);
-    get(1); op('ld32', [2], [0]); set(3);
-    get(1); op('ld32', [2], [4]); set(4);
-    for (let q = 0; q < 3; q++) { ld(4, q * 8); ld(3, q * 8); op('sub'); set(5 + q); }       // d = b − a
-    get(5); get(5); op('mul'); get(6); get(6); op('mul'); op('add'); get(7); get(7); op('mul');
-    op('add'); op('sqrt'); set(8);
-    get(8); op('f64', f64(0)); op('eq'); get(8); get(8); op('ne'); op('or32');                // d || 1e-9
-    op('if', [0x40]); op('f64', f64(1e-9)); set(8); op('end');
-    get(8); ld(1, 8); op('sub'); get(8); op('div'); ld(1, 16); op('mul'); set(9);            // (d − rest) / d × share
-    for (const [end, w, sign] of [[3, 24, 'add'], [4, 32, 'sub']]) {                          // a += d e wa, b −= d e wb
-      for (let q = 0; q < 3; q++) {
-        get(end); ld(end, q * 8); get(5 + q); get(9); op('mul'); ld(1, w); op('mul'); op(sign);
-        op('st', uleb(3), uleb(q * 8));
+    // a loop over records of `size` bytes: locals 0 how many, 1 the record in hand, 2 past the
+    // last, 3 and 4 the offsets of its two ends, then the floats the body asks for
+    const fn = (size, floats, body) => {
+      const code = [], op = (name, ...imm) => { code.push(OP[name]); for (const x of imm) code.push(...x); };
+      const get = i => op('get', uleb(i)), set = i => op('set', uleb(i));
+      const ld = (at, off) => { get(at); op('ld', uleb(3), uleb(off)); };
+      const st = off => op('st', uleb(3), uleb(off));
+      get(1); get(0); op('i32', uleb(size)); op('mul32'); op('add32'); set(2);
+      op('block', [0x40]); get(1); get(2); op('geu'); op('brif', [0]);
+      op('loop', [0x40]);
+      get(1); op('ld32', [2], [0]); set(3);
+      get(1); op('ld32', [2], [4]); set(4);
+      body({ op, get, set, ld, st, orTiny: i => {                     // d || 1e-9
+        get(i); op('f64', f64(0)); op('eq'); get(i); get(i); op('ne'); op('or32');
+        op('if', [0x40]); op('f64', f64(1e-9)); set(i); op('end');
+      } });
+      get(1); op('i32', uleb(size)); op('add32'); op('tee', [1]); get(2); op('ltu'); op('brif', [0]);
+      op('end'); op('end'); op('end');
+      return [2, 3, 0x7f, ...uleb(floats), 0x7c, ...code];
+    };
+    // locals 5–7 dx dy dz, 8 d, 9 e
+    const links = fn(40, 5, ({ op, get, set, ld, st, orTiny }) => {
+      for (let q = 0; q < 3; q++) { ld(4, q * 8); ld(3, q * 8); op('sub'); set(5 + q); }   // b − a
+      get(5); get(5); op('mul'); get(6); get(6); op('mul'); op('add'); get(7); get(7); op('mul');
+      op('add'); op('sqrt'); set(8); orTiny(8);
+      get(8); ld(1, 8); op('sub'); get(8); op('div'); ld(1, 16); op('mul'); set(9);        // (d − rest) / d × share
+      for (const [end, w, sign] of [[3, 24, 'add'], [4, 32, 'sub']]) {                      // a += d e wa, b −= d e wb
+        for (let q = 0; q < 3; q++) {
+          get(end); ld(end, q * 8); get(5 + q); get(9); op('mul'); ld(1, w); op('mul'); op(sign); st(q * 8);
+        }
       }
-    }
-    get(1); op('i32', [40]); op('add32'); op('tee', [1]); get(2); op('ltu'); op('brif', [0]);
-    op('end'); op('end'); op('end');
-    const body = [2, 3, 0x7f, 6, 0x7c, ...code];
+    });
+    // locals 5–6 dx dy, 7 d, 8 c
+    const pairs = fn(16, 4, ({ op, get, set, ld, st, orTiny }) => {
+      for (let q = 0; q < 2; q++) { ld(4, q * 8); ld(3, q * 8); op('sub'); set(5 + q); }
+      get(5); get(5); op('mul'); get(6); get(6); op('mul'); op('add'); op('sqrt'); set(7); orTiny(7);
+      get(7); ld(1, 8); op('sub'); get(7); op('div'); op('f64', f64(0.5)); op('mul'); set(8);   // (d − want) / d × ½
+      for (const [end, sign] of [[3, 'add'], [4, 'sub']]) {
+        for (let q = 0; q < 2; q++) { get(end); ld(end, q * 8); get(5 + q); get(8); op('mul'); op(sign); st(q * 8); }
+      }
+    });
     const sec = (id, b) => [id, ...uleb(b.length), ...b];
     const name = t => [t.length, ...[...t].map(c => c.charCodeAt(0))];
-    LINKS_WASM = new WebAssembly.Module(new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0,
+    CLOTH_WASM = new WebAssembly.Module(new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0,
       ...sec(1, [1, 0x60, 2, 0x7f, 0x7f, 0]), ...sec(2, [1, ...name('m'), ...name('mem'), 2, 0, 1]),
-      ...sec(3, [1, 0]), ...sec(7, [1, ...name('links'), 0, 0]),
-      ...sec(10, [1, ...uleb(body.length), ...body])]));
+      ...sec(3, [2, 0, 0]), ...sec(7, [2, ...name('links'), 0, 0, ...name('pairs'), 0, 1]),
+      ...sec(10, [2, ...uleb(links.length), ...links, ...uleb(pairs.length), ...pairs])]));
   } catch (err) {
-    LINKS_WASM = null;
+    CLOTH_WASM = null;
   }
-  return LINKS_WASM;
+  return CLOTH_WASM;
+}
+
+// Memory for the module and what it exports, or null.
+function clothWasmFor(bytes) {
+  const mod = clothWasm();
+  if (!mod) return null;
+  try {
+    const mem = new WebAssembly.Memory({ initial: Math.ceil(bytes / 65536) + 1 });
+    return { mem, ...new WebAssembly.Instance(mod, { m: { mem } }).exports };
+  } catch (err) {
+    return null;
+  }
+}
+
+// Put right one after another, each link waits for the one before; but a link only needs the
+// links before it that share a point with it to be done. So each is put one level past the
+// last of those, and the links go level by level: within a level none shares a point with
+// another, the processor works on many at once, and every point still sees the very same
+// sums in the very same order. A and B hold the two ends as k × the point; the order is
+// returned, the first n links of A and B are read.
+function levelOrder(M, A, B, n, k) {
+  const last = new Int32Array(M).fill(-1), lev = new Int32Array(n);
+  let nlev = 0;
+  for (let c = 0; c < n; c++) {
+    const a = A[c] / k, b = B[c] / k, l = Math.max(last[a], last[b]) + 1;
+    lev[c] = l; last[a] = last[b] = l;
+    if (l >= nlev) nlev = l + 1;
+  }
+  const at = new Int32Array(nlev + 1), ord = new Int32Array(n);
+  for (let c = 0; c < n; c++) at[lev[c] + 1]++;
+  for (let l = 0; l < nlev; l++) at[l + 1] += at[l];
+  for (let c = 0; c < n; c++) ord[at[lev[c]]++] = c;
+  return ord;
 }
 
 function catmull(p0, p1, p2, p3, t) {
@@ -2535,14 +2616,7 @@ function hangCloth(C, PX, PY, PZ, coarse) {
   // all so the loops below are nothing but arithmetic.
   // with WebAssembly the points and the links live in its memory: the points first, then
   // a record for every link
-  const mod = linksWasm(), rec0 = M * 24;
-  let mem = null, solve = null;
-  if (mod) {
-    try {
-      mem = new WebAssembly.Memory({ initial: Math.ceil((rec0 + nc * 40) / 65536) + 1 });
-      solve = new WebAssembly.Instance(mod, { m: { mem } }).exports.links;
-    } catch (err) { mem = solve = null; }
-  }
+  const rec0 = M * 24, WA = clothWasmFor(rec0 + nc * 40), mem = WA && WA.mem, solve = WA && WA.links;
   const P = mem ? new Float64Array(mem.buffer, 0, M * 3) : new Float64Array(M * 3), O = new Float64Array(M * 3);
   for (let k = 0; k < M; k++) { P[k * 3] = X[k]; P[k * 3 + 1] = Y[k]; P[k * 3 + 2] = Z[k]; }
   O.set(P);
@@ -2557,23 +2631,8 @@ function hangCloth(C, PX, PY, PZ, coarse) {
     LA[nl] = cA[c] * 3; LB[nl] = cB[c] * 3; LR[nl] = cR[c]; LK[nl] = cK[c] / ws;
     LWA[nl] = wa2; LWB[nl] = wb; nl++;
   }
-  // Put right one after another, each link waits for the one before; but a link only needs
-  // the links before it that share a point with it to be done. So each is put one level
-  // past the last of those, and the links go level by level: within a level none shares a
-  // point with another, the processor works on many at once, and every point still sees
-  // the very same sums in the very same order — the cloth falls exactly as it did.
   {
-    const last = new Int32Array(M).fill(-1), lev = new Int32Array(nl);
-    let nlev = 0;
-    for (let c = 0; c < nl; c++) {
-      const a = LA[c] / 3, b = LB[c] / 3, l = Math.max(last[a], last[b]) + 1;
-      lev[c] = l; last[a] = last[b] = l;
-      if (l >= nlev) nlev = l + 1;
-    }
-    const at = new Int32Array(nlev + 1), ord = new Int32Array(nl);
-    for (let c = 0; c < nl; c++) at[lev[c] + 1]++;
-    for (let l = 0; l < nlev; l++) at[l + 1] += at[l];
-    for (let c = 0; c < nl; c++) ord[at[lev[c]]++] = c;
+    const ord = levelOrder(M, LA, LB, nl, 3);
     for (const arr of [LA, LB, LR, LK, LWA, LWB]) {
       const was = arr.slice(0, nl);
       for (let t = 0; t < nl; t++) arr[t] = was[ord[t]];
