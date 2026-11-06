@@ -1740,17 +1740,37 @@ const CLOTH_EDGES  = ['none', 'hem', 'hem and folds'];
 const CLOTH_TOOLS  = ['off', 'fold', 'pinch', 'bump', 'pin', 'erase'];
 
 // What the shape of the cloth depends on, and what only the way it is seen and lit does —
-// so turning it to the viewer, zooming or moving the light never lets it fall again.
-const SHAPE_KEYS = ['paper', 'orientation', 'customW', 'customH', 'margin', 'seed',
-  'folds', 'foldLen', 'foldAngle', 'foldSharp', 'foldUneven', 'foldWander', 'foldTaper',
-  'foldLean', 'crossFolds', 'crossLen', 'crossAngle', 'crossSharp',
-  'crumple', 'crumpleKind', 'crumpleSize', 'crumpleDetail', 'creases', 'creaseKind',
-  'creaseDepth', 'bow', 'bowAngle', 'curl', 'curlAngle', 'curlSize', 'twist', 'twistAngle',
-  'gravity', 'weight', 'hangFrom', 'gather', 'squeeze', 'squeezeFrom', 'under', 'propSize',
-  'propX', 'propY', 'table', 'tableDrop', 'wind', 'windAngle', 'windLift', 'gusts', 'stiffness',
-  'simTime', 'simRes', 'clothHand', 'handScale'];
-const SEEN_KEYS = ['viewTilt', 'viewTurn', 'viewSide', 'perspective', 'clothFit',
-  'clothZoom', 'clothX', 'clothY', 'shade', 'lightFrom', 'lightHigh', 'hollows'];
+// so turning it to the viewer, zooming or moving the light never lets it fall again. Only
+// what is at work counts: the wind's angle while there is no wind, or the weight of a cloth
+// that does not hang, change nothing, and the shape made is kept.
+function shapeKey() {
+  const s = settings, at = (on, keys) => on ? keys.map(k => s[k]).join(',') : '-';
+  const into = s.gravity === 'into the sheet';
+  return [
+    at(true, ['paper', 'orientation', 'customW', 'customH', 'margin', 'seed']),
+    at(s.folds, ['folds', 'foldLen', 'foldAngle', 'foldSharp', 'foldUneven', 'foldWander',
+                 'foldTaper', 'foldLean']),
+    at(s.crossFolds, ['crossFolds', 'crossLen', 'crossAngle', 'crossSharp', 'foldUneven', 'foldWander']),
+    at(s.crumple > 0, ['crumple', 'crumpleKind', 'crumpleSize', 'crumpleDetail']),
+    at(s.creases > 0, ['creases', 'creaseKind', 'creaseDepth']),
+    at(s.bow, ['bow', 'bowAngle']), at(s.curl, ['curl', 'curlAngle', 'curlSize']),
+    at(s.twist, ['twist', 'twistAngle']),
+    s.clothHand, at(HAND.some(h => h.t !== 'n'), ['handScale']),
+    at(hangWanted(), ['gravity', 'stiffness', 'simTime', 'simRes', 'hangFrom', 'squeeze', 'wind']),
+    at(hangWanted() && s.gravity !== 'none', ['weight']),
+    at(hangWanted() && s.hangFrom !== 'nothing', ['gather']),
+    at(hangWanted() && s.squeeze > 0, ['squeezeFrom']),
+    at(hangWanted() && s.wind > 0, ['windAngle', 'windLift', 'gusts']),
+    at(hangWanted() && into, ['under', 'table', 'tableDrop', 'propSize', 'propX', 'propY']),
+  ].join('|');
+}
+
+function seenKey() {
+  const s = settings;
+  return ['viewTilt', 'viewTurn', 'viewSide', 'perspective', 'clothFit', 'clothZoom', 'clothX',
+          'clothY', 'shade', 'lightFrom', 'lightHigh', 'hollows'].map(k => s[k]).join('|') +
+    (s.hollows ? '|' + s.foldLen : '');
+}
 const SHAPES_KEPT = 6;       // shapes kept, so going back to one is instant
 
 let CLOTH = null;            // the cloth as it is seen, or null while the sheet lies flat
@@ -1797,30 +1817,115 @@ function hangWanted() {
 
 // The cloth for the settings in hand. A shape already worked out is used again — the fine
 // one even while a drag asks for a coarse one — and so is the view of it, so only what
-// changed is done again.
+// changed is done again. A fine shape that takes long — one that hangs, or is crumpled,
+// creased or shaped by hand — is made by a worker on another core; until it comes the sheet
+// shows the coarse one, made at once, and the page goes on answering.
 function ensureCloth(coarse) {
   if (!settings.cloth) { CLOTH = null; clothKeyNow = ''; clothMs = 0; return; }
   const t0 = performance.now();
-  const skey = SHAPE_KEYS.map(k => settings[k]).join('|');
-  let sh = null;
-  for (const c of SHAPE_CACHE) if (c.key === skey && (!c.coarse || (coarse && !sh))) sh = c;
-  if (!sh || !CLOTH || CLOTH.shape !== sh) HAND = parseHand(settings.clothHand);
+  HAND = parseHand(settings.clothHand);
+  const skey = shapeKey();
+  let sh = shapeKept(skey, coarse);
   if (!sh) {
-    sh = shapeCloth(coarse);
-    sh.key = skey;
-    for (let i = SHAPE_CACHE.length - 1; i >= 0; i--) if (SHAPE_CACHE[i].key === skey) SHAPE_CACHE.splice(i, 1);
-    SHAPE_CACHE.push(sh);
-    if (SHAPE_CACHE.length > SHAPES_KEPT) SHAPE_CACHE.shift();
-  } else {
-    SHAPE_CACHE.splice(SHAPE_CACHE.indexOf(sh), 1);
-    SHAPE_CACHE.push(sh);
+    const later = !coarse && !SHAPE_NOW && shapeIsSlow() && shapeLater(skey);
+    sh = (later && shapeKept(skey, true)) || shapeKeep(shapeCloth(coarse || later), skey);
   }
-  const vkey = SEEN_KEYS.map(k => settings[k]).join('|');
+  const vkey = seenKey();
   if (CLOTH && CLOTH.shape === sh && CLOTH.vkey === vkey && (coarse || !CLOTH.coarse)) return;
   clothKeyNow = skey + '#' + vkey;
   CLOTH = seeCloth(sh, coarse);
   CLOTH.vkey = vkey;
   clothMs = performance.now() - t0;
+}
+
+// The shape kept for a key — the fine one, or if that may do, the coarse one — and put last,
+// as the one used most lately; or null.
+function shapeKept(key, coarseWill) {
+  let sh = null;
+  for (const c of SHAPE_CACHE) if (c.key === key && (!c.coarse || (coarseWill && !sh))) sh = c;
+  if (sh) { SHAPE_CACHE.splice(SHAPE_CACHE.indexOf(sh), 1); SHAPE_CACHE.push(sh); }
+  return sh;
+}
+
+function shapeKeep(sh, key) {
+  sh.key = key;
+  for (let i = SHAPE_CACHE.length - 1; i >= 0; i--) {
+    if (SHAPE_CACHE[i].key === key && (SHAPE_CACHE[i].coarse || !sh.coarse)) SHAPE_CACHE.splice(i, 1);
+  }
+  SHAPE_CACHE.push(sh);
+  if (SHAPE_CACHE.length > SHAPES_KEPT) SHAPE_CACHE.shift();
+  return sh;
+}
+
+function shapeIsSlow() {
+  const s = settings;
+  return hangWanted() || s.crumple > 0 || s.creases > 0 || (s.handScale > 0 && HAND.some(h => h.t !== 'n'));
+}
+
+// The worker that shapes the cloth: the very functions of this page that make a shape, sent
+// to it as their text, so it makes exactly the shape they would make here.
+let SHAPER = undefined;      // the worker, or null when there is none to be had
+let shaperUrl = null, shaperKey = null, SHAPE_NOW = false;
+
+function shaperSource() {
+  const fns = [clamp, rad, mulberry32, rng, hash01, fade3, grad3, makePerlin3, ensureNoise,
+               hangWanted, shapeCloth, foldSet, facetAt, clothRelief, relaxCloth, rollCloth,
+               bendCloth, catmull, fineAt, hangCloth];
+  return `let settings = null, area = null, HAND = [], SEED_MIX = 0, NZ = null, NZW = null, nzSeedNow = null;
+const CLOTH_CELLS = ${CLOTH_CELLS}, CLOTH_RELAX = ${CLOTH_RELAX};
+${fns.map(f => f.toString()).join('\n\n')}
+onmessage = e => {
+  const m = e.data;
+  try {
+    settings = m.settings; area = m.area; HAND = m.hand;
+    ensureNoise();
+    const C = shapeCloth(false);
+    postMessage({ key: m.key, C }, [C.PX.buffer, C.PY.buffer, C.PZ.buffer]);
+  } catch (err) {
+    postMessage({ key: m.key, error: String(err && err.stack || err) });
+  }
+};`;
+}
+
+// Asks the worker for the fine shape of a key; false when there is no worker to ask.
+function shapeLater(key) {
+  if (shaperKey === key) return true;
+  if (SHAPER && shaperKey !== null) { SHAPER.terminate(); SHAPER = undefined; }   // that one is no longer wanted
+  if (SHAPER === undefined) {
+    try {
+      if (!shaperUrl) shaperUrl = URL.createObjectURL(new Blob([shaperSource()], { type: 'text/javascript' }));
+      const W = new Worker(shaperUrl);
+      W.onmessage = e => { if (W === SHAPER) shaperDone(e.data); };
+      W.onerror = e => { if (W === SHAPER) shaperDone({ key: shaperKey, error: e.message || 'the worker failed' }); };
+      SHAPER = W;
+    } catch (err) {
+      SHAPER = null;
+    }
+  }
+  if (!SHAPER) return false;
+  shaperKey = key;
+  SHAPER.postMessage({ key, settings: { ...settings }, area: { ...area }, hand: HAND });
+  return true;
+}
+
+function shaperDone(m) {
+  shaperKey = null;
+  if (m.error) {
+    console.warn('the cloth is shaped on this page from now on:', m.error);
+    if (SHAPER) SHAPER.terminate();
+    SHAPER = null;
+  } else shapeKeep(m.C, m.key);
+  if (!settings.cloth) return;
+  HAND = parseHand(settings.clothHand);
+  if (m.error || shapeKey() === m.key) update();
+}
+
+// Before anything is saved, the fine shape, made here and now if it has not come yet.
+function fineNow() {
+  if (!settings.cloth || !CLOTH || !CLOTH.shape.coarse) return;
+  SHAPE_NOW = true;
+  busy = false;
+  try { update(); } finally { SHAPE_NOW = false; }
 }
 
 // The shape: points of the fine grid in world mm, from the middle of the flat cloth — x
@@ -2699,10 +2804,11 @@ function depthBuffer(C, coarse) {
   // of it is one trip to memory
   const B = new Float32Array(w * h * 4);
   for (let p = 0; p < B.length; p += 4) B[p] = -Infinity;
+  // every point of the grid in cells of the buffer, once — each is a corner of six triangles
+  const N = SX.length, GX = new Float64Array(N), GY = new Float64Array(N);
+  for (let k = 0; k < N; k++) { GX[k] = (SX[k] - x0) / px - 0.5; GY[k] = (SY[k] - y0) / px - 0.5; }
   const tri = (a, b, c, ua, va, ub, vb, uc, vc, ratio) => {
-    const ax = (SX[a] - x0) / px - 0.5, ay = (SY[a] - y0) / px - 0.5;
-    const bx = (SX[b] - x0) / px - 0.5, by = (SY[b] - y0) / px - 0.5;
-    const cx = (SX[c] - x0) / px - 0.5, cy = (SY[c] - y0) / px - 0.5;
+    const ax = GX[a], ay = GY[a], bx = GX[b], by = GY[b], cx = GX[c], cy = GY[c];
     const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
     if (Math.abs(area2) < 1e-12) return;
     const i0 = Math.max(0, Math.ceil(Math.min(ax, bx, cx))), i1 = Math.min(w - 1, Math.floor(Math.max(ax, bx, cx)));
@@ -2751,13 +2857,16 @@ const CM = new Float64Array(4);
 // itself gathers so many fields one by one that the engine stops keeping them quick to read.
 let CF = null;
 
-function clothFast(C) {
+function clothFast(C, coarse) {
   const s = settings, Z = C.zb;
   return {
     nx: C.nx, ny: C.ny, x0: C.x0, y0: C.y0, hx: C.hx, hy: C.hy,
     SX: C.SX, SY: C.SY, SD: C.SD, FACE: C.FACE, SH: C.SH,
     zx0: Z.x0, zy0: Z.y0, zpx: Z.px, zw: Z.w, zh: Z.h, ZB: Z.B,
-    step: 0.8 * Math.min(C.hx, C.hy), hidden: !!s.hidden,
+    // read every 0.8 of a cell — while a drag lasts twice as far, and not straightened: the
+    // points cost less to keep than to weigh
+    step: 0.8 * Math.min(C.hx, C.hy) * (coarse ? 2 : 1), tol: coarse ? 0 : SIMPLIFY,
+    hidden: !!s.hidden,
     back: { 'printed through': 1, 'bare': 0, 'other pen': 2 }[s.clothBack] ?? 1,
     backPen: penIdx(s.backPen), reads: 0, unseen: 0,
   };
@@ -2848,7 +2957,7 @@ function clothEmit(xs, ys, n) {
 
 function clothFlush(k, pen0) {
   if (k > 0 && ON >= 2) {
-    const m = simplify(OX, OY, ON, SIMPLIFY);
+    const m = CF.tol > 0 ? simplify(OX, OY, ON, CF.tol) : ON;
     PEN = k === 2 ? CF.backPen : pen0;
     emitFlat(OX, OY, m);
     PEN = pen0;
@@ -3396,7 +3505,7 @@ function buildShapes() {
     const ox = (area.x0 + area.x1) / 2, oy = (area.y0 + area.y1) / 2;
     FLATZ = { g: clamp(s.clothZoom, MIN_VIEW, MAX_VIEW) / 100, ox, oy, cx: ox + s.clothX, cy: oy + s.clothY };
   }
-  CF = CLOTH ? clothFast(CLOTH) : null;
+  CF = CLOTH ? clothFast(CLOTH, coarse) : null;
   SINK = makeSink();
   AREAS = [];
   for (let i = 0; i < SLOTS; i++) AREAS.push(penArea(i));
@@ -4838,6 +4947,9 @@ function updateStats() {
       `${HAND.length ? `, ${HAND.length} shaped by hand` : ''} — ${hid} % of the lines behind ` +
       `its folds · shaped in ${CLOTH.ms.toFixed(0)} ms${CLOTH.hung ? ` (hanging ${CLOTH.simMs.toFixed(0)})` : ''}, ` +
       `seen in ${CLOTH.viewMs.toFixed(0)}</div>`;
+    if (CLOTH.shape.coarse && shaperKey === CLOTH.shape.key) {
+      html += '<div>Shown coarse for now — the fine cloth is being worked out.</div>';
+    }
   }
   if (s.cropMarks && perLayer && perLayer[L_GUIDES].strokes) {
     html += `<div>${perLayer[L_GUIDES].strokes} cut guide dots round the ${s.cropMarkAt}, ` +
@@ -5186,6 +5298,7 @@ function svgFile(groups, tag) {
 }
 
 function exportSvg(what) {
+  fineNow();
   if (!shapes || !plan || !strokes) {
     alert('Nothing to export — no line is left on this sheet.');
     return;
@@ -5218,6 +5331,7 @@ function exportSvg(what) {
 }
 
 function exportPng() {
+  fineNow();
   const [W, H] = paperDims();
   let pxmm = Math.max(1, settings.pngDpi / 25.4);
   const most = 1.2e8;
