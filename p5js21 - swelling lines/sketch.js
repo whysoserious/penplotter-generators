@@ -1833,9 +1833,12 @@ function ensureCloth(coarse) {
   HAND = parseHand(settings.clothHand);
   const skey = shapeKey();
   let sh = shapeKept(skey, coarse);
+  if (!coarse) STAND_IN = null;
   if (!sh) {
-    const later = !coarse && !SHAPE_NOW && shapeIsSlow() && shapeLater(skey);
-    sh = (later && shapeKept(skey, true)) || shapeKeep(shapeCloth(coarse || later), skey);
+    // made by the worker: while a drag lasts the newest coarse shape it brought stands in
+    const later = !SHAPE_NOW && shapeIsSlow() && shapeLater(skey, coarse);
+    if (later) sh = coarse ? STAND_IN || (CLOTH && CLOTH.shape) : shapeKept(skey, true);
+    if (!sh) sh = shapeKeep(shapeCloth(coarse || later), skey);
   }
   const vkey = seenKey();
   if (CLOTH && CLOTH.shape === sh && CLOTH.vkey === vkey && (coarse || !CLOTH.coarse)) return;
@@ -1872,7 +1875,8 @@ function shapeIsSlow() {
 // The worker that shapes the cloth: the very functions of this page that make a shape, sent
 // to it as their text, so it makes exactly the shape they would make here.
 let SHAPER = undefined;      // the worker, or null when there is none to be had
-let shaperUrl = null, shaperKey = null, SHAPE_NOW = false;
+let shaperUrl = null, shaperJob = null, shaperNext = null, SHAPE_NOW = false;
+let STAND_IN = null;         // while a drag lasts, the newest coarse shape the worker brought
 
 function shaperSource() {
   const fns = [clamp, rad, mulberry32, rng, hash01, fade3, grad3, makePerlin3, ensureNoise,
@@ -1887,7 +1891,7 @@ onmessage = e => {
   try {
     settings = m.settings; area = m.area; HAND = m.hand;
     ensureNoise();
-    const C = shapeCloth(false);
+    const C = shapeCloth(!!m.coarse);
     postMessage({ key: m.key, C }, [C.PX.buffer, C.PY.buffer, C.PZ.buffer]);
   } catch (err) {
     postMessage({ key: m.key, error: String(err && err.stack || err) });
@@ -1895,50 +1899,79 @@ onmessage = e => {
 };`;
 }
 
-// Asks the worker for the fine shape of a key; false when there is no worker to ask.
-function shapeLater(key) {
-  if (shaperKey === key) return true;
-  if (SHAPER && shaperKey !== null) { SHAPER.terminate(); SHAPER = undefined; }   // that one is no longer wanted
-  if (SHAPER === undefined) {
-    try {
-      if (!shaperUrl) shaperUrl = URL.createObjectURL(new Blob([shaperSource()], { type: 'text/javascript' }));
-      const W = new Worker(shaperUrl);
-      W.onmessage = e => { if (W === SHAPER) shaperDone(e.data); };
-      W.onerror = e => { if (W === SHAPER) shaperDone({ key: shaperKey, error: e.message || 'the worker failed' }); };
-      SHAPER = W;
-    } catch (err) {
-      SHAPER = null;
-    }
+function shaperStart() {
+  if (SHAPER !== undefined) return SHAPER;
+  try {
+    if (!shaperUrl) shaperUrl = URL.createObjectURL(new Blob([shaperSource()], { type: 'text/javascript' }));
+    const W = new Worker(shaperUrl);
+    W.onmessage = e => { if (W === SHAPER) shaperDone(e.data); };
+    W.onerror = e => {
+      if (W === SHAPER) shaperDone({ key: shaperJob && shaperJob.key, error: e.message || 'the worker failed' });
+    };
+    SHAPER = W;
+  } catch (err) {
+    SHAPER = null;
   }
-  if (!SHAPER) return false;
-  shaperKey = key;
-  SHAPER.postMessage({ key, settings: { ...settings }, area: { ...area }, hand: HAND });
+  return SHAPER;
+}
+
+// Asks the worker for a shape. A fine one is wanted at once: whatever the worker was making
+// is dropped. A coarse one — asked for at every step of a drag — waits for the one in hand,
+// and of those waiting only the latest is made. False when there is no worker to ask.
+function shapeLater(key, coarse) {
+  const job = shaperJob;
+  if (job && job.key === key && (!job.coarse || coarse)) return true;
+  if (!shaperStart()) return false;
+  const ask = { key, coarse, settings: { ...settings }, area: { ...area }, hand: HAND };
+  if (job && coarse) { shaperNext = ask; return true; }
+  if (job) {
+    SHAPER.terminate();
+    SHAPER = undefined;
+    if (!shaperStart()) { shaperJob = null; return false; }
+  }
+  shaperNext = null;
+  shaperJob = { key, coarse };
+  SHAPER.postMessage(ask);
   return true;
 }
 
 function shaperDone(m) {
-  shaperKey = null;
+  shaperJob = null;
   if (m.error) {
     console.warn('the cloth is shaped on this page from now on:', m.error);
     if (SHAPER) SHAPER.terminate();
     SHAPER = null;
-  } else shapeKeep(m.C, m.key);
+    shaperNext = STAND_IN = null;
+  } else {
+    shapeKeep(m.C, m.key);
+    STAND_IN = m.C.coarse ? m.C : null;
+  }
+  if (shaperNext && SHAPER) {
+    const ask = shaperNext;
+    shaperNext = null;
+    shaperJob = { key: ask.key, coarse: ask.coarse };
+    SHAPER.postMessage(ask);
+  }
   if (!settings.cloth) return;
   HAND = parseHand(settings.clothHand);
-  if (m.error || shapeKey() === m.key) update();
+  if (m.error || shapeKey() === m.key || (STAND_IN && (drag || busy))) update();
 }
 
-// Whether the sheet waits for the worker: the fine cloth is wanted, takes long and is not
-// made yet, nor a coarse one of it — so it is asked for, and nothing is drawn until it comes.
+// Whether the sheet waits for the worker: the cloth wanted takes long and is not made yet —
+// so it is asked for, and the sheet stays as it is until it comes.
 function clothPending() {
   const s = settings;
-  if (!s.cloth || drag || busy || SHAPE_NOW) return false;
+  if (!s.cloth || SHAPE_NOW) return false;
   area = drawArea();
   if (area.w < 2 || area.h < 2) return false;
   HAND = parseHand(s.clothHand);
   if (!shapeIsSlow()) return false;
   const key = shapeKey();
-  return !shapeKept(key, true) && shapeLater(key);
+  if (shapeKept(key, true)) return false;
+  if (!drag && !busy) return shapeLater(key, false);
+  // while a drag lasts the sheet is drawn again only once the worker brings a newer shape
+  if (!CLOTH || !shapeLater(key, true)) return false;
+  return !STAND_IN || STAND_IN === CLOTH.shape;
 }
 
 // Before anything is saved, the fine shape, made here and now if it has not come yet.
@@ -5058,7 +5091,7 @@ function attachPhotoInput() {
 function updateStats() {
   if (!statsDiv) return;
   const s = settings;
-  if (!shapes && s.cloth && shaperKey !== null) {
+  if (!shapes && s.cloth && shaperJob) {
     statsDiv.html('<div>The cloth is being worked out…</div>');
     refreshPenList();
     return;
@@ -5104,8 +5137,8 @@ function updateStats() {
       `${HAND.length ? `, ${HAND.length} shaped by hand` : ''} — ${hid} % of the lines behind ` +
       `its folds · shaped in ${CLOTH.ms.toFixed(0)} ms${CLOTH.hung ? ` (hanging ${CLOTH.simMs.toFixed(0)})` : ''}, ` +
       `seen in ${CLOTH.viewMs.toFixed(0)}</div>`;
-    if (shaperKey !== null) {
-      html += `<div>${CLOTH.shape.key === shaperKey ? 'Shown coarse for now' : 'The sheet shows the cloth as it was'}` +
+    if (shaperJob && !shaperJob.coarse) {
+      html += `<div>${CLOTH.shape.key === shaperJob.key ? 'Shown coarse for now' : 'The sheet shows the cloth as it was'}` +
         ' — the fine cloth is being worked out.</div>';
     }
   }
