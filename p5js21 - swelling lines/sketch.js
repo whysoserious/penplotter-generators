@@ -676,6 +676,13 @@ function resizeForPaper() {
 
 function update() {
   const t0 = performance.now();
+  if (clothPending()) {
+    // the picture on the sheet stays as it is until the fine cloth comes from the worker
+    syncVisibility();
+    updateStats();
+    syncUrl();
+    return;
+  }
   strokes = 0;
   shapes = plan = perPen = perLayer = null;
 
@@ -1870,8 +1877,9 @@ let shaperUrl = null, shaperKey = null, SHAPE_NOW = false;
 function shaperSource() {
   const fns = [clamp, rad, mulberry32, rng, hash01, fade3, grad3, makePerlin3, ensureNoise,
                hangWanted, shapeCloth, foldSet, facetAt, clothRelief, relaxCloth, rollCloth,
-               bendCloth, catmull, fineAt, hangCloth];
+               bendCloth, catmull, fineAt, hangCloth, linksWasm];
   return `let settings = null, area = null, HAND = [], SEED_MIX = 0, NZ = null, NZW = null, nzSeedNow = null;
+let LINKS_WASM = undefined;
 const CLOTH_CELLS = ${CLOTH_CELLS}, CLOTH_RELAX = ${CLOTH_RELAX};
 ${fns.map(f => f.toString()).join('\n\n')}
 onmessage = e => {
@@ -1920,9 +1928,24 @@ function shaperDone(m) {
   if (m.error || shapeKey() === m.key) update();
 }
 
+// Whether the sheet waits for the worker: the fine cloth is wanted, takes long and is not
+// made yet, nor a coarse one of it — so it is asked for, and nothing is drawn until it comes.
+function clothPending() {
+  const s = settings;
+  if (!s.cloth || drag || busy || SHAPE_NOW) return false;
+  area = drawArea();
+  if (area.w < 2 || area.h < 2) return false;
+  HAND = parseHand(s.clothHand);
+  if (!shapeIsSlow()) return false;
+  const key = shapeKey();
+  return !shapeKept(key, true) && shapeLater(key);
+}
+
 // Before anything is saved, the fine shape, made here and now if it has not come yet.
 function fineNow() {
-  if (!settings.cloth || !CLOTH || !CLOTH.shape.coarse) return;
+  if (!settings.cloth) return;
+  HAND = parseHand(settings.clothHand);
+  if (CLOTH && !CLOTH.shape.coarse && CLOTH.shape.key === shapeKey()) return;
   SHAPE_NOW = true;
   busy = false;
   try { update(); } finally { SHAPE_NOW = false; }
@@ -2277,6 +2300,57 @@ function bendCloth(PX, PY, PZ) {
 // pushed out of whatever it has fallen into. The fine cloth then rides on the coarse one,
 // each point keeping its place against it.
 
+// The links are put right by a few lines of WebAssembly when the browser has it — the same
+// sums in the same order, so the cloth falls to the last bit as the script would let it
+// fall, only two or three times as fast in some browsers. It is written out here op by op:
+// each link is a record of 40 bytes — where its two ends lie (byte offsets of their x, y, z),
+// its length, its share of the error, and the weights of its ends.
+let LINKS_WASM = undefined;  // the compiled module, or null when there is no WebAssembly
+
+function linksWasm() {
+  if (LINKS_WASM !== undefined) return LINKS_WASM;
+  try {
+    const uleb = n => { const o = []; do { let b = n & 127; n >>>= 7; if (n) b |= 128; o.push(b); } while (n); return o; };
+    const f64 = x => [...new Uint8Array(new Float64Array([x]).buffer)];
+    const OP = { get: 0x20, set: 0x21, tee: 0x22, ld32: 0x28, ld: 0x2b, st: 0x39, i32: 0x41, f64: 0x44,
+      add32: 0x6a, mul32: 0x6c, or32: 0x72, geu: 0x4f, ltu: 0x49, eq: 0x61, ne: 0x62, add: 0xa0,
+      sub: 0xa1, mul: 0xa2, div: 0xa3, sqrt: 0x9f, block: 0x02, loop: 0x03, if: 0x04, end: 0x0b, brif: 0x0d };
+    const code = [], op = (name, ...imm) => { code.push(OP[name]); for (const x of imm) code.push(...x); };
+    const get = i => op('get', uleb(i)), set = i => op('set', uleb(i));
+    const ld = (at, off) => { get(at); op('ld', uleb(3), uleb(off)); };
+    // locals: 0 how many links, 1 the link in hand, 2 past the last, 3 a, 4 b, 5–7 dx dy dz, 8 d, 9 e
+    get(1); get(0); op('i32', [40]); op('mul32'); op('add32'); set(2);
+    op('block', [0x40]); get(1); get(2); op('geu'); op('brif', [0]);
+    op('loop', [0x40]);
+    get(1); op('ld32', [2], [0]); set(3);
+    get(1); op('ld32', [2], [4]); set(4);
+    for (let q = 0; q < 3; q++) { ld(4, q * 8); ld(3, q * 8); op('sub'); set(5 + q); }       // d = b − a
+    get(5); get(5); op('mul'); get(6); get(6); op('mul'); op('add'); get(7); get(7); op('mul');
+    op('add'); op('sqrt'); set(8);
+    get(8); op('f64', f64(0)); op('eq'); get(8); get(8); op('ne'); op('or32');                // d || 1e-9
+    op('if', [0x40]); op('f64', f64(1e-9)); set(8); op('end');
+    get(8); ld(1, 8); op('sub'); get(8); op('div'); ld(1, 16); op('mul'); set(9);            // (d − rest) / d × share
+    for (const [end, w, sign] of [[3, 24, 'add'], [4, 32, 'sub']]) {                          // a += d e wa, b −= d e wb
+      for (let q = 0; q < 3; q++) {
+        get(end); ld(end, q * 8); get(5 + q); get(9); op('mul'); ld(1, w); op('mul'); op(sign);
+        op('st', uleb(3), uleb(q * 8));
+      }
+    }
+    get(1); op('i32', [40]); op('add32'); op('tee', [1]); get(2); op('ltu'); op('brif', [0]);
+    op('end'); op('end'); op('end');
+    const body = [2, 3, 0x7f, 6, 0x7c, ...code];
+    const sec = (id, b) => [id, ...uleb(b.length), ...b];
+    const name = t => [t.length, ...[...t].map(c => c.charCodeAt(0))];
+    LINKS_WASM = new WebAssembly.Module(new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0,
+      ...sec(1, [1, 0x60, 2, 0x7f, 0x7f, 0]), ...sec(2, [1, ...name('m'), ...name('mem'), 2, 0, 1]),
+      ...sec(3, [1, 0]), ...sec(7, [1, ...name('links'), 0, 0]),
+      ...sec(10, [1, ...uleb(body.length), ...body])]));
+  } catch (err) {
+    LINKS_WASM = null;
+  }
+  return LINKS_WASM;
+}
+
 function catmull(p0, p1, p2, p3, t) {
   return p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
 }
@@ -2459,7 +2533,17 @@ function hangCloth(C, PX, PY, PZ, coarse) {
   // links that have a free end, each with the share of the error its two ends take; the
   // points held to a pin; what lies under the cloth as plain numbers, a kind at a time —
   // all so the loops below are nothing but arithmetic.
-  const P = new Float64Array(M * 3), O = new Float64Array(M * 3);
+  // with WebAssembly the points and the links live in its memory: the points first, then
+  // a record for every link
+  const mod = linksWasm(), rec0 = M * 24;
+  let mem = null, solve = null;
+  if (mod) {
+    try {
+      mem = new WebAssembly.Memory({ initial: Math.ceil((rec0 + nc * 40) / 65536) + 1 });
+      solve = new WebAssembly.Instance(mod, { m: { mem } }).exports.links;
+    } catch (err) { mem = solve = null; }
+  }
+  const P = mem ? new Float64Array(mem.buffer, 0, M * 3) : new Float64Array(M * 3), O = new Float64Array(M * 3);
   for (let k = 0; k < M; k++) { P[k * 3] = X[k]; P[k * 3 + 1] = Y[k]; P[k * 3 + 2] = Z[k]; }
   O.set(P);
   let nl = 0;
@@ -2493,6 +2577,14 @@ function hangCloth(C, PX, PY, PZ, coarse) {
     for (const arr of [LA, LB, LR, LK, LWA, LWB]) {
       const was = arr.slice(0, nl);
       for (let t = 0; t < nl; t++) arr[t] = was[ord[t]];
+    }
+  }
+  if (solve) {
+    const I = new Int32Array(mem.buffer), F = new Float64Array(mem.buffer);
+    for (let c = 0; c < nl; c++) {
+      const o = rec0 + c * 40;
+      I[o >> 2] = LA[c] * 8; I[(o >> 2) + 1] = LB[c] * 8;
+      F[(o >> 3) + 1] = LR[c]; F[(o >> 3) + 2] = LK[c]; F[(o >> 3) + 3] = LWA[c]; F[(o >> 3) + 4] = LWB[c];
     }
   }
   let nt = 0;
@@ -2607,7 +2699,8 @@ function hangCloth(C, PX, PY, PZ, coarse) {
       P[q] += vx + ax; P[q + 1] += vy + ay; P[q + 2] += vz + az;
     }
     for (let it = 0; it < iters; it++) {
-      for (let c = 0; c < nl; c++) {
+      if (solve) solve(nl, rec0);
+      else for (let c = 0; c < nl; c++) {
         const a = LA[c], b = LB[c];
         const dx = P[b] - P[a], dy = P[b + 1] - P[a + 1], dz = P[b + 2] - P[a + 2];
         const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-9;
@@ -4906,6 +4999,11 @@ function attachPhotoInput() {
 function updateStats() {
   if (!statsDiv) return;
   const s = settings;
+  if (!shapes && s.cloth && shaperKey !== null) {
+    statsDiv.html('<div>The cloth is being worked out…</div>');
+    refreshPenList();
+    return;
+  }
   if (!shapes && !strokes) {
     statsDiv.html('<div class="warn">The margin leaves nothing to draw on.</div>');
     refreshPenList();
@@ -4947,8 +5045,9 @@ function updateStats() {
       `${HAND.length ? `, ${HAND.length} shaped by hand` : ''} — ${hid} % of the lines behind ` +
       `its folds · shaped in ${CLOTH.ms.toFixed(0)} ms${CLOTH.hung ? ` (hanging ${CLOTH.simMs.toFixed(0)})` : ''}, ` +
       `seen in ${CLOTH.viewMs.toFixed(0)}</div>`;
-    if (CLOTH.shape.coarse && shaperKey === CLOTH.shape.key) {
-      html += '<div>Shown coarse for now — the fine cloth is being worked out.</div>';
+    if (shaperKey !== null) {
+      html += `<div>${CLOTH.shape.key === shaperKey ? 'Shown coarse for now' : 'The sheet shows the cloth as it was'}` +
+        ' — the fine cloth is being worked out.</div>';
     }
   }
   if (s.cropMarks && perLayer && perLayer[L_GUIDES].strokes) {
