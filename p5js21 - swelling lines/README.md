@@ -273,8 +273,25 @@ string, shown under **As it rides in the link**, and can be edited there.
 
 The pitch, the nib and the passes are kept as they are on the flat cloth: the passes of a
 ribbon are as far apart on the paper as where the cloth faces the viewer, and closer where
-it turns away. A cloth that hangs or is crumpled costs a second or so to build; while a
-slider or a tool is moving it is built coarser.
+it turns away.
+
+What it costs, and how it is kept quick:
+
+- The shape of the cloth is kept apart from how it is seen. Turning it, tilting it,
+  zooming, moving the light, sliding the picture under it, changing the pens or what shows
+  never lets it fall again — only the settings at work in its shape do (the wind's angle
+  while there is no wind changes nothing). The last few shapes are kept, so going back to
+  one is instant.
+- A cloth that hangs, or is crumpled, creased or shaped by hand, is made by a worker on
+  another core, so the page never stops. The sheet stays as it was until the new cloth
+  comes — a third of a second to half a second for the hanging scenes. While a slider or a
+  tool is moving, the worker makes a coarser cloth, and the sheet shows the newest one it
+  has brought. Saving the SVG or the PNG always waits for the fine one.
+- The hanging and the drawing-in of a relief are put right by a few lines of WebAssembly,
+  link by link in the very order the script would take — the cloth falls exactly as it
+  would without them, two or three times as fast in Firefox.
+- The strokes of the preview are drawn by the graphics card (WebGL2); without one, the
+  canvas draws them as before. The PNG is always drawn by the canvas.
 
 ### Pens
 
