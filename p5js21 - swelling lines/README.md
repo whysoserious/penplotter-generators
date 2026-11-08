@@ -251,8 +251,10 @@ cloth over, **the back** is the lines **printed through**, left **bare**, or in 
 pen**. **Outlined** draws the **hem** round the cloth, and the **folds** — wherever it
 turns out of sight — in a pen of its own, as a layer of its own.
 
-**By hand.** Pick a **tool on the sheet** (or step through them with <kbd>T</kbd>) and the
-mouse shapes the cloth instead of sliding the picture:
+**By hand.** Pick a tool — in the bar over the sheet, which is there while the picture is on
+a cloth and names the tool in hand and what it does, or in **Tool on the sheet** here, or
+step through them with <kbd>T</kbd> — and the mouse shapes the cloth instead of sliding the
+picture:
 
 - **fold** — drag along the cloth: a ridge, or with <kbd>shift</kbd> a valley;
 - **pinch** — the cloth gathered at a point into folds round a peak, as far as the drag

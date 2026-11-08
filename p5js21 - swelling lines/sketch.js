@@ -644,6 +644,7 @@ function setup() {
   pixelDensity(2);
   createCanvas(Math.round(w * s), Math.round(h * s)).parent('sheet');
   makeOverlay();
+  makeToolbar();
   applyCanvasDisplay();
   buildControls();
   attachPointer();
@@ -656,13 +657,15 @@ function setup() {
 function applyCanvasDisplay() {
   const [pw, ph] = paperDims();
   const box = document.getElementById('canvas-container');
+  const bar = TOOLBAR && TOOLBAR.style.display !== 'none' ? TOOLBAR.offsetHeight + 8 : 0;
   const aw = box ? box.clientWidth - 48 : 900;
-  const ah = box ? box.clientHeight - 48 : 700;
+  const ah = box ? box.clientHeight - 48 - bar : 700;
   const scale = Math.max(0.2, Math.min(aw / pw, ah / ph));
   const c = canvasEl();
   if (!c) return;
   c.style.width  = pw * scale + 'px';
   c.style.height = ph * scale + 'px';
+  if (TOOLBAR) TOOLBAR.style.width = pw * scale + 'px';
   drawOverlay();
 }
 
@@ -1745,6 +1748,15 @@ const CREASES      = ['random', 'letter', 'grid'];
 const CLOTH_BACKS  = ['printed through', 'bare', 'other pen'];
 const CLOTH_EDGES  = ['none', 'hem', 'hem and folds'];
 const CLOTH_TOOLS  = ['off', 'fold', 'pinch', 'bump', 'pin', 'erase'];
+// what each tool is called in the lists, and what it does on the cloth
+const CLOTH_TOOL_NAMES = {
+  off:   ['No tool', 'a drag slides the picture under the lines, as on a flat sheet'],
+  fold:  ['Fold', 'drag along the cloth: a ridge — with shift, a valley'],
+  pinch: ['Pinch', 'drag out from a point: gathered into folds round a peak'],
+  bump:  ['Bump', 'drag out from a point: raised — with shift, dented'],
+  pin:   ['Pin', 'click: the place is held and the cloth hangs from it; a drag moves it, the wheel lifts it'],
+  erase: ['Erase', 'click on anything made by hand to take it away'],
+};
 
 // What the shape of the cloth depends on, and what only the way it is seen and lit does —
 // so turning it to the viewer, zooming or moving the light never lets it fall again. Only
@@ -3318,7 +3330,8 @@ function handClear() {
 
 function setClothTool(t) {
   clothTool = CLOTH_TOOLS.includes(t) ? t : 'off';
-  if (clothToolSel) clothToolSel.selected(clothTool);
+  for (const sel of toolSels) sel.selected(clothTool);
+  if (toolDoes) toolDoes.textContent = toolDoes.title = CLOTH_TOOL_NAMES[clothTool][1];
   const c = canvasEl();
   if (c) c.classList.toggle('shaping', clothTool !== 'off' && settings.cloth);
   drawOverlay();
@@ -3434,12 +3447,45 @@ function handWheel(p, delta, shift) {
 // The overlay: what was made by hand, and the guides while the card draws the strokes —
 // drawn over the sheet and never plotted
 
-let OVERLAY = null, clothToolSel = null, handNote = null;
+let OVERLAY = null, handNote = null;
+let TOOLBAR = null, toolDoes = null;
+const toolSels = [];         // every list of the tools, kept on the one in hand
 
 function makeOverlay() {
   OVERLAY = document.createElement('canvas');
   OVERLAY.className = 'overlay';
   document.getElementById('sheet').appendChild(OVERLAY);
+}
+
+// A list of the tools by name; whichever list one is picked in, all of them show it.
+function addToolSelect(parent) {
+  const sel = createSelect().parent(parent);
+  for (const t of CLOTH_TOOLS) sel.option(CLOTH_TOOL_NAMES[t][0], t);
+  sel.selected(clothTool);
+  sel.changed(() => { sel.elt.blur(); setClothTool(sel.value()); });
+  toolSels.push(sel);
+  return sel;
+}
+
+// The tools over the sheet, where they are used: there while the picture is on a cloth.
+function makeToolbar() {
+  TOOLBAR = createDiv('').id('toolbar').elt;
+  document.getElementById('canvas-container').insertBefore(TOOLBAR, document.getElementById('sheet'));
+  createSpan('Tool').parent(TOOLBAR).class('label');
+  addToolSelect(TOOLBAR);
+  toolDoes = createSpan('').parent(TOOLBAR).class('does').elt;
+  toolDoes.textContent = toolDoes.title = CLOTH_TOOL_NAMES[clothTool][1];
+  createSpan('<kbd>T</kbd> next · <kbd>Esc</kbd> none · <kbd>U</kbd> undo')
+    .parent(TOOLBAR).class('keys');
+  TOOLBAR.style.display = 'none';
+}
+
+function syncToolbar() {
+  if (!TOOLBAR) return;
+  const want = settings.cloth ? '' : 'none';
+  if (TOOLBAR.style.display === want) return;
+  TOOLBAR.style.display = want;
+  applyCanvasDisplay();
 }
 
 function drawOverlay() {
@@ -4496,6 +4542,7 @@ function syncVisibility() {
   setVisible('orientation', s.paper !== 'custom');
   show(['customW', 'customH'], s.paper === 'custom');
   show(['cropMarkAt', 'cropMarkGap'], s.cropMarks);
+  syncToolbar();
   setVisible('borderPen', s.border !== 'none');
 
   const car = s.carrier;
@@ -4630,7 +4677,7 @@ function buildControls() {
     '<div><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> slide the picture 1 mm, with <kbd>shift</kbd> 10 · <kbd>+</kbd><kbd>−</kbd> enlarge it</div>' +
     '<div><kbd>S</kbd> next scene, <kbd>shift</kbd>+<kbd>S</kbd> back · <kbd>C</kbd> carrier · <kbd>F</kbd> picture · <kbd>I</kbd> ink · <kbd>E</kbd> echo (with <kbd>shift</kbd> back)</div>' +
     '<div><kbd>X</kbd> cut guides · <kbd>G</kbd> guides · <kbd>R</kbd> new seed · <kbd>[</kbd> <kbd>]</kbd> step it</div>' +
-    '<div><kbd>K</kbd> cloth · <kbd>T</kbd> tool on it (<kbd>shift</kbd> back) · <kbd>U</kbd> undo · <kbd>Delete</kbd> what is under the cursor · <kbd>Esc</kbd> no tool</div>' +
+    '<div><kbd>K</kbd> cloth · <kbd>T</kbd> next tool on it, named over the sheet (<kbd>shift</kbd> back) · <kbd>U</kbd> undo · <kbd>Delete</kbd> what is under the cursor · <kbd>Esc</kbd> no tool</div>' +
     '<div>with a tool: <kbd>drag</kbd> shape · <kbd>wheel</kbd> deeper · <kbd>shift</kbd>+<kbd>wheel</kbd> wider · right-click remove</div>');
 
   sec = addSection(root, 'Zoom');
@@ -4825,11 +4872,9 @@ function buildControls() {
     const field = createDiv('').parent(sec).class('field');
     fieldDivs.clothTool = field;
     createSpan('Tool on the sheet').parent(field).class('label');
-    clothToolSel = createSelect().parent(field);
-    for (const t of CLOTH_TOOLS) clothToolSel.option(t);
-    clothToolSel.selected(clothTool);
-    clothToolSel.changed(() => setClothTool(clothToolSel.value()));
-    createDiv('<b>fold</b> — drag along the cloth: a ridge, with <b>shift</b> a valley; ' +
+    addToolSelect(field);
+    createDiv('The same list stands over the sheet. ' +
+      '<b>fold</b> — drag along the cloth: a ridge, with <b>shift</b> a valley; ' +
       '<b>pinch</b> — gathered at a point into folds round a peak; <b>bump</b> — raised, with ' +
       '<b>shift</b> dented; the drag sets how far either reaches; <b>pin</b> — holds the place ' +
       'clicked, a drag moves it, the wheel lifts it (it hangs). Over anything made: the ' +
