@@ -233,6 +233,7 @@ const settings = {
   lightest: 8,             // % — lighter than this is left bare
   solidAt: 100,            // % — darker than this is filled solid; 100, never
   solidPasses: 85,         // % of the nib between two passes
+  solidCut: false,         // outlines through solid black cut as lines of paper, as in a woodcut
 
   // ring
   ring: 'line',
@@ -278,16 +279,17 @@ const SCENES = [
   { label: 'Halftone bands in a cell of the tesseract, cubes in cubes going on', s: {
       object: 'polytope', polytope: 'tesseract', node: 0, tube: 0.15, objSize: 1, enclose: 'none',
       yaw: 0, pitch: 0, roll: 0, xw: 15, yw: 8, view: 'mirror room', room: 1.6, bounces: 2,
-      mirrorDim: 10, camDist: 0.6, fov: 200, deep: 'nested', nestRatio: 0.32, nestCarve: false,
-      deepLevels: 8, partDepth: 1, pattern: 'dots', dotPitch: 0.9, dotAngle: 0, edgeGap: 0.7,
-      invert: true, skyTone: 100, headlight: 30, lightYaw: -40, lightPitch: 35, ambient: 0,
-      aoK: 60, flat: 85, lightest: 8, contrast: 50, levels: 6, ring: 'halo', fillPen: 3 } },
-  { label: 'A cathedral from below, its well going on up', s: {
-      object: 'kifs', iters: 5, kScale: 1.8, core: 1, offX: 1.2, offY: 0.8, offZ: 0.6, twistA: 30,
-      twistB: 6, view: 'dome', camDist: 0, fov: 180, enclose: 'none', objSize: 1.3,
-      deep: 'nested', nestRatio: 0.55, vanishY: 0.35, vanishZ: 0.35, headlight: 100, ambient: 0,
-      aoK: 80, fog: -20, skyTone: 100, flat: 75, contrast: 40, pattern: 'engrave',
-      engravePitch: 0.5, lightest: 55, solidAt: 75, fillPen: 3, solidPen: 4 } },
+      mirrorDim: 30, camDist: 0.6, fov: 200, deep: 'nested', nestRatio: 0.32, nestCarve: false,
+      deepLevels: 8, partDepth: 1, pattern: 'dots', dotPitch: 0.85, dotAngle: 0, edgeGap: 0.7,
+      skyTone: 55, headlight: 40, lightYaw: -40, lightPitch: 35, ambient: 20, aoK: 70, flat: 75,
+      lightest: 5, contrast: 50, levels: 6, ring: 'halo', fillPen: 3 } },
+  { label: 'A vault from below, cut like a woodcut, its well going on up', s: {
+      object: 'polytope', polytope: '24-cell', node: 0.05, tube: 0.1, objSize: 1, enclose: 'none',
+      yaw: 0, pitch: 0, roll: 0, xw: 0, yw: 0, view: 'dome', fov: 200, camDist: 0.3, camPitch: -20,
+      deep: 'nested', nestRatio: 0.45, nestCarve: false, vanishY: 0.3, vanishZ: 0.4,
+      partDepth: 1, headlight: 100, ambient: 0, aoK: 70, fog: -35, contrast: 40, flat: 75,
+      skyTone: 100, pattern: 'engrave', engravePitch: 0.5, lightest: 60, solidAt: 76,
+      solidCut: true, edgeGap: 0.4, fillPen: 3, solidPen: 4 } },
   { label: 'Hoops of an armillary sphere in a mirror, engraved', s: {
       object: 'rings', enclose: 'none', ringCount: 5, ringLat: 25, ringShrink: 1, ringWidth: 0.14,
       ringTilt0: 0, ringTilt: 0, ringTurn: 0, yaw: 0, pitch: 0, roll: 0, objSize: 0.9,
@@ -1401,15 +1403,18 @@ function outlines() {
   PEN = penIdx(s.linePen); LAY = L_LINES;
   const { N, EH, EV, gx0, gy0, cell } = G;
   const M = N + 1;
+  // where solid black meets solid black the line is cut as paper instead (see solids)
+  const solidAt = s.solidAt / 100, cut = s.solidCut && solidAt < 1;
+  const both = (a, b) => cut && G.T[a] >= solidAt && G.T[b] >= solidAt;
   // segments between corners of the readings
   const sa = [], sb = [];
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const a = j * N + i;
-    if (EH[a]) {
+    if (EH[a] && !both(a, a + 1)) {
       const x = gx0 + (i + 1) * cell, y = gy0 + (j + 0.5) * cell;
       if (inWedge(x, y)) { sa.push(j * M + i + 1); sb.push((j + 1) * M + i + 1); }
     }
-    if (EV[a]) {
+    if (EV[a] && !both(a, a + N)) {
       const x = gx0 + (i + 0.5) * cell, y = gy0 + (j + 1) * cell;
       if (inWedge(x, y)) { sa.push((j + 1) * M + i); sb.push((j + 1) * M + i + 1); }
     }
@@ -1940,9 +1945,12 @@ function solids(isSolid) {
   let any = false;
   // the dark ends at the rim of the orb as well as at its own edge
   const rim = (ORB.R - nib / 2) * (ORB.R - nib / 2);
+  // cut as in a woodcut: a line of paper kept along every outline through the black, so the
+  // shapes deep in it still show, white on black
+  const cutW = s.solidCut ? Math.max(0.25, s.edgeGap) : 0;
   const off = b => {
     const x = gx0 + (b % N + 0.5) * cell - ORB.cx, y = gy0 + (Math.floor(b / N) + 0.5) * cell - ORB.cy;
-    return G.reg[b] < 0 || !isSolid(b) || x * x + y * y > rim;
+    return G.reg[b] < 0 || !isSolid(b) || x * x + y * y > rim || G.ED[b] < cutW;
   };
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const a = j * N + i;
@@ -2795,7 +2803,7 @@ function syncVisibility() {
   setVisible('hatchAngle', uses('hatch') || uses('cross') || uses('engrave') || s.solidAt < 100);
   show(['flowField', 'flowLines'], uses('flow'));
   show(['engravePitch', 'engraveBy'], uses('engrave'));
-  setVisible('solidPasses', s.solidAt < 100);
+  show(['solidPasses', 'solidCut'], s.solidAt < 100);
   setVisible('ringGap', s.ring === 'double' || s.ring === 'halo');
   setVisible('mirrorPen', s.mirrorOwnPen);
   setVisible('solidPen', s.solidAt < 100);
@@ -3057,6 +3065,8 @@ function buildControls() {
   addSlider(sec, 'Bare below (% tone)', 'lightest', 0, 100, 1);
   addSlider(sec, 'Solid above (% tone)', 'solidAt', 0, 100, 1, '100 — never.');
   addSlider(sec, 'Solid passes apart (% of the nib)', 'solidPasses', 30, 200, 1);
+  addCheckbox(sec, 'Outlines through the black cut in paper, as in a woodcut', 'solidCut',
+    () => update());
 
   sec = addSection(root, 'Pens');
   addNote(sec, 'Five pens of the drawer; each layer picks one by number. Changing the kind sets ' +
