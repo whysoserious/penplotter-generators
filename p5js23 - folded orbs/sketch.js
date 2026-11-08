@@ -31,14 +31,17 @@ const PAPER_TONES = {
 };
 const TONES = Object.keys(PAPER_TONES).concat('custom');
 
-// The drawer: rapidographs in black and red, ink markers in red, silver and white.
+// The drawer: rapidographs in black and red, each in four nibs.
 const PEN_KINDS = {
-  'black':         { col: '#1b1b1b', w: 0.3 },
-  'red':           { col: '#c8261d', w: 0.3 },
-  'red marker':    { col: '#d9342a', w: 3 },
-  'silver marker': { col: '#adb1b7', w: 3 },
-  'white marker':  { col: '#f7f6f1', w: 3 },
-  'other':         { col: '#2a5bd7', w: 0.5 },
+  'black 0.25': { col: '#1b1b1b', w: 0.25 },
+  'black 0.35': { col: '#1b1b1b', w: 0.35 },
+  'black 0.5':  { col: '#1b1b1b', w: 0.5 },
+  'black 1.0':  { col: '#1b1b1b', w: 1.0 },
+  'red 0.25':   { col: '#c8261d', w: 0.25 },
+  'red 0.35':   { col: '#c8261d', w: 0.35 },
+  'red 0.5':    { col: '#c8261d', w: 0.5 },
+  'red 1.0':    { col: '#c8261d', w: 1.0 },
+  'other':      { col: '#2a5bd7', w: 0.5 },
 };
 const KINDS = Object.keys(PEN_KINDS);
 const SLOTS = 5;
@@ -103,11 +106,11 @@ const settings = {
   cropMarkGap: 400,        // mm — the most that is ever left between two dots
 
   // the pens
-  pen1Kind: 'black',         pen1W: 0.3, pen1Col: '#1b1b1b',
-  pen2Kind: 'red',           pen2W: 0.3, pen2Col: '#c8261d',
-  pen3Kind: 'red marker',    pen3W: 3,   pen3Col: '#d9342a',
-  pen4Kind: 'silver marker', pen4W: 3,   pen4Col: '#adb1b7',
-  pen5Kind: 'white marker',  pen5W: 3,   pen5Col: '#f7f6f1',
+  pen1Kind: 'black 0.35', pen1W: 0.35, pen1Col: '#1b1b1b',
+  pen2Kind: 'red 0.35',   pen2W: 0.35, pen2Col: '#c8261d',
+  pen3Kind: 'black 0.25', pen3W: 0.25, pen3Col: '#1b1b1b',
+  pen4Kind: 'black 1.0',  pen4W: 1.0,  pen4Col: '#1b1b1b',
+  pen5Kind: 'red 0.25',   pen5W: 0.25, pen5Col: '#c8261d',
   linePen: 1, fillPen: 1, mirrorPen: 2, solidPen: 1, ringPen: 1,
   mirrorOwnPen: false,     // what is seen in a mirror shaded in its own pen
 
@@ -488,7 +491,7 @@ function paperDims() {
 
 function penW(i) { return clamp(Number(settings[`pen${i + 1}W`]) || 0.3, 0.05, 30); }
 function penCol(i) { return settings[`pen${i + 1}Col`] || '#000000'; }
-function penKind(i) { return settings[`pen${i + 1}Kind`] || 'black'; }
+function penKind(i) { return settings[`pen${i + 1}Kind`] || 'black 0.35'; }
 function penIdx(v) { return clamp(Math.round(Number(v) || 1), 1, SLOTS) - 1; }
 
 function penLabel(i) {
@@ -2159,15 +2162,18 @@ function cropMarkPlaces() {
   return out;
 }
 
-// A dot is one touch of the pen, and no pen's box clips it: it stands on the very edge.
-// It goes with the first pen in use, so it is plotted once.
+// A dot is one touch of the pen, and no pen's box clips it: it stands on the very edge. It
+// goes with the pen that plots first, and before any of its lines (see orderShapes). The stub
+// points into the sheet: one lying along the bottom or the right edge is cut away by vpype.
 function cropMarkDots() {
   if (!settings.cropMarks) return;
-  const [W] = paperDims();
-  let first = penIdx(settings.linePen);
-  for (const i of penOrder()) if (SINK.ink.includes(i)) { first = i; break; }
-  PEN = first; LAY = L_GUIDES;
-  for (const [x, y] of cropMarkPlaces()) pushPoly([x, x + (x > W / 2 ? -EPS : EPS)], [y, y], 2);
+  const [W, H] = paperDims(), used = new Uint8Array(SLOTS);
+  for (const id of SINK.ink) used[id] = 1;
+  const first = penOrder().find(i => used[i]);
+  PEN = first === undefined ? penIdx(settings.linePen) : first; LAY = L_GUIDES;
+  for (const [x, y] of cropMarkPlaces()) {
+    pushPoly([x, x + (x > W / 2 ? -EPS : EPS)], [y, y + (y > H / 2 ? -EPS : EPS)], 2);
+  }
 }
 
 function buildShapes() {
@@ -2318,11 +2324,19 @@ function orderShapes(sh) {
   for (const id of penOrder()) {
     const list = byInk.get(id);
     if (!list) continue;
-    if (settings.optimiseOrder) {
-      const g = greedy(sh, list, 0, 0);
-      for (let t = 0; t < g.order.length; t++) { order[at] = g.order[t]; flip[at++] = g.flip[t]; }
-    } else {
-      for (const i of list) { order[at] = i; flip[at++] = 0; }
+    // the cut guides first, round the sheet, and the lines on from the last of them: a plot
+    // stopped half way still leaves a sheet marked for the guillotine
+    const dots = list.filter(i => sh.lay[i] === L_GUIDES);
+    const rest = dots.length ? list.filter(i => sh.lay[i] !== L_GUIDES) : list;
+    let x = 0, y = 0;
+    for (const part of [dots, rest]) {
+      if (settings.optimiseOrder) {
+        const g = greedy(sh, part, x, y);
+        for (let t = 0; t < g.order.length; t++) { order[at] = g.order[t]; flip[at++] = g.flip[t]; }
+        x = g.px; y = g.py;
+      } else {
+        for (const i of part) { order[at] = i; flip[at++] = 0; }
+      }
     }
   }
   return { order, flip, ...measurePlan(sh, order, flip) };
@@ -3350,7 +3364,7 @@ function refreshPenList() {
 // stroke-width is each pen's own nib and the caps are round. Strokes come out in the order
 // the pen should visit them, and the link that rebuilds the sheet is in the header.
 
-function svgGroup(keepIt, pen, id) {
+function svgGroup(keepIt, pen, id, num) {
   const { pts, off } = shapes;
   const { order, flip } = plan;
   const f = n => String(+n.toFixed(3));
@@ -3378,25 +3392,28 @@ function svgGroup(keepIt, pen, id) {
   }
   if (d) body += `  <path d="${d}"/>\n`;
   if (!count) return null;
-  return `<g id="${id}" fill="none" stroke="${penCol(pen)}" stroke-width="${f(penW(pen))}" ` +
-    `stroke-linecap="round" stroke-linejoin="round">\n${body}</g>\n`;
+  return `<g id="${id}" inkscape:label="${num} ${id}" fill="none" stroke="${penCol(pen)}" ` +
+    `stroke-width="${f(penW(pen))}" stroke-linecap="round" stroke-linejoin="round">\n${body}</g>\n`;
 }
 
 function penId(i) { return `pen${i + 1}-${penKind(i).replace(/\s+/g, '-')}`; }
 
 function svgFile(groups, tag) {
   const [W, H] = paperDims();
-  let body = '';
+  // The groups numbered as they stand in the file: vpype takes the first number in a label for
+  // its layer, sorts the strokes within a layer and writes the layers by number — so the plot
+  // keeps this order through vpype-process.sh.
+  let body = '', n = 0;
   for (const [keepIt, pen, id] of groups) {
-    const g = svgGroup(keepIt, pen, id);
-    if (g) body += g;
+    const g = svgGroup(keepIt, pen, id, n + 1);
+    if (g) { body += g; n++; }
   }
   if (!body) return null;
   return `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<!-- ${metaComment().replace(/--/g, '- -')} pass=${tag} -->\n` +
     `<!-- ${location.origin === 'null' ? '' : location.origin}${location.pathname}` +
     `#${encodeState().replace(/--/g, '-%2D')} -->\n` +
-    `<svg xmlns="http://www.w3.org/2000/svg" ` +
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" ` +
     `width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}">\n` +
     body +
     `</svg>\n`;
@@ -3407,15 +3424,18 @@ function exportSvg(what) {
     alert('Nothing to export — no line is on this sheet yet.');
     return;
   }
-  const all = () => true;
+  // the cut guides in a group of their own ahead of their pen's lines, so that vpype, which
+  // sorts the strokes inside a group, cannot mix them in
+  const guides = j => shapes.lay[j] === L_GUIDES, rest = j => shapes.lay[j] !== L_GUIDES;
+  const penGroups = i => [[guides, i, `cut-guides-${penId(i)}`], [rest, i, penId(i)]];
   const files = [];
   if (what.all) {
-    files.push([penOrder().map(i => [all, i, penId(i)]), 'everything']);
+    files.push([penOrder().flatMap(penGroups), 'everything']);
   } else if (what.perPen) {
     for (const i of penOrder()) {
       if (perPen[i] && perPen[i].strokes) {
         const w = penW(i);
-        files.push([[[all, i, penId(i)]], `pen${i + 1} ${penKind(i)} ${+w.toFixed(2)}mm`]);
+        files.push([penGroups(i), `pen${i + 1} ${penKind(i)} ${+w.toFixed(2)}mm`]);
       }
     }
   } else if (what.layer !== undefined) {
