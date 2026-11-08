@@ -57,7 +57,12 @@ niżej. Zanim zaczniesz pisać:
   przykłada się ostrze do dwóch kropek i tnie. Kropka to jedno dotknięcie pióra,
   nie podlega przycinaniu do pola pióra, idzie pierwszym piórem w użyciu i jest
   osobną warstwą: trafia do SVG „wszystko” i do pliku tego jednego pióra, więc
-  plotuje się raz. Wzorzec: p5js21 (wcześniej, tylko arkusz: p5js13–p5js15).
+  plotuje się raz. Kropki rysują się **pierwsze**, przed każdą kreską — w SVG we
+  własnej grupie przed liniami pióra, z `inkscape:label` zaczynającym się od numeru
+  kolejnego, żeby vpype (sortuje tylko w obrębie warstwy, warstwy pisze po numerze)
+  ich nie przemieszał; kropka to stub skierowany do środka arkusza, bo leżący na
+  dolnej lub prawej krawędzi `vpype read` wycina. Wzorzec: p5js21 (wcześniej, tylko
+  arkusz: p5js13–p5js15).
 - **Sprawdź w headless Chrome** (patrz niżej) — wszystkie sceny, interakcję,
   eksport — i obejrzyj wynik, zanim uznasz krok za skończony.
 - **Commit i push sam, po każdym skończonym kroku**, bez pytania i bez stopki
