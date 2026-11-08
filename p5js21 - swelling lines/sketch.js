@@ -144,6 +144,7 @@ const settings = {
   // the swelling
   thin: 0,              // % of the pitch, in the lightest
   wide: 90,             // % of the pitch, in the darkest
+  hairMin: 0.3,         // mm — a hair of paper thinner than this on the sheet is closed
   curve: 100,           // %
   liftBelow: 0,         // % — the pen is up where the picture is lighter
   minPiece: 0.6,        // mm — a shorter stroke is dropped
@@ -1422,16 +1423,17 @@ function makeMask() {
 let RM = 0;                  // readings in the piece in hand
 let RX = new Float64Array(4096), RY = new Float64Array(4096);
 let RNX = new Float64Array(4096), RNY = new Float64Array(4096);
-let RH = new Float64Array(4096), RS = new Float64Array(4096);
+let RH = new Float64Array(4096), RS = new Float64Array(4096), RQ = new Float64Array(4096);
 let QX = new Float64Array(4096), QY = new Float64Array(4096), QN = 0;
 let MIN_PIECE = 0, PASS_STEP = 0.85, STITCH = 1;
 
-function runPush(x, y, nx, ny, h, sa) {
+function runPush(x, y, nx, ny, h, sa, q) {
   if (RM >= RX.length) {
     const grow = a => { const b = new Float64Array(a.length * 2); b.set(a); return b; };
     RX = grow(RX); RY = grow(RY); RNX = grow(RNX); RNY = grow(RNY); RH = grow(RH); RS = grow(RS);
+    RQ = grow(RQ);
   }
-  RX[RM] = x; RY[RM] = y; RNX[RM] = nx; RNY[RM] = ny; RH[RM] = h; RS[RM] = sa;
+  RX[RM] = x; RY[RM] = y; RNX[RM] = nx; RNY[RM] = ny; RH[RM] = h; RS[RM] = sa; RQ[RM] = q;
   RM++;
 }
 
@@ -1456,13 +1458,15 @@ function traceLayer(L) {
   const wob = s.wobble, wobK = 1 / Math.max(1, s.wobbleScale);
   const P0 = s.pitch * L.pitchK;
   const reach = Math.abs(wAmp) + 2 * Math.abs(wob) + (Math.abs(lean) + Math.abs(bulge) + 1) * P0 + 1;
-  const mask = L.mask, flip = L.flip ? -1 : 1;
+  const mask = L.mask, flip = L.flip ? -1 : 1, hair = Math.max(0, s.hairMin) / gK;
+  const widthAt = (T, P) => P * ((thin + (wide - thin) * (g === 1 ? T : Math.pow(T, g))) * L.widthK + L.add);
+  const wMax = Math.max(thin, wide) * L.widthK + L.add;      // of the pitch
   PEN = L.pen; LAY = L.lay;
   let lines = 0, widest = 0;
 
   eachLine({ turn: L.turn, shift: L.shift, pitchK: L.pitchK, reach, coarse: L.coarse }, j => {
     RM = 0;
-    let before = 0, px = 0, py = 0, pnx = 0, pny = 0, ph = 0, ps = 0, drew = false;
+    let before = 0, px = 0, py = 0, pnx = 0, pny = 0, ph = 0, ps = 0, pq = 1, drew = false;
     for (let i = 0; i < LN; i++) {
       const bx = BX[i], by = BY[i], nx = NX[i], ny = NY[i], P = PP[i];
       let d = 0;
@@ -1470,10 +1474,40 @@ function traceLayer(L) {
       if (wob) d += wob * 2 * NZW(bx * wobK, by * wobK, j * 0.37 + 3.1);
       if (lean) d += lean * P * (2 * toneAt(bx, by) - 1);
       if (bulge) d += bulge * P * (toneAt(bx + nx * P, by + ny * P) - toneAt(bx - nx * P, by - ny * P));
-      const x = bx + nx * d, y = by + ny * d;
+      let x = bx + nx * d, y = by + ny * d;
       const T = tone(x, y);
-      const wd = P * ((thin + (wide - thin) * (g === 1 ? T : Math.pow(T, g))) * L.widthK + L.add);
-      const h = wd > nib ? (wd - nib) / 2 : 0;
+      let wd = widthAt(T, P);
+      const wd0 = wd;                           // as wide as the tone makes it
+      // On cloth the lines come closer on the sheet where it turns away, and further apart
+      // where it comes nearer than the rest — read here and halfway to the next line on
+      // either side. Where it spreads them, the nib is narrower on the flat picture, so the
+      // passes are still close enough on paper to leave none of it.
+      let q = 1, sl = 1, sr = 1;
+      if (CF) {
+        const hp = P / 2;
+        sl = clothAcross(x - nx * hp, y - ny * hp, nx, ny);
+        sr = clothAcross(x + nx * hp, y + ny * hp, nx, ny);
+        const sm = Math.max(sl, sr, clothAcross(x, y, nx, ny));
+        if (sm > 1) q = 1 / sm;
+      }
+      const nq = nib * q;
+      // A hair of paper thinner than a few tenths of a millimetre is not kept on paper — it
+      // comes out torn, and the preview cannot show it at all. Each of the two hairs beside
+      // the line is weighed where it lies, between this line and the next, both as wide as
+      // their tone makes them; one too thin is closed — this line and the next both swell
+      // to just past the middle between them, and so do the passes.
+      if (hair > 0 && wd < P) {
+        const e = (1 - PASS_STEP) * nq / 2, wq = Math.max(wd, nq);
+        const far = P - (wq + Math.max(P * wMax, nq)) / 2 + nq;     // the most the next can take
+        let lo = wd / 2, hi = lo;
+        if (far * sl - nib < hair && hairShut(x - nx * P, y - ny * P, P, wq, nq, nib, sl, hair, tone, widthAt, lift)) lo = P / 2 + e;
+        if (far * sr - nib < hair && hairShut(x + nx * P, y + ny * P, P, wq, nq, nib, sr, hair, tone, widthAt, lift)) hi = P / 2 + e;
+        if (lo !== hi || lo !== wd / 2) {
+          const dd = (hi - lo) / 2;
+          x += nx * dd; y += ny * dd; wd = lo + hi;
+        }
+      }
+      const h = wd > nq ? (wd - nq) / 2 : 0;
       let on = mask ? flip * mask(x, y, T, j) : 1;
       if (lift > 0 && T - lift < on) on = T - lift;
       const out = Math.max(A.x0 - x, x - A.x1, A.y0 - y, y - A.y1) - h - nib;
@@ -1481,20 +1515,34 @@ function traceLayer(L) {
       if (i > 0 && (on > 0) !== (before > 0)) {
         const t = before / (before - on);       // where between the two the pen goes down or up
         runPush(px + (x - px) * t, py + (y - py) * t, pnx + (nx - pnx) * t, pny + (ny - pny) * t,
-                ph + (h - ph) * t, ps + (SA[i] - ps) * t);
+                ph + (h - ph) * t, ps + (SA[i] - ps) * t, pq + (q - pq) * t);
         if (before > 0) { if (inkRun(L.ink, nib)) drew = true; RM = 0; }
       }
       if (on > 0) {
-        runPush(x, y, nx, ny, h, SA[i]);
-        if (wd > widest) widest = wd;
+        runPush(x, y, nx, ny, h, SA[i], q);
+        if (wd0 > widest) widest = wd0;
       }
-      before = on; px = x; py = y; pnx = nx; pny = ny; ph = h; ps = SA[i];
+      before = on; px = x; py = y; pnx = nx; pny = ny; ph = h; ps = SA[i]; pq = q;
     }
     if (RM > 0 && inkRun(L.ink, nib)) drew = true;
     RM = 0;
     if (drew) lines++;
   });
   return { lines, widest: widest * gK };
+}
+
+// Whether the hair of paper between a line as wide as wq and the next one, whose middle is
+// at (x, y), is thinner on the sheet than asked — s is how the cloth spreads it there. The
+// edges are half a nib (nq) inside the outlines on the flat picture, but the pen is as wide
+// as ever on the sheet (nib), so where the cloth crowds the lines the ink reaches past their
+// crowded outlines and the hair is thinner still. Not if the next line is not drawn there:
+// past the edge of the picture, or lifted in the light.
+function hairShut(x, y, P, wq, nq, nib, s, hair, tone, widthAt, lift) {
+  const A = area;
+  if (x < A.x0 || x > A.x1 || y < A.y0 || y > A.y1) return false;
+  const T = tone(x, y);
+  if (lift > 0 && T < lift) return false;
+  return (P - (wq + Math.max(widthAt(T, P), nq)) / 2 + nq) * s - nib < hair;
 }
 
 // One piece of a line, as its ink asks.
@@ -1511,8 +1559,8 @@ function traceLayer(L) {
 function inkRun(ink, nib) {
   const m = RM;
   if (m < 2 || Math.abs(RS[m - 1] - RS[0]) < MIN_PIECE) return false;
-  let hmax = 0;
-  for (let i = 0; i < m; i++) if (RH[i] > hmax) hmax = RH[i];
+  let hmax = 0;                               // the widest, in the nib of the flat picture
+  for (let i = 0; i < m; i++) { const hq = RH[i] / RQ[i]; if (hq > hmax) hmax = hq; }
   const merge = MERGE * nib;
   if (ink === 'hairline' || (hmax <= merge && ink !== 'rungs')) { passStroke(0, 0, -1, false); return true; }
   const step = Math.max(0.03, PASS_STEP * nib);
@@ -1568,21 +1616,24 @@ function fanBetween(lo, hi, n, step) {
 
 // A stroke a × the half-width + b off the middle, wherever the half-width is over tau —
 // or, if asked, wherever it is not; its ends are put where the half-width crosses tau
-// exactly.
+// exactly. b and tau are in the nib of the flat picture, and shrink with it where the cloth
+// spreads the lines (RQ).
 function passStroke(a, b, tau, under) {
   const m = RM;
   QN = 0;
   let was = false;
   for (let i = 0; i < m; i++) {
-    const inside = (RH[i] > tau) !== under;
+    const inside = (RH[i] > tau * RQ[i]) !== under;
     if (i > 0 && inside !== was) {
-      const t = (tau - RH[i - 1]) / (RH[i] - RH[i - 1]), o = a * tau + b;
+      const q0 = RQ[i - 1], dq = RQ[i] - q0;
+      const t = (tau * q0 - RH[i - 1]) / ((RH[i] - RH[i - 1]) - tau * dq);
+      const o = (a * tau + b) * (q0 + dq * t);
       qPush(RX[i - 1] + (RX[i] - RX[i - 1]) * t + (RNX[i - 1] + (RNX[i] - RNX[i - 1]) * t) * o,
             RY[i - 1] + (RY[i] - RY[i - 1]) * t + (RNY[i - 1] + (RNY[i] - RNY[i - 1]) * t) * o);
       if (was) strokeOut(true);
     }
     if (inside) {
-      const o = a * RH[i] + b;
+      const o = a * RH[i] + b * RQ[i];
       qPush(RX[i] + RNX[i] * o, RY[i] + RNY[i] * o);
     }
     was = inside;
@@ -3055,10 +3106,11 @@ const CM = new Float64Array(4);
 let CF = null;
 
 function clothFast(C, coarse) {
-  const s = settings, Z = C.zb;
+  const s = settings, Z = C.zb, J = C.spread || (C.spread = clothSpread(C));
   return {
     nx: C.nx, ny: C.ny, x0: C.x0, y0: C.y0, hx: C.hx, hy: C.hy,
     SX: C.SX, SY: C.SY, SD: C.SD, FACE: C.FACE, SH: C.SH,
+    XU: J.XU, YU: J.YU, XV: J.XV, YV: J.YV,
     zx0: Z.x0, zy0: Z.y0, zpx: Z.px, zw: Z.w, zh: Z.h, ZB: Z.B,
     // read every 0.8 of a cell — while a drag lasts twice as far, and not straightened: the
     // points cost less to keep than to weigh
@@ -3067,6 +3119,41 @@ function clothFast(C, coarse) {
     back: { 'printed through': 1, 'bare': 0, 'other pen': 2 }[s.clothBack] ?? 1,
     backPen: penIdx(s.backPen), reads: 0, unseen: 0,
   };
+}
+
+// How the cloth spreads the flat picture over the sheet, a cell at a time: where a step
+// along u and a step along v of the picture go on the sheet, against the scale the whole
+// cloth was fitted with — 1 where it lies square to the viewer.
+function clothSpread(C) {
+  const { nx, ny, SX, SY } = C, n = (nx - 1) * (ny - 1), ku = 0.5 / (C.hx * C.g), kv = 0.5 / (C.hy * C.g);
+  const XU = new Float32Array(n), YU = new Float32Array(n), XV = new Float32Array(n), YV = new Float32Array(n);
+  for (let j = 0; j + 1 < ny; j++) {
+    for (let i = 0; i + 1 < nx; i++) {
+      const o = j * nx + i, c = j * (nx - 1) + i;
+      XU[c] = (SX[o + 1] - SX[o] + SX[o + nx + 1] - SX[o + nx]) * ku;
+      YU[c] = (SY[o + 1] - SY[o] + SY[o + nx + 1] - SY[o + nx]) * ku;
+      XV[c] = (SX[o + nx] - SX[o] + SX[o + nx + 1] - SX[o + 1]) * kv;
+      YV[c] = (SY[o + nx] - SY[o] + SY[o + nx + 1] - SY[o + 1]) * kv;
+    }
+  }
+  return { XU, YU, XV, YV };
+}
+
+// How far apart two lines of the flat picture, a step apart the way (px, py), come out on
+// the sheet at (u, v), against the fitted scale: under 1 where the cloth turns away and
+// the lines crowd, over 1 where it comes nearer than the rest. Measured square to the
+// lines as they run there, which a shear makes nearer than the step itself.
+function clothAcross(u, v, px, py) {
+  const C = CF, gx = C.nx - 1;
+  let a = (u - C.x0) / C.hx, b = (v - C.y0) / C.hy;
+  if (a < 0) a = 0; else if (a > gx - 0.000001) a = gx - 0.000001;
+  if (b < 0) b = 0; else if (b > C.ny - 1.000001) b = C.ny - 1.000001;
+  const c = (b | 0) * gx + (a | 0);
+  const xu = C.XU[c], yu = C.YU[c], xv = C.XV[c], yv = C.YV[c];
+  const across = Math.hypot(xu * px + xv * py, yu * px + yv * py);
+  const along = Math.hypot(xv * px - xu * py, yv * px - yu * py);
+  const square = Math.abs(xu * yv - xv * yu) / Math.max(along, 1e-9);
+  return square < across ? square : across;
 }
 
 function clothAt(u, v) {
@@ -4737,6 +4824,11 @@ function buildControls() {
   addSlider(sec, 'Widest (% of the pitch)', 'wide', 0, 140, 1,
     'How fat a line gets in the darkest. Under 100 a hair of paper stays between two lines; ' +
     'over it they run together.');
+  addSlider(sec, 'Paper between, at least (mm)', 'hairMin', 0, 3, 0.05,
+    'A hair of paper left between two lines and thinner than this on the sheet — where they ' +
+    'swell, or where a cloth turned away crowds them — is closed: they run together. A ' +
+    'plotter cannot leave a much thinner hair clean, and the preview cannot show one. 0 ' +
+    'keeps every hair.');
   addSlider(sec, 'Thinnest (% of the pitch)', 'thin', 0, 100, 1,
     'In the lightest. Anything narrower than the nib is one stroke of it.');
   addSlider(sec, 'Curve (%)', 'curve', 20, 400, 1, 'Over 100 keeps the lines thin longer and swells them late.');
@@ -5185,7 +5277,9 @@ function updateStats() {
     `${FIELD ? Math.round(FIELD.mean * 100) : 0} % dark on the whole</div>` +
     `<div>The fattest line is <b>${fat.toFixed(2)}</b> mm` +
     `${(s.ink === 'solid' || s.ink === 'fan') && COUNTS.passes > 1 ? `, ${COUNTS.passes} passes of the pen` : ''}` +
-    `${s.carrier !== 'rays' && gap > 0 ? ` — <b>${gap.toFixed(2)}</b> mm of paper to the next` : ''}</div>` +
+    `${s.carrier !== 'rays' && gap > 0 ? gap < s.hairMin
+      ? ` — the ${gap.toFixed(2)} mm of paper to the next is under the least kept, so they run together`
+      : ` — <b>${gap.toFixed(2)}</b> mm of paper to the next` : ''}</div>` +
     `<div>The pen goes down <b>${groupNum(plan.downs)}</b> times, ` +
     `${(plan.travel / 1000).toFixed(1)} m in the air</div>` +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ${lastMs.toFixed(0)} ms to build` +

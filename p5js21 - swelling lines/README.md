@@ -93,8 +93,15 @@ is looked at — finer follows it more closely and takes longer to build.
 
 A line's width is a share of the pitch: **Thinnest** in the lightest place, **Widest** in
 the darkest, and in between as the picture's tone says, bent by **Curve** (over 100 keeps
-the lines thin longer). Under 100 % a hair of paper always stays between two lines; over it
-they run together. Anything narrower than the nib is one stroke of it, so a white place is
+the lines thin longer). Under 100 % a hair of paper stays between two lines; over it they
+run together. **Paper between, at least** closes a hair thinner than that on the sheet
+(0.3 mm unless set): the two lines swell to just past the middle between them and run
+together there, and the hair ends in a point where it grows thin enough. A plotter cannot
+leave a much thinner hair clean — it comes out as a row of torn slivers — and the preview,
+a few pixels to the millimetre, cannot show one at all, so a dark place that looks solid on
+the screen is solid on paper too. Each hair is weighed where it lies, with both lines as
+wide as their tone makes them; 0 keeps every hair. Anything narrower than the nib is one
+stroke of it, so a white place is
 crossed by hairlines — unless **Pen up below** lifts the pen wherever the picture is
 lighter than that and leaves the paper bare. **Shortest stroke** drops the crumbs.
 
@@ -238,6 +245,14 @@ fine shape rides on the hanging one, each point keeping its place against it.
 **Seen from.** **Tilted back** (seen from below its bottom edge), **turned on the sheet**,
 **from the side**, in **perspective**; **fitted to the picture** or not. The zoom at the top
 of the panel enlarges and moves it as it does the flat sheet.
+
+**Crowded lines.** Where the cloth turns away from the viewer the lines crowd on the
+sheet, and so does the paper between them: a hair that is clear on the flat picture can
+come out a few hundredths of a millimetre wide. It is weighed as it comes out on the sheet —
+where the cloth crowds it, and with the pen as wide as ever there, so its ink reaches past
+the crowded outline — and closed under **Paper between, at least**. Where the cloth comes
+nearer than the rest and spreads the lines, the passes of a ribbon are laid closer on the
+flat picture, so they are still 85 % of a nib apart on paper.
 
 **Light.** The tone a line swells with is darkened by **Shade** where the cloth turns from
 the light, and lightened where it turns toward it, the **light** coming **from** a
