@@ -44,18 +44,21 @@ const KINDS = Object.keys(PEN_KINDS);
 const SLOTS = 5;
 
 const VIEWS     = ['orb', 'mirror ball', 'mirror room', 'dome'];
-const OBJECTS   = ['kifs', 'mandelbox', 'julia', 'hyperfold', 'polytope', 'hopf'];
+const OBJECTS   = ['kifs', 'mandelbox', 'julia', 'hyperfold', 'polytope', 'hopf', 'apollonian', 'kleinian', 'rings'];
 const FOLDS     = ['tetra', 'cube'];
 const CORES     = ['box', 'ball', 'cross'];
 const POLYTOPES = ['tesseract', '16-cell', '24-cell'];
-const ENCLOSES  = ['none', 'inside', 'carved', 'shell'];
+const ENCLOSES  = ['none', 'inside', 'carved', 'shell', 'window'];
+const DEEPS     = ['none', 'nested', 'inverted', 'tunnel'];
 const SYMS      = ['none', 'mirror', 'dihedral', 'rotational'];
-const PATTERNS  = ['mixed', 'dots', 'hatch', 'cross', 'flow', 'none'];
-const FILLS     = ['dots', 'hatch', 'cross', 'flow'];
+const PATTERNS  = ['mixed', 'dots', 'hatch', 'cross', 'flow', 'engrave', 'none'];
+const FILLS     = ['dots', 'hatch', 'cross', 'flow', 'engrave'];
+const ENGRAVE_BY = ['contour', 'slope', 'per region'];
 const HATCH_BY  = ['fixed', 'per region', 'surface'];
-const FLOWS     = ['depth', 'height', 'radius', 'trap', 'light'];
+const FLOWS     = ['depth', 'height', 'radius', 'trap', 'light', 'meridians', 'parallels', 'axis'];
 const DOT_ORDER = ['bayer', 'random', 'rows'];
 const RINGS     = ['none', 'line', 'double', 'halo', 'broken'];
+const FRAMES    = ['none', 'pearls', 'rope', 'egg and dart', 'gloriole', 'scrolls', 'laurel'];
 const MARK_AT   = ['sheet', 'picture'];
 
 // What goes on the sheet. The cut guides go with the pen of the outlines.
@@ -66,8 +69,9 @@ const LAYERS = [
   { id: 'solid',    label: 'solid black',       pen: 'solidPen' },
   { id: 'ring',     label: 'ring',              pen: 'ringPen' },
   { id: 'guides',   label: 'cut guides',        pen: 'linePen' },
+  { id: 'frame',    label: 'frame',             pen: 'framePen' },
 ];
-const L_LINES = 0, L_FILL = 1, L_MIRROR = 2, L_SOLID = 3, L_RING = 4, L_GUIDES = 5;
+const L_LINES = 0, L_FILL = 1, L_MIRROR = 2, L_SOLID = 3, L_RING = 4, L_GUIDES = 5, L_FRAME = 6;
 
 const MAX_STROKES    = 400_000;
 const BUSY_STROKES   = 40_000;
@@ -76,7 +80,8 @@ const DRAG_COARSE    = 3;          // while the hand turns the orb, rays this mu
 const SIMPLIFY       = 0.03;
 const HYSTERESIS     = 0.08;       // of the tone — how much lighter a begun hatch line may run on
 const MIN_DASH       = 0.8;        // mm — a shorter piece of hatching is left out
-const MIN_FLOW       = 1.5;        // mm — and a shorter piece of a flow line       // mm — how far an outline may be straightened
+const MIN_FLOW       = 1.5;        // mm — and a shorter piece of a flow line
+const ENGRAVE_TEST   = 0.55;       // of the spacing — an engraved line stops this near another
 const EPS            = 0.01;       // mm — the stub that stands in for a dot
 const PREVIEW_MAX_PX = 1500;
 const PEN_CYCLE_S    = 0.3;
@@ -146,6 +151,29 @@ const settings = {
   enclose: 'inside',
   shell: 0.12,
   hollow: 0,               // radii of the ball — a round room carved at the heart
+  coreRound: 0,            // of the piece — its edges rounded into tubes
+  spiral: 0,               // ° per radius — twisted round its upright, a Solomonic column
+  apoS: 1.15, apoZoom: 1.6,
+  klBox: 0.92, klSize: 1.05, klZoom: 1.4,
+  ringCount: 5, ringShrink: 0.8, ringWidth: 0.16, ringThick: 0.05, ringTilt: 34, ringTilt0: 0,
+  ringTurn: 28,
+
+  // deeper inside
+  deep: 'none',
+  deepLevels: 6,           // copies, periods or lattice cells before the abyss
+  nestRatio: 0.5,          // each copy so much the size of the one round it
+  nestGap: 0.08,           // of the copy — room round it in the one outside
+  nestCarve: true,         // each copy sits in a round room carved for it; off, the one outside is cut open
+  deepTurn: 0,             // ° each copy, or each period of the corridor, is turned more
+  vanishX: 0,              // radii of the ball — where the copies shrink to
+  vanishY: 0,
+  vanishZ: 0,
+  deepRepeat: 0,           // radii — the turned world a lattice of copies this far apart; 0, one
+  tunnelLen: 1.2,          // radii — one period of the corridor
+  deepAlike: true,         // every copy shaded as the first is
+  abyssTone: 100,          // % of ink where it goes too deep to see
+  lens: 100,               // % — the index of the ball's skin; 100, no glass
+  cutaway: 0,              // % of the ball cut away towards the eye
 
   // mirrors
   mirrorBall: 0,           // radii of the ball — 0, none
@@ -163,6 +191,7 @@ const settings = {
   // light and tone
   lightYaw: -35,           // °
   lightPitch: 40,
+  headlight: 0,            // % of the light from the eye — what faces it lit, what turns away dark
   ambient: 22,             // %
   aoK: 70,                 // %
   fog: 0,                  // % — over 0 the far fades to paper, under it to ink
@@ -186,7 +215,7 @@ const settings = {
 
   // the shading
   pattern: 'mixed',
-  mixDots: true, mixHatch: true, mixCross: true, mixFlow: false,
+  mixDots: true, mixHatch: true, mixCross: true, mixFlow: false, mixEngrave: false,
   dotPitch: 1.0,           // mm
   dotAngle: 45,            // °
   dotOrder: 'bayer',
@@ -195,6 +224,8 @@ const settings = {
   hatchBy: 'surface',
   flowField: 'depth',
   flowLines: 90,
+  engravePitch: 0.5,       // mm between engraved lines at the darkest
+  engraveBy: 'contour',
   edgeGap: 0.5,            // mm of paper left along every outline
   lightest: 8,             // % — lighter than this is left bare
   solidAt: 100,            // % — darker than this is filled solid; 100, never
@@ -203,6 +234,15 @@ const settings = {
   // ring
   ring: 'line',
   ringGap: 3,              // mm
+
+  // a frame of ornament round the orb
+  frame: 'none',
+  frameGap: 2,             // mm from the ring
+  frameWidth: 9,           // mm across the band
+  frameCount: 40,          // pearls, strands, eggs, rays, scrolls or pairs of leaves round it
+  frameBorder: false,      // a thin line along both edges of the band
+  frameShade: true,        // the shadow sides hatched, the leaves ribbed
+  framePen: 1,
 
   // output
   optimiseOrder: true,
@@ -223,7 +263,10 @@ const RENDER_KEYS = ['paper', 'orientation', 'customW', 'customH', 'margin', 'or
   'jc2', 'jc3', 'jZoom', 'wSlice', 'hZoom', 'polytope', 'tube', 'node', 'layers', 'layerGap',
   'windA', 'windB', 'windStep', 'fibres', 'xw', 'yw', 'zw', 'yaw', 'pitch', 'roll', 'objSize',
   'invertObj', 'enclose', 'shell', 'hollow', 'mirrorBall', 'room', 'bounces', 'maxSteps',
-  'precision', 'symmetry', 'symN'];
+  'precision', 'symmetry', 'symN', 'coreRound', 'spiral', 'apoS', 'apoZoom', 'klBox', 'klSize',
+  'klZoom', 'ringCount', 'ringShrink', 'ringWidth', 'ringThick', 'ringTilt', 'ringTilt0', 'ringTurn',
+  'deep', 'deepLevels', 'nestRatio', 'nestGap', 'nestCarve', 'deepTurn', 'vanishX', 'vanishY',
+  'vanishZ', 'deepRepeat', 'tunnelLen', 'lens', 'cutaway'];
 
 // Sheets worth starting from. Each one is the whole state.
 const SCENES = [
@@ -602,6 +645,19 @@ function renderParams(coarse) {
     'wSlice', 'hZoom', 'polytope', 'tube', 'node', 'layers', 'layerGap', 'windA', 'windB',
     'windStep', 'fibres', 'xw', 'yw', 'zw', 'yaw', 'pitch', 'roll', 'objSize', 'invertObj',
     'enclose', 'shell', 'hollow', 'bounces', 'maxSteps', 'symmetry', 'symN']) P[k] = s[k];
+  // what is new since the first sheets goes in only when it is used, so the old keys stay
+  for (const k of ['coreRound', 'spiral', 'lens', 'cutaway']) if (s[k] !== DEFAULTS[k]) P[k] = s[k];
+  if (s.object === 'apollonian') { P.apoS = s.apoS; P.apoZoom = s.apoZoom; }
+  if (s.object === 'kleinian') { P.klBox = s.klBox; P.klSize = s.klSize; P.klZoom = s.klZoom; }
+  if (s.object === 'rings') {
+    for (const k of ['ringCount', 'ringShrink', 'ringWidth', 'ringThick', 'ringTilt', 'ringTilt0',
+      'ringTurn']) P[k] = s[k];
+  }
+  if (s.deep !== 'none') {
+    for (const k of ['deep', 'deepLevels', 'nestRatio', 'nestGap', 'nestCarve', 'deepTurn', 'vanishX', 'vanishY',
+      'vanishZ', 'deepRepeat', 'tunnelLen']) P[k] = s[k];
+  }
+  if (s.deep === 'tunnel' || s.enclose === 'window') P.tMax = 80;
   P.iters = Math.round(P.iters);
   P.partDepth = Math.round(P.partDepth);
   P.symN = Math.max(1, Math.round(P.symN));
@@ -771,21 +827,31 @@ function toneOf(B) {
   const ly = rad(s.lightYaw), lp = rad(s.lightPitch);
   const Lx = Math.sin(ly) * Math.cos(lp), Ly = Math.sin(lp), Lz = -Math.cos(ly) * Math.cos(lp);
   const amb = s.ambient / 100, aoK = s.aoK / 100, dim = 1 - s.mirrorDim / 100;
+  const head = clamp(s.headlight, 0, 100) / 100, face = B.buf.face;
   // fog measured from the nearest surface to the furthest one in sight
   const fog = s.fog / 100;
   const isSurf = i => B.buf.kind[i] === 2 || B.buf.kind[i] === 3;
-  const near = fog ? quantile(B.buf.depth, isSurf, 0.01) : 0;
-  const far = fog ? Math.max(near + 1e-6, quantile(B.buf.depth, isSurf, 0.99)) : 1;
+  // deeper inside, the far is measured as the space shrinks: in steps of scale, not of length
+  let depth = B.buf.depth;
+  if (s.deep !== 'none' && B.buf.far) {
+    depth = new Float32Array(n);
+    for (let i = 0; i < n; i++) depth[i] = Math.log(Math.max(1e-9, B.buf.far[i]));
+  }
+  const near = fog ? quantile(depth, isSurf, 0.01) : 0;
+  const far = fog ? Math.max(near + 1e-6, quantile(depth, isSurf, 0.99)) : 1;
   const gam = 100 / clamp(s.gamma, 10, 1000), con = 1 + s.contrast / 100;
-  const { kind, nx, ny, nz, ao, depth, bounce } = B.buf;
+  const { kind, nx, ny, nz, ao, bounce } = B.buf;
   for (let i = 0; i < n; i++) {
     const k = kind[i];
     if (!k) continue;
     let b;
     if (k === 1 || k === 4) {
       b = 1 - s.skyTone / 100;
+    } else if (k === 5) {
+      b = 1 - s.abyssTone / 100;
     } else {
-      const dif = Math.max(0, nx[i] * Lx + ny[i] * Ly + nz[i] * Lz);
+      let dif = Math.max(0, nx[i] * Lx + ny[i] * Ly + nz[i] * Lz);
+      if (head) dif = dif * (1 - head) + head * clamp(face[i], 0, 1);
       b = amb + (1 - amb) * dif;
       b *= 1 - aoK * (1 - ao[i]);
       if (fog) {
@@ -819,9 +885,12 @@ function makeSets(n) {
   return { p, find, join };
 }
 
+// A name and the name it would have in the first copy — what the pattern is chosen by,
+// when every copy is to be shaded alike.
 function namesOf(B) {
   const s = settings, N = B.N, n = N * N, name = new Int32Array(n).fill(-1);
-  const { kind, part, trap, path } = B.buf;
+  const base = new Int32Array(n).fill(-1);
+  const { kind, part, trap, path } = B.buf, level = B.buf.level;
   const surf = i => kind[i] === 2 || kind[i] === 3;
   let lo = 0, hi = 1;
   const bands = Math.round(s.panels);
@@ -836,7 +905,9 @@ function namesOf(B) {
     let band = 0;
     if (bands > 0 && (k === 2 || k === 3)) band = clamp(Math.floor((trap[i] - lo) / (hi - lo) * bands), 0, bands - 1);
     const pc = (part[i] % 4093 + 4093) % 4093;
-    name[i] = ((path[i] * 4 + (k & 3)) * 4096 + (k === 2 || k === 3 ? pc : 0)) * 128 + band;
+    base[i] = ((path[i] * 4 + (k === 5 ? 0 : k & 3)) * 4096 + (k === 2 || k === 3 ? pc : 0)) * 128 + band;
+    const lv = level ? level[i] : 0;
+    name[i] = lv ? (base[i] ^ Math.imul(lv, 0x2c1b3c6d)) >>> 1 : base[i];
   }
   // regions too small to plot are swallowed by their largest neighbour
   const most = Math.round(s.despeckle);
@@ -851,7 +922,7 @@ function namesOf(B) {
       }
       const size = new Int32Array(n);
       for (let a = 0; a < n; a++) if (name[a] >= 0) size[U.find(a)]++;
-      const best = new Int32Array(n).fill(-1), bestSize = new Int32Array(n);
+      const best = new Int32Array(n).fill(-1), bestSize = new Int32Array(n), bestBase = new Int32Array(n);
       for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
         const a = j * N + i;
         if (name[a] < 0) continue;
@@ -861,7 +932,7 @@ function namesOf(B) {
           if (name[b] < 0) return;
           const rb = U.find(b);
           if (rb === ra) return;
-          if (size[rb] > bestSize[ra]) { bestSize[ra] = size[rb]; best[ra] = name[b]; }
+          if (size[rb] > bestSize[ra]) { bestSize[ra] = size[rb]; best[ra] = name[b]; bestBase[ra] = base[b]; }
         };
         if (i > 0) look(a - 1);
         if (i + 1 < N) look(a + 1);
@@ -872,17 +943,18 @@ function namesOf(B) {
       for (let a = 0; a < n; a++) {
         if (name[a] < 0) continue;
         const ra = U.find(a);
-        if (size[ra] < most && best[ra] >= 0) { name[a] = best[ra]; changed++; }
+        if (size[ra] < most && best[ra] >= 0) { name[a] = best[ra]; base[a] = bestBase[ra]; changed++; }
       }
       if (!changed) break;
     }
   }
-  return name;
+  return { name, base };
 }
 
 function buildGrid(B) {
   const s = settings, N = B.N, n = N * N, cell = B.cell;
-  const T0 = toneOf(B), name = namesOf(B);
+  const T0 = toneOf(B), { name, base } = namesOf(B);
+  const alike = settings.deepAlike && settings.deep !== 'none';
   const { kind, depth, nx, ny, nz } = B.buf;
   const dEdge = s.depthEdge > 0 ? s.depthEdge / 100 : Infinity;
   const cosC = s.crease > 0 ? Math.cos(rad(s.crease)) : -2;
@@ -927,7 +999,7 @@ function buildGrid(B) {
     let id = idOf[r];
     if (id < 0) {
       id = idOf[r] = R++;
-      sumT.push(0); cnt.push(0); snx.push(0); sny.push(0); rname.push(name[a]);
+      sumT.push(0); cnt.push(0); snx.push(0); sny.push(0); rname.push(alike ? base[a] : name[a]);
       mir.push(B.buf.bounce[a] > 0 && kind[a] !== 4 ? 1 : 0);
     }
     reg[a] = id;
@@ -1474,12 +1546,196 @@ function shading() {
 
   // lines that follow the surface: level lines of a field read off the hits
   if (pat.includes('flow')) flowLines(pat, gap, low, isSolid);
+  if (pat.includes('engrave')) engraveLines(pat, gap, low, isSolid);
   if (solidAt < 1) solids(isSolid);
+}
+
+// Engraving: lines that run with the surface — round it, along the contours of its depth, or
+// down its slope — laid as evenly as an engraver would, closer where it is darker. A line is
+// grown from a seed both ways through the field of directions and stops at its region's
+// edge, where the tone gets too light, or where it comes nearer another line than half the
+// spacing there; every line seeds the next a spacing to either side (Jobard and Lefer).
+function engraveLines(pat, gap, low, isSolid) {
+  const s = settings, { N, n, cell, reg, T, gx0, gy0 } = G;
+  const depth = G.B.buf.depth;
+  // the slope of the depth across the picture, as a doubled angle so that a direction and its
+  // reverse add up; smoothed within each region
+  const D = new Float32Array(n), on = new Uint8Array(n);
+  for (let a = 0; a < n; a++) {
+    if (reg[a] < 0 || pat[reg[a]] !== 'engrave') continue;
+    on[a] = 1;
+    D[a] = Math.log(Math.max(1e-6, depth[a]));
+  }
+  const jx = new Float32Array(n), jy = new Float32Array(n), jw = new Float32Array(n);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const a = j * N + i;
+    if (!on[a]) continue;
+    const r = reg[a];
+    const l = i > 0 && reg[a - 1] === r ? D[a - 1] : D[a], rr = i + 1 < N && reg[a + 1] === r ? D[a + 1] : D[a];
+    const u = j > 0 && reg[a - N] === r ? D[a - N] : D[a], d = j + 1 < N && reg[a + N] === r ? D[a + N] : D[a];
+    const gx = rr - l, gy = d - u;
+    jx[a] = gx * gx - gy * gy; jy[a] = 2 * gx * gy; jw[a] = gx * gx + gy * gy;
+  }
+  const blur = (src, rad) => {
+    // a box within the region, rows then columns
+    const tmp = new Float32Array(n), out = new Float32Array(n);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const a = j * N + i;
+      if (!on[a]) continue;
+      let sum = 0;
+      for (let k = -rad; k <= rad; k++) {
+        const ii = i + k;
+        if (ii >= 0 && ii < N && reg[a + k] === reg[a]) sum += src[a + k];
+      }
+      tmp[a] = sum;
+    }
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const a = j * N + i;
+      if (!on[a]) continue;
+      let sum = 0;
+      for (let k = -rad; k <= rad; k++) {
+        const jj = j + k;
+        if (jj >= 0 && jj < N && reg[a + k * N] === reg[a]) sum += tmp[a + k * N];
+      }
+      out[a] = sum;
+    }
+    return out;
+  };
+  const reach = Math.max(1, Math.round(0.9 / cell));
+  const bx = blur(jx, reach), by = blur(jy, reach), bw = blur(jw, reach);
+  // each region runs round its surface or down it; a face turned square to the eye has no
+  // slope, and takes the region's own hatching angle
+  const across = new Uint8Array(G.R), fall = new Float64Array(G.R);
+  for (let r = 0; r < G.R; r++) {
+    if (pat[r] !== 'engrave') continue;
+    across[r] = s.engraveBy === 'slope' ? 1 : s.engraveBy === 'per region' ? (hash01(G.rname[r], 23, 7) < 0.5 ? 1 : 0) : 0;
+    fall[r] = rad(regionAngle(r)) * 2;
+  }
+  const C2 = new Float32Array(n), S2 = new Float32Array(n);
+  for (let a = 0; a < n; a++) {
+    if (!on[a]) continue;
+    const r = reg[a], m = Math.hypot(bx[a], by[a]);
+    let c2, s2;
+    if (m < 0.25 * bw[a] || bw[a] < 1e-9) { c2 = Math.cos(fall[r]); s2 = Math.sin(fall[r]); }
+    else { c2 = bx[a] / m; s2 = by[a] / m; if (!across[r]) { c2 = -c2; s2 = -s2; } }
+    C2[a] = c2; S2[a] = s2;
+  }
+  // the direction at a point: the doubled angles of the four nearest readings of the region
+  const dirAt = (x, y, r, out) => {
+    const fx = (x - gx0) / cell - 0.5, fy = (y - gy0) / cell - 0.5;
+    const i0 = Math.floor(fx), j0 = Math.floor(fy), tx = fx - i0, ty = fy - j0;
+    let c = 0, sn = 0;
+    for (let k = 0; k < 4; k++) {
+      const i = i0 + (k & 1), j = j0 + (k >> 1);
+      if (i < 0 || j < 0 || i >= N || j >= N) continue;
+      const a = j * N + i;
+      if (reg[a] !== r) continue;
+      const w = ((k & 1) ? tx : 1 - tx) * ((k >> 1) ? ty : 1 - ty);
+      c += C2[a] * w; sn += S2[a] * w;
+    }
+    if (c === 0 && sn === 0) return false;
+    const h = 0.5 * Math.atan2(sn, c);
+    out[0] = Math.cos(h); out[1] = Math.sin(h);
+    return true;
+  };
+  const pitch = Math.max(0.15, s.engravePitch), widest = pitch / Math.max(0.08, low || 0.08);
+  const sepAt = a => pitch / clamp(T[a], Math.max(0.08, low), 1);
+  // every point of every line, in buckets
+  const hs = pitch * 0.5, HW = Math.ceil(2 * ORB.R / hs) + 2, x0 = ORB.cx - ORB.R - hs, y0 = ORB.cy - ORB.R - hs;
+  const buckets = new Map();
+  const bucketOf = (x, y) => Math.floor((y - y0) / hs) * HW + Math.floor((x - x0) / hs);
+  const near = (x, y, dist, line, from) => {
+    const reach = Math.ceil(dist / hs), bi = Math.floor((x - x0) / hs), bj = Math.floor((y - y0) / hs);
+    const d2 = dist * dist;
+    for (let jj = bj - reach; jj <= bj + reach; jj++) for (let ii = bi - reach; ii <= bi + reach; ii++) {
+      const b = buckets.get(jj * HW + ii);
+      if (!b) continue;
+      for (let k = 0; k < b.length; k += 4) {
+        if (b[k + 2] === line && b[k + 3] > from) continue;
+        const dx = b[k] - x, dy = b[k + 1] - y;
+        if (dx * dx + dy * dy < d2) return true;
+      }
+    }
+    return false;
+  };
+  const put = (x, y, line, idx) => {
+    const k = bucketOf(x, y), b = buckets.get(k);
+    if (b) b.push(x, y, line, idx); else buckets.set(k, [x, y, line, idx]);
+  };
+  const ok = (x, y) => {
+    const a = cellAt(x, y);
+    if (!shadeable(x, y, a, gap) || isSolid(a) || T[a] < low) return -1;
+    return a;
+  };
+  const step = Math.max(0.12, Math.min(0.4, cell * 0.8)), dir = [0, 0];
+  let lineId = 0, made = 0;
+  const queue = [];
+  const trace = (sx, sy) => {
+    const a0 = ok(sx, sy);
+    if (a0 < 0) return null;
+    const r = reg[a0];
+    if (pat[r] !== 'engrave') return null;
+    if (near(sx, sy, sepAt(a0) * ENGRAVE_TEST, -1, 0)) return null;
+    if (!dirAt(sx, sy, r, dir)) return null;
+    const id = lineId++, halves = [];
+    const d0x = dir[0], d0y = dir[1];
+    for (let side = 0; side < 2; side++) {
+      const xs = [], ys = [];
+      let x = sx, y = sy, px = side ? -d0x : d0x, py = side ? -d0y : d0y, idx = 0;
+      for (let it = 0; it < 4000; it++) {
+        // a step of the midpoint rule, the direction kept pointing the way it was going
+        if (!dirAt(x, y, r, dir)) break;
+        let ux = dir[0], uy = dir[1];
+        if (ux * px + uy * py < 0) { ux = -ux; uy = -uy; }
+        const mx = x + ux * step * 0.5, my = y + uy * step * 0.5;
+        if (!dirAt(mx, my, r, dir)) break;
+        let vx = dir[0], vy = dir[1];
+        if (vx * ux + vy * uy < 0) { vx = -vx; vy = -vy; }
+        if (vx * px + vy * py < 0.5) break;          // turned too sharply
+        const nx = x + vx * step, ny = y + vy * step;
+        const a = ok(nx, ny);
+        if (a < 0 || reg[a] !== r) break;
+        if (near(nx, ny, sepAt(a) * ENGRAVE_TEST, id, idx - Math.ceil(2 * pitch / step))) break;
+        x = nx; y = ny; px = vx; py = vy;
+        xs.push(x); ys.push(y);
+        idx++;
+      }
+      halves.push([xs, ys]);
+    }
+    const xs = halves[1][0].reverse().concat([sx], halves[0][0]);
+    const ys = halves[1][1].reverse().concat([sy], halves[0][1]);
+    if ((xs.length - 1) * step < MIN_DASH) return null;
+    for (let k = 0; k < xs.length; k++) put(xs[k], ys[k], id, k);
+    // seeds a spacing off to either side, every so often along it
+    const every = Math.max(1, Math.round(pitch / step));
+    for (let k = 0; k + 1 < xs.length; k += every) {
+      const tx = xs[k + 1] - xs[k], ty = ys[k + 1] - ys[k], tl = Math.hypot(tx, ty) || 1;
+      const a = cellAt(xs[k], ys[k]), d = a >= 0 ? sepAt(a) : pitch;
+      queue.push(xs[k] - ty / tl * d, ys[k] + tx / tl * d, xs[k] + ty / tl * d, ys[k] - tx / tl * d);
+    }
+    [PEN, LAY] = shadePen(r);
+    const m = simplify(xs, ys, xs.length, 0.02);
+    keep(xs, ys, m);
+    made++;
+    return true;
+  };
+  // seeds across the whole orb, each followed by the lines it grows
+  const coarse = Math.max(pitch * 2, widest * 0.7);
+  for (let y = ORB.cy - ORB.R; y <= ORB.cy + ORB.R; y += coarse) {
+    for (let x = ORB.cx - ORB.R; x <= ORB.cx + ORB.R; x += coarse) {
+      trace(x, y);
+      while (queue.length) {
+        const qy = queue.pop(), qx = queue.pop();
+        trace(qx, qy);
+      }
+    }
+  }
+  COUNTS.engraved = made;
 }
 
 function flowField() {
   const s = settings, B = G.B, n = G.n, F = new Float32Array(n);
-  const { kind, depth, px, py, pz, trap, nx, ny, nz } = B.buf;
+  const { kind, depth, px, py, pz, trap, nx, ny, nz, qx, qy, qz } = B.buf;
   const ly = rad(s.lightYaw), lp = rad(s.lightPitch);
   const Lx = Math.sin(ly) * Math.cos(lp), Ly = Math.sin(lp), Lz = -Math.cos(ly) * Math.cos(lp);
   for (let i = 0; i < n; i++) {
@@ -1489,6 +1745,10 @@ function flowField() {
       case 'height': F[i] = py[i]; break;
       case 'radius': F[i] = Math.hypot(px[i], py[i], pz[i]); break;
       case 'trap':   F[i] = trap[i]; break;
+      // in the fractal's own terms, so the lines run the same way in every copy of it
+      case 'meridians': F[i] = Math.atan2(qz[i], qx[i]); break;
+      case 'parallels': F[i] = Math.atan2(qy[i], Math.hypot(qx[i], qz[i])); break;
+      case 'axis':      F[i] = Math.log(Math.hypot(qx[i], qz[i]) + 1e-4); break;
       default:       F[i] = nx[i] * Lx + ny[i] * Ly + nz[i] * Lz;
     }
   }
@@ -1503,7 +1763,7 @@ function flowField() {
 // region of the right kind gives its piece of each level line through it.
 function flowLines(pat, gap, low, isSolid) {
   const s = settings, { N, gx0, gy0, cell, reg } = G;
-  const F = flowField(), L = Math.max(2, Math.round(s.flowLines));
+  const F = flowField(), L = Math.max(2, Math.round(s.flowLines)), wraps = s.flowField === 'meridians';
   const segs = [];
   const px = (i, j) => gx0 + (i + 0.5) * cell, py = (i, j) => gy0 + (j + 0.5) * cell;
   for (let j = 0; j + 1 < N; j++) for (let i = 0; i + 1 < N; i++) {
@@ -1516,6 +1776,8 @@ function flowLines(pat, gap, low, isSolid) {
     const t = (G.T[a] + G.T[b] + G.T[c] + G.T[d]) / 4;
     if (t < low) continue;
     const fa = F[a], fb = F[b], fc = F[c], fd = F[d];
+    // an angle goes round once: where it comes back to its start the lines would bunch
+    if (wraps && Math.max(fa, fb, fc, fd) - Math.min(fa, fb, fc, fd) > 0.5) continue;
     const mn = Math.min(fa, fb, fc, fd) * L - 0.5, mx = Math.max(fa, fb, fc, fd) * L - 0.5;
     for (let k = Math.ceil(mn); k <= mx; k++) {
       if (t <= lineRank(k)) continue;
@@ -1693,6 +1955,193 @@ function ringLines() {
   }
 }
 
+// A frame of ornament round the orb, laid out along a band: s runs round it in mm on the
+// band's middle line from the top, clockwise, and u across it in mm, outwards. Every motif
+// stands on the top and the count is even, so a mirror through the middle holds.
+function frameLines() {
+  const s = settings;
+  if (s.frame === 'none') return;
+  PEN = penIdx(s.framePen); LAY = L_FRAME;
+  const out = s.ring === 'double' || s.ring === 'halo' ? Math.max(0.3, s.ringGap) : 0;
+  const W = Math.max(1, s.frameWidth), R0 = ORB.R + out + Math.max(0, s.frameGap), Rm = R0 + W / 2;
+  const n = Math.max(4, Math.round(s.frameCount / 2) * 2), Lu = 2 * Math.PI * Rm / n;
+  const at = (sv, u) => {
+    const a = sv / Rm, r = Rm + u;
+    return [ORB.cx + r * Math.sin(a), ORB.cy - r * Math.cos(a)];
+  };
+  const draw = pts => {
+    const xs = [], ys = [];
+    for (const [sv, u] of pts) { const [x, y] = at(sv, u); xs.push(x); ys.push(y); }
+    emit(xs, ys, xs.length);
+  };
+  // a piece of an ellipse about (s0, u0) with half-axes a along the band and b across it
+  const oval = (s0, u0, a, b, f0 = 0, f1 = 2 * Math.PI) => {
+    const m = Math.max(12, Math.ceil(Math.abs(f1 - f0) * Math.max(a, b) / 0.25)), pts = [];
+    for (let i = 0; i <= m; i++) {
+      const f = f0 + (f1 - f0) * i / m;
+      pts.push([s0 + a * Math.cos(f), u0 + b * Math.sin(f)]);
+    }
+    draw(pts);
+  };
+  // lines across the inside of an ellipse, below the height `upTo` of it (−1 … 1)
+  const shadeOval = (s0, u0, a, b, upTo, gap) => {
+    for (let u = -b + gap * 0.6; u < b * upTo; u += gap) {
+      const h = a * Math.sqrt(Math.max(0, 1 - (u / b) * (u / b)));
+      if (h > 0.15) draw([[s0 - h, u0 + u], [s0 + h, u0 + u]]);
+    }
+  };
+  const circle = u => {
+    const pts = [], m = Math.ceil(2 * Math.PI * (Rm + u) / 0.6);
+    for (let i = 0; i <= m; i++) pts.push([2 * Math.PI * Rm * i / m, u]);
+    draw(pts);
+  };
+  const lens = (s0, u0, s1, u1, wide) => {
+    // a leaf from one point to another, swelling to `wide` either side at its middle
+    const ds = s1 - s0, du = u1 - u0, L = Math.hypot(ds, du) || 1, ns = -du / L, nu = ds / L;
+    const m = Math.max(10, Math.ceil(L / 0.3)), a = [], b = [];
+    for (let i = 0; i <= m; i++) {
+      const v = i / m, w = wide * Math.sin(Math.PI * v);
+      a.push([s0 + ds * v + ns * w, u0 + du * v + nu * w]);
+      b.push([s0 + ds * v - ns * w, u0 + du * v - nu * w]);
+    }
+    draw(a.concat(b.reverse()));
+  };
+  const nib = penW(PEN), shade = s.frameShade, hatch = Math.max(nib * 1.6, 0.45);
+  if (s.frameBorder || s.frame === 'egg and dart' || s.frame === 'rope') { circle(-W / 2); circle(W / 2); }
+  const C = 2 * Math.PI * Rm;
+  for (let i = 0; i < n; i++) {
+    const s0 = i * Lu;
+    switch (s.frame) {
+      case 'pearls': {
+        // beads, and between two beads a reel of two discs
+        const a = 0.31 * Lu, b = 0.42 * W;
+        oval(s0, 0, a, b);
+        oval(s0 - 0.07 * a, 0.18 * b, 0.45 * a, 0.42 * b, 1.9, 2.9);      // the shine
+        if (shade) shadeOval(s0, 0, a, b, -0.35, hatch);
+        for (const k of [-1, 1]) oval(s0 + Lu / 2 + k * 0.085 * Lu, 0, 0.045 * Lu, 0.27 * W);
+        break;
+      }
+      case 'rope': {
+        // a twisted cord: each strand's edge an S leaning across the band, the two halves
+        // twisted opposite ways and tied at the top and the bottom
+        const sm = s0 + Lu / 2, side = sm < C / 2 ? 1 : -1, lean = 0.55 * Lu * side;
+        if (sm < Lu || C - sm < Lu || Math.abs(sm - C / 2) < Lu) break;
+        const m = Math.max(16, Math.ceil(W / 0.25)), pts = [];
+        for (let k = 0; k <= m; k++) {
+          const v = k / m;
+          pts.push([sm - lean + 2 * lean * v + 0.16 * Lu * side * Math.sin(2 * Math.PI * v), -W / 2 + W * v]);
+        }
+        draw(pts);
+        if (shade) {
+          for (let k = 1; k <= 2; k++) {
+            const o = 0.18 * Lu * k * side;
+            draw([[sm - lean * 0.5 + o, -W * 0.3], [sm + lean * 0.1 + o, W * 0.05]]);
+          }
+        }
+        break;
+      }
+      case 'egg and dart': {
+        // an egg in its shell, a dart between two shells pointing in to the orb
+        const a = 0.3 * Lu, b = 0.36 * W;
+        oval(s0, -0.04 * W, a, b);
+        oval(s0, -0.04 * W, a * 1.38, b * 1.28, Math.PI - 0.5, 2 * Math.PI + 0.5);
+        if (shade) shadeOval(s0, -0.04 * W, a, b, -0.3, hatch);
+        const sd = s0 + Lu / 2;
+        draw([[sd, 0.48 * W], [sd, -0.42 * W]]);
+        draw([[sd - 0.08 * Lu, -0.18 * W], [sd, -0.44 * W], [sd + 0.08 * Lu, -0.18 * W]]);
+        break;
+      }
+      case 'gloriole': {
+        // a glory: straight rays and wavy ones, long and short in turn
+        const base = -W / 2;
+        if (i % 2 === 0) {
+          const len = i % 4 === 0 ? W : 0.72 * W, half = 0.2 * Lu;
+          draw([[s0 - half, base], [s0, base + len], [s0 + half, base]]);
+          if (shade) draw([[s0, base + 0.08 * W], [s0, base + len * 0.82]]);
+        } else {
+          const len = 0.86 * W, m = Math.ceil(len / 0.25), a = [], b = [];
+          for (let k = 0; k <= m; k++) {
+            const v = k / m, wave = 0.14 * Lu * (1 - v * 0.6) * Math.sin(v * Math.PI * 3.2);
+            const w = 0.09 * Lu * (1 - v);
+            a.push([s0 + wave - w, base + len * v]);
+            b.push([s0 + wave + w, base + len * v]);
+          }
+          draw(a.concat(b.reverse()));
+        }
+        break;
+      }
+      case 'scrolls': {
+        // a running scroll: a wave that rises and curls over into a spiral, again and again,
+        // running down from the top on both halves
+        const sm = s0 + Lu / 2, side = sm < C / 2 ? 1 : -1;
+        if (sm < Lu || C - sm < Lu || Math.abs(sm - C / 2) < Lu) break;
+        const R = Math.min(0.44 * W, 0.4 * Lu), cs = sm + 0.1 * Lu * side, cu = 0.04 * W;
+        const turns = 1.75, k = Math.log(10) / (2 * Math.PI * turns), pts = [];
+        // the back of the wave, from the trough up to the far side of the spiral
+        const ts = sm - 0.5 * Lu * side, tu = -0.46 * W, os = cs - R * side;
+        for (let q = 0; q <= 24; q++) {
+          const v = q / 24, e = Math.sin(v * Math.PI / 2);
+          pts.push([ts + (os - ts) * (1 - Math.cos(v * Math.PI / 2)), tu + (cu - tu) * e]);
+        }
+        // over the crest and in
+        const m = 140;
+        for (let q = 1; q <= m; q++) {
+          const f = 2 * Math.PI * turns * q / m, r = R * Math.exp(-k * f), a = Math.PI - f;
+          pts.push([cs + side * r * Math.cos(a), cu + r * Math.sin(a)]);
+        }
+        draw(pts);
+        // from under the spiral down to the next trough
+        const rb = R * Math.exp(-k * 1.5 * Math.PI), us = cs, uu = cu - rb;
+        const ns = sm + 0.5 * Lu * side, under = [];
+        for (let q = 0; q <= 20; q++) {
+          const v = q / 20;
+          under.push([us + (ns - us) * Math.sin(v * Math.PI / 2), uu + (tu - uu) * (1 - Math.cos(v * Math.PI / 2))]);
+        }
+        draw(under);
+        if (shade) oval(cs + side * R * 0.04, cu - R * 0.02, R * 0.09, R * 0.09);
+        break;
+      }
+      case 'laurel': {
+        // two branches meeting at the top and at the bottom, leaves in pairs either side
+        const sv = s0 + Lu / 2, half = C / 2;
+        const dir = sv < half ? -1 : 1;       // towards the top on both halves
+        for (const side of [-1, 1]) {
+          const tip = [sv + dir * 0.85 * Lu, side * 0.42 * W];
+          lens(sv, side * 0.04 * W, tip[0], tip[1], 0.16 * Lu);
+          if (shade) draw([[sv + dir * 0.1 * Lu, side * 0.08 * W], [sv + dir * 0.7 * Lu, side * 0.36 * W]]);
+        }
+        break;
+      }
+    }
+  }
+  if (s.frame === 'rope') {
+    // the ties where the two halves meet
+    for (const sv of [0, C / 2]) {
+      for (const k of [-1, 0, 1]) draw([[sv + k * 0.22 * Lu, -W * 0.62], [sv + k * 0.22 * Lu, W * 0.62]]);
+    }
+  }
+  if (s.frame === 'scrolls') {
+    // a palmette at the top and at the bottom: a fan of leaves over a bead
+    for (const sv of [0, C / 2]) {
+      const up = 1;
+      for (let k = -2; k <= 2; k++) {
+        const ang = k * 0.32;
+        lens(sv, -0.3 * W, sv + Math.sin(ang) * 0.8 * W, -0.3 * W + up * Math.cos(ang) * 0.8 * W, 0.11 * W);
+      }
+      oval(sv, -0.36 * W, 0.12 * W, 0.12 * W);
+    }
+  }
+  if (s.frame === 'laurel') {
+    // the stems, and a berry where the branches meet
+    for (const [a0, a1] of [[0.02, 0.48], [0.52, 0.98]]) {
+      const pts = [], m = Math.ceil(C * (a1 - a0) / 0.6);
+      for (let i = 0; i <= m; i++) pts.push([C * (a0 + (a1 - a0) * i / m), 0]);
+      draw(pts);
+    }
+    for (const sv of [0, C / 2]) oval(sv, 0, 0.18 * Lu, 0.18 * Lu);
+  }
+}
+
 function cropMarkPlaces() {
   const [W, H] = paperDims();
   const B = settings.cropMarkAt === 'picture' ? area : { x0: 0, y0: 0, x1: W, y1: H, w: W, h: H };
@@ -1734,6 +2183,7 @@ function buildShapes() {
   shading();
   spreadWedge();
   ringLines();
+  frameLines();
   cropMarkDots();
   RENDER_IMG = null;
 
@@ -2120,6 +2570,12 @@ function rollObject() {
       break;
     }
     case 'polytope': s.polytope = POLYTOPES[Math.floor(r() * POLYTOPES.length)]; break;
+    case 'apollonian': s.apoS = pick(0.95, 1.3, 3); s.apoZoom = pick(0.8, 3, 2); break;
+    case 'kleinian': s.klBox = pick(0.8, 1.05, 3); s.klSize = pick(0.9, 1.3, 3); break;
+    case 'rings':
+      s.ringCount = 3 + Math.floor(r() * 6); s.ringShrink = pick(0.65, 0.9, 3);
+      s.ringTilt = pick(-60, 60, 0); s.ringTurn = pick(-90, 90, 0); s.ringWidth = pick(0.06, 0.3, 3);
+      break;
     case 'hopf':
       s.windA = 1 + Math.floor(r() * 2); s.windB = 1 + Math.floor(r() * 3);
       s.fibres = 6 + Math.floor(r() * 14); s.windStep = Math.floor(r() * 2);
@@ -2150,6 +2606,10 @@ function attachKeys() {
       case 'o': cycle('object', OBJECTS, 1); break;
       case 'O': cycle('object', OBJECTS, -1); break;
       case 'v': cycle('view', VIEWS, 1); break;
+      case 'd': cycle('deep', DEEPS, 1); break;
+      case 'D': cycle('deep', DEEPS, -1); break;
+      case 'f': cycle('frame', FRAMES, 1); break;
+      case 'F': cycle('frame', FRAMES, -1); break;
       case 'V': cycle('view', VIEWS, -1); break;
       case 'p': cycle('pattern', PATTERNS, 1); break;
       case 'P': cycle('pattern', PATTERNS, -1); break;
@@ -2197,12 +2657,27 @@ function syncVisibility() {
   setVisible('mirrorBall', true);
 
   setVisible('folds', o === 'kifs');
+  show(['apoS', 'apoZoom'], o === 'apollonian');
+  show(['klBox', 'klSize', 'klZoom'], o === 'kleinian');
+  show(['ringCount', 'ringShrink', 'ringWidth', 'ringThick', 'ringTilt', 'ringTilt0', 'ringTurn'], o === 'rings');
+  setVisible('coreRound', o === 'kifs' || o === 'hyperfold');
+  const dp = s.deep;
+  show(['deepLevels', 'deepAlike'], dp !== 'none');
+  show(['nestRatio', 'nestCarve'], dp === 'nested');
+  setVisible('nestGap', dp === 'nested' && s.nestCarve);
+  setVisible('deepTurn', dp === 'nested' || dp === 'tunnel');
+  show(['vanishX', 'vanishY', 'vanishZ'], dp === 'nested' || dp === 'inverted');
+  setVisible('deepRepeat', dp === 'inverted');
+  setVisible('tunnelLen', dp === 'tunnel');
+  setVisible('abyssTone', dp === 'nested' || dp === 'inverted');
+  show(['frameGap', 'frameWidth', 'frameCount', 'frameBorder', 'frameShade'], s.frame !== 'none');
+  setVisible('framePen', s.frame !== 'none');
   show(['kScale', 'offX', 'offY', 'offZ'], o === 'kifs' || o === 'hyperfold');
   setVisible('offW', o === 'hyperfold');
   show(['twistA', 'twistB', 'twistC', 'twistD'], o === 'kifs' || o === 'hyperfold' || o === 'mandelbox');
   setVisible('twistE', o === 'kifs' || o === 'mandelbox');
   show(['coreShape', 'core'], o === 'kifs' || o === 'hyperfold');
-  setVisible('iters', o === 'kifs' || o === 'hyperfold' || o === 'mandelbox' || o === 'julia');
+  setVisible('iters', ['kifs', 'hyperfold', 'mandelbox', 'julia', 'apollonian', 'kleinian'].includes(o));
   show(['mbScale', 'mbMinR', 'mbFold', 'mbZoom'], o === 'mandelbox');
   show(['jc0', 'jc1', 'jc2', 'jc3', 'jZoom'], o === 'julia');
   setVisible('wSlice', o === 'julia' || o === 'hyperfold');
@@ -2214,12 +2689,13 @@ function syncVisibility() {
   setVisible('shell', s.enclose === 'shell');
 
   const p = s.pattern, mixed = p === 'mixed';
-  show(['mixDots', 'mixHatch', 'mixCross', 'mixFlow'], mixed);
+  show(['mixDots', 'mixHatch', 'mixCross', 'mixFlow', 'mixEngrave'], mixed);
   const uses = f => p === f || (mixed && s['mix' + f[0].toUpperCase() + f.slice(1)]);
   show(['dotPitch', 'dotAngle', 'dotOrder'], uses('dots'));
   show(['hatchPitch', 'hatchBy'], uses('hatch') || uses('cross'));
-  setVisible('hatchAngle', uses('hatch') || uses('cross') || s.solidAt < 100);
+  setVisible('hatchAngle', uses('hatch') || uses('cross') || uses('engrave') || s.solidAt < 100);
   show(['flowField', 'flowLines'], uses('flow'));
+  show(['engravePitch', 'engraveBy'], uses('engrave'));
   setVisible('solidPasses', s.solidAt < 100);
   setVisible('ringGap', s.ring === 'double' || s.ring === 'halo');
   setVisible('mirrorPen', s.mirrorOwnPen);
@@ -2289,9 +2765,38 @@ function buildControls() {
     'A mirror ball in the middle of everything; 0 — none. In <b>mirror ball</b> it is the view.');
   addSlider(sec, 'Mirror room (radii)', 'room', 0.2, 6, 0.01);
   addSlider(sec, 'Bounces', 'bounces', 0, 6, 1, 'How many mirrors a ray may pass through.');
-  addSlider(sec, 'Orb size (% of the short side)', 'orbSize', 10, 100, 1);
+  addSlider(sec, 'Orb size (% of the short side)', 'orbSize', 10, 100, 1, 'Leave room round it for a frame.');
   addSlider(sec, 'Orb across (mm)', 'orbX', -300, 300, 0.5);
   addSlider(sec, 'Orb down (mm)', 'orbY', -300, 300, 0.5);
+
+  sec = addSection(root, 'Deeper inside');
+  addNote(sec, 'Ways to make the inside of the orb bigger than the orb.');
+  addSelect(sec, 'The space inside', 'deep', DEEPS, resync,
+    '<b>nested</b> — the ball holds a smaller copy of itself, and that one another, down to a ' +
+    'vanishing point; <b>inverted</b> — the whole world outside the ball turned into it, infinity ' +
+    'at the vanishing point; <b>tunnel</b> — the fractal again and again down the line of sight, a ' +
+    'corridor (best with <b>window</b> for the ball). <b>D</b> steps.');
+  addSlider(sec, 'How deep', 'deepLevels', 1, 24, 1,
+    'Copies, or lattice cells, before it is too deep to see — the abyss.');
+  addSlider(sec, 'Each copy the size of the last (×)', 'nestRatio', 0.2, 0.9, 0.01);
+  addCheckbox(sec, 'Each copy in a round room of its own', 'nestCarve', resync);
+  addSlider(sec, 'Room round a copy (of its size)', 'nestGap', 0, 0.6, 0.01);
+  addSlider(sec, 'Each copy turned more (°)', 'deepTurn', -90, 90, 0.5,
+    'The copies wind into a spiral — a Droste effect; in the tunnel each period turns.');
+  addSlider(sec, 'Vanishing point across (radii)', 'vanishX', -0.9, 0.9, 0.01);
+  addSlider(sec, 'Vanishing point up (radii)', 'vanishY', -0.9, 0.9, 0.01);
+  addSlider(sec, 'Vanishing point back (radii)', 'vanishZ', -0.9, 0.9, 0.01);
+  addSlider(sec, 'Turned world in a lattice (radii)', 'deepRepeat', 0, 6, 0.01,
+    'The world outside a lattice of copies this far apart, every one of them inside the ball. ' +
+    '0 — the fractal once; make it larger than the ball then.');
+  addSlider(sec, 'Corridor period (radii)', 'tunnelLen', 0.3, 4, 0.01);
+  addCheckbox(sec, 'Every copy shaded as the first', 'deepAlike');
+  addSlider(sec, 'The abyss (% ink)', 'abyssTone', 0, 100, 1, 'Where it goes too deep to see.');
+  addSlider(sec, 'Glass of the ball (index, %)', 'lens', 40, 250, 1,
+    'The ball\'s skin bends the rays: under 100 it spreads them, the inside opening out like a ' +
+    'room through a peephole; over 100 a glass marble. 100 — no glass.');
+  addSlider(sec, 'Cut away towards the eye (%)', 'cutaway', 0, 100, 1,
+    'The ball opened to look into, like a bowl. 50 — the near half gone.');
 
   sec = addSection(root, 'Fractal');
   addSelect(sec, 'Kind', 'object', OBJECTS, resync,
@@ -2300,7 +2805,9 @@ function buildControls() {
     '<b>julia</b> — a quaternion Julia set, four-dimensional, cut by a hyperplane; ' +
     '<b>hyperfold</b> — the same kaleidoscope in four dimensions, cut; <b>polytope</b> — the ' +
     'edges of a regular polytope of four dimensions, projected stereographically; <b>hopf</b> — ' +
-    'linked circles on nested tori of the three-sphere. <b>O</b> steps.');
+    'linked circles on nested tori of the three-sphere; <b>apollonian</b> — pearls packed in the ' +
+    'gaps between pearls; <b>kleinian</b> — a pseudo-Kleinian limit set, carved ivory; <b>rings</b> ' +
+    '— an armillary sphere, hoops inside hoops. <b>O</b> steps.');
   addSelect(sec, 'Mirrors', 'folds', FOLDS, update, '<b>tetra</b> — a Sierpiński kind; <b>cube</b> — a Menger kind.');
   addSlider(sec, 'Folds', 'iters', 1, 14, 1, 'Each fold is another order of detail. Few — big slabs.');
   addSlider(sec, 'Scale', 'kScale', 1.2, 4, 0.01);
@@ -2315,6 +2822,20 @@ function buildControls() {
   addSlider(sec, 'Twist e (°)', 'twistE', -90, 90, 0.5);
   addSelect(sec, 'Each piece is a', 'coreShape', CORES, update);
   addSlider(sec, 'Piece size', 'core', 0.2, 2.5, 0.01);
+  addSlider(sec, 'Edges rounded (of the piece)', 'coreRound', 0, 1, 0.01,
+    'Worn into tubes and mouldings, the way the bands of a scroll are.');
+  addSlider(sec, 'Bubble inversion', 'apoS', 0.8, 1.6, 0.005, 'Over 1 the pearls thicken and touch.');
+  addSlider(sec, 'Zoom', 'apoZoom', 0.3, 6, 0.01);
+  addSlider(sec, 'Box fold', 'klBox', 0.5, 1.5, 0.005);
+  addSlider(sec, 'Ball fold', 'klSize', 0.5, 2, 0.005);
+  addSlider(sec, 'Zoom', 'klZoom', 0.3, 6, 0.01);
+  addSlider(sec, 'Hoops', 'ringCount', 1, 16, 1);
+  addSlider(sec, 'Each hoop the size of the last (×)', 'ringShrink', 0.4, 1, 0.005);
+  addSlider(sec, 'Hoop width (of its radius)', 'ringWidth', 0.01, 0.6, 0.005);
+  addSlider(sec, 'Hoop thickness (of its radius)', 'ringThick', 0.005, 0.3, 0.001);
+  addSlider(sec, 'First hoop tipped (°)', 'ringTilt0', -90, 90, 0.5);
+  addSlider(sec, 'Each hoop tipped more (°)', 'ringTilt', -90, 90, 0.5);
+  addSlider(sec, 'Each hoop turned more (°)', 'ringTurn', -180, 180, 0.5);
   addSlider(sec, 'Box scale', 'mbScale', -3.5, 3.5, 0.01, 'Negative — rooms; positive — towers.');
   addSlider(sec, 'Inner radius', 'mbMinR', 0.05, 1, 0.01);
   addSlider(sec, 'Fold limit', 'mbFold', 0.3, 2, 0.01);
@@ -2344,11 +2865,14 @@ function buildControls() {
     'A turn the eye cannot make — through the fourth dimension. <b>Shift</b>-drag turns it.');
   addSlider(sec, 'Through y–w (°)', 'yw', -180, 180, 0.5);
   addSlider(sec, 'Through z–w (°)', 'zw', -180, 180, 0.5);
+  addSlider(sec, 'Twisted round its upright (°/radius)', 'spiral', -360, 360, 1,
+    'A Solomonic column: the further up, the further turned.');
   addSub(sec, 'In the ball');
   addSlider(sec, 'Size (radii)', 'objSize', 0.05, 5, 0.005);
   addSelect(sec, 'The ball', 'enclose', ENCLOSES, resync,
     '<b>none</b> — the fractal on its own; <b>inside</b> — cut to the ball, flat caps where it was ' +
-    'cut; <b>carved</b> — the ball with the fractal taken out of it; <b>shell</b> — a rind of it.');
+    'cut; <b>carved</b> — the ball with the fractal taken out of it; <b>shell</b> — a rind of it; ' +
+    '<b>window</b> — the ball a round window: nothing in front of it, all behind it as far as it goes.');
   addSlider(sec, 'Rind (radii)', 'shell', 0.01, 0.6, 0.005);
   addSlider(sec, 'Hollow at the heart (radii)', 'hollow', 0, 1, 0.01);
   addCheckbox(sec, 'Inside out — solid where it was empty', 'invertObj');
@@ -2365,6 +2889,8 @@ function buildControls() {
   sec = addSection(root, 'Light and tone');
   addSlider(sec, 'Light from (°)', 'lightYaw', -180, 180, 1);
   addSlider(sec, 'Light height (°)', 'lightPitch', -90, 90, 1);
+  addSlider(sec, 'Light from the eye (%)', 'headlight', 0, 100, 1,
+    'What faces the eye lit and what turns away dark — the light that reads best deep inside.');
   addSlider(sec, 'Ambient (%)', 'ambient', 0, 100, 1);
   addSlider(sec, 'Hidden corners (%)', 'aoK', 0, 100, 1, 'Ambient occlusion — crevices go dark.');
   addSlider(sec, 'Fog (%)', 'fog', -100, 100, 1, 'Over 0 the far fades to paper, under 0 to ink.');
@@ -2397,11 +2923,13 @@ function buildControls() {
   addSelect(sec, 'Regions shaded with', 'pattern', PATTERNS, resync,
     '<b>mixed</b> — each region one of the patterns ticked below, the same for regions of one ' +
     'name; <b>dots</b> — a halftone; <b>hatch</b>; <b>cross</b> — hatching crossed over the ' +
-    'darker half; <b>flow</b> — lines that follow the surface; <b>none</b>. <b>P</b> steps.');
+    'darker half; <b>flow</b> — level lines of a field; <b>engrave</b> — lines that run with the ' +
+    'surface, evenly spaced and closer where it is darker; <b>none</b>. <b>P</b> steps.');
   addCheckbox(sec, 'dots', 'mixDots', resync);
   addCheckbox(sec, 'hatch', 'mixHatch', resync);
   addCheckbox(sec, 'cross', 'mixCross', resync);
   addCheckbox(sec, 'flow', 'mixFlow', resync);
+  addCheckbox(sec, 'engrave', 'mixEngrave', resync);
   addSlider(sec, 'Dots apart (mm)', 'dotPitch', 0.3, 6, 0.05, 'Each dot is a touch of the pen.');
   addSlider(sec, 'Dot grid turned (°)', 'dotAngle', -90, 90, 1);
   addSelect(sec, 'Dots come in', 'dotOrder', DOT_ORDER, update,
@@ -2414,8 +2942,14 @@ function buildControls() {
     'way the surface faces.');
   addSelect(sec, 'Lines follow', 'flowField', FLOWS, update,
     '<b>depth</b> — rings of equal distance; <b>height</b> — level lines; <b>radius</b> — shells ' +
-    'round the middle; <b>trap</b> — the orbit trap; <b>light</b> — lines of equal light.');
+    'round the middle; <b>trap</b> — the orbit trap; <b>light</b> — lines of equal light; in the ' +
+    'fractal\'s own terms, the same in every copy: <b>meridians</b> — ribs round its upright, ' +
+    '<b>parallels</b> — rings up it, <b>axis</b> — sleeves round its upright.');
   addSlider(sec, 'Flow lines', 'flowLines', 4, 400, 1, 'Across the whole range, at the darkest.');
+  addSlider(sec, 'Engraved lines apart (mm)', 'engravePitch', 0.2, 4, 0.05, 'At the darkest; twice as far at half the tone.');
+  addSelect(sec, 'Engraved lines run', 'engraveBy', ENGRAVE_BY, update,
+    '<b>contour</b> — round the form, along lines of equal depth; <b>slope</b> — down it; ' +
+    '<b>per region</b> — one or the other, by the region\'s name.');
   addSlider(sec, 'Paper along the outlines (mm)', 'edgeGap', 0, 3, 0.05);
   addSlider(sec, 'Bare below (% tone)', 'lightest', 0, 100, 1);
   addSlider(sec, 'Solid above (% tone)', 'solidAt', 0, 100, 1, '100 — never.');
@@ -2430,6 +2964,7 @@ function buildControls() {
   addPenSelect(sec, 'Shading in mirrors', 'mirrorPen');
   addPenSelect(sec, 'Solid', 'solidPen');
   addPenSelect(sec, 'Ring', 'ringPen');
+  addPenSelect(sec, 'Frame', 'framePen');
   for (let i = 0; i < SLOTS; i++) addPenSlot(sec, i);
 
   sec = addSection(root, 'Paper');
@@ -2449,6 +2984,16 @@ function buildControls() {
   addSelect(sec, 'Ring round the orb', 'ring', RINGS, resync,
     '<b>halo</b> — a worn, dashed arc outside it; <b>broken</b> — the ring itself in dashes.');
   addSlider(sec, 'Ring gap (mm)', 'ringGap', 0.3, 30, 0.1);
+  addSelect(sec, 'Frame of ornament', 'frame', FRAMES, resync,
+    '<b>pearls</b> — beads and reels; <b>rope</b> — a twisted cord, tied at top and bottom; ' +
+    '<b>egg and dart</b>; <b>gloriole</b> — straight and wavy rays, a baroque glory; ' +
+    '<b>scrolls</b> — a running scroll under a palmette; <b>laurel</b> — two branches of a wreath. ' +
+    'Make the orb smaller to give it room. <b>F</b> steps.');
+  addSlider(sec, 'Frame from the ring (mm)', 'frameGap', 0, 40, 0.5);
+  addSlider(sec, 'Frame width (mm)', 'frameWidth', 2, 60, 0.5);
+  addSlider(sec, 'Motifs round it', 'frameCount', 8, 160, 2);
+  addCheckbox(sec, 'Lines along its edges', 'frameBorder');
+  addCheckbox(sec, 'Shadow sides hatched, leaves ribbed', 'frameShade');
   addCheckbox(sec, 'Cut guide dots', 'cropMarks', resync);
   addSelect(sec, 'Dots round', 'cropMarkAt', MARK_AT, update,
     'The <b>sheet</b> — plot on a larger piece of paper and trim it back to size; the ' +
@@ -2486,7 +3031,7 @@ function buildControls() {
     '<div><kbd>drag</kbd> turn it · <kbd>shift</kbd>+<kbd>drag</kbd> through the 4th dimension</div>' +
     '<div><kbd>alt</kbd>+<kbd>drag</kbd> turn the eye · <kbd>wheel</kbd> nearer, further</div>' +
     '<div><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> turn by 5°, with <kbd>shift</kbd> 15°</div>' +
-    '<div><kbd>S</kbd> scene · <kbd>O</kbd> fractal · <kbd>V</kbd> view · <kbd>P</kbd> pattern · <kbd>M</kbd> symmetry · <kbd>N</kbd> copies</div>' +
+    '<div><kbd>S</kbd> scene · <kbd>O</kbd> fractal · <kbd>V</kbd> view · <kbd>D</kbd> deeper · <kbd>P</kbd> pattern · <kbd>M</kbd> symmetry · <kbd>N</kbd> copies · <kbd>F</kbd> frame</div>' +
     '<div><kbd>R</kbd> roll a fractal · <kbd>[</kbd> <kbd>]</kbd> seed · <kbd>X</kbd> cut guides · <kbd>G</kbd> guides · <kbd>H</kbd> tones</div>');
   linkDiv = createDiv('').parent(sec).class('link');
   refreshPenSelects();
@@ -2518,7 +3063,8 @@ function updateStats() {
     `<div class="big"><b>${groupNum(strokes)}</b> strokes, ` +
     `<b>${(plan.ink / 1000).toFixed(1)}</b> m of line</div>` +
     `<div>${groupNum(COUNTS.regions)} regions — ${pats}</div>` +
-    `<div>${groupNum(COUNTS.dots)} dots · the orb ${(ORB.R * 2).toFixed(0)} mm across</div>` +
+    `<div>${groupNum(COUNTS.dots)} dots${COUNTS.engraved ? ` · ${groupNum(COUNTS.engraved)} engraved lines` : ''}` +
+    ` · the orb ${(ORB.R * 2).toFixed(0)} mm across</div>` +
     `<div>The pen goes down <b>${groupNum(plan.downs)}</b> times, ` +
     `${(plan.travel / 1000).toFixed(1)} m in the air</div>` +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ${lastMs.toFixed(0)} ms to draw</div>` +
@@ -2531,6 +3077,10 @@ function updateStats() {
   if (s.hatchPitch < nib) {
     html += `<div class="warn">The hatching is ${s.hatchPitch} mm apart and the pen ${nib} mm wide — ` +
       'at the darkest it closes up.</div>';
+  }
+  if ((s.pattern === 'engrave' || s.pattern === 'mixed' && s.mixEngrave) && s.engravePitch < nib) {
+    html += `<div class="warn">Engraved lines ${s.engravePitch} mm apart with a ${nib} mm pen close up ` +
+      'into black at the darkest.</div>';
   }
   if (s.dotPitch < nib * 1.3) {
     html += '<div class="warn">The dots are nearly as close as the pen is wide — they run together.</div>';
@@ -2556,6 +3106,7 @@ function metaComment() {
   for (let i = 0; i < SLOTS; i++) if (perPen && perPen[i].strokes) pens.push(penLabel(i));
   return `folded orbs — ${s.view} ${s.object}${s.object === 'kifs' ? '/' + s.folds : ''}` +
     `${s.object === 'polytope' ? '/' + s.polytope : ''} enclose=${s.enclose} ` +
+    `${s.deep !== 'none' ? `deep=${s.deep}x${s.deepLevels} ` : ''}${s.frame !== 'none' ? `frame=${s.frame} ` : ''}` +
     `symmetry=${s.symmetry}${s.symmetry === 'dihedral' || s.symmetry === 'rotational' ? s.symN : ''} ` +
     `pattern=${s.pattern} ${s.cropMarks ? `cutguides=${s.cropMarkAt}<=${s.cropMarkGap}mm ` : ''}` +
     `seed=${s.seed} pens=[${pens.join('; ')}] strokes=${strokes}`;
@@ -2564,7 +3115,7 @@ function metaComment() {
 function fileStem() {
   const s = settings;
   const paper = s.paper === 'custom' ? `${s.customW}x${s.customH}mm` : `${s.paper}-${s.orientation}`;
-  return `folded orbs ${s.view} ${s.object} ${s.pattern} seed${s.seed} ${paper}`;
+  return `folded orbs ${s.view} ${s.object}${s.deep !== 'none' ? ' ' + s.deep : ''} ${s.pattern} seed${s.seed} ${paper}`;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -2931,6 +3482,22 @@ function renderCore() {
   const T4 = new Float64Array(16);  // a four-dimensional twist inside the loop
   let PART = 0, TRAP = 0, CAP = 0;
   let DE = null;
+  // what the last reading of the scene left behind besides the distance: which copy of the
+  // ball it was in, how much the space there is shrunk, the point in the fractal's own terms
+  let LEVEL = 0, FARK = 1, QX = 0, QY = 0, QZ = 0;
+  // how far a ray may step at most: where another copy begins, it must stop and look again —
+  // a limit only, never a surface to hit
+  let LIMIT = Infinity;
+  // the space inside the ball: 0 as it is, 1 nested copies, 2 the world turned inside, 3 a
+  // corridor; the point the copies shrink to; the rest is worked out once in setup
+  let DEEP = 0, VX = 0, VY = 0, VZ = 0, INV_R2 = 1, ABYSS_R = 0, SPIRAL = 0, CUTZ = -2, LENS = 1;
+  let NEST_K = 0, NHX = 0, NHY = 0, NHZ = 0, NHR = 0, NDL = 0.004, TURN = 0;
+  const NCX = new Float64Array(66), NCY = new Float64Array(66), NCZ = new Float64Array(66);
+  const NSC = new Float64Array(66);
+  const NRC = new Float64Array(66), NRS = new Float64Array(66);
+  // the hoops of an armillary sphere: how many, how big, how each is turned
+  let RING_N = 0;
+  const RING_R = new Float64Array(16), RINGM = new Float64Array(16 * 9);
 
   const RAD = Math.PI / 180;
 
@@ -3020,6 +3587,16 @@ function renderCore() {
     if (P.coreShape === 'ball') {
       return Math.sqrt(x * x + y * y + z * z + w * w) - b;
     }
+    const rr = P.coreRound > 0 ? Math.min(P.coreRound, 1) * b : 0;
+    if (rr > 0) {
+      // rounded off, like a moulding: the edges and corners worn into tubes
+      if (P.coreShape === 'cross') {
+        const t = b * 0.35, r2 = Math.min(rr, t);
+        return Math.min(roundBox(x, y, z, w, b, t, t, r2, four), roundBox(x, y, z, w, t, b, t, r2, four),
+          roundBox(x, y, z, w, t, t, b, r2, four));
+      }
+      return roundBox(x, y, z, w, b, b, b, rr, four);
+    }
     const dx = Math.abs(x) - b, dy = Math.abs(y) - b, dz = Math.abs(z) - b;
     const dw = four ? Math.abs(w) - b : -1e9;
     if (P.coreShape === 'cross') {
@@ -3033,6 +3610,15 @@ function renderCore() {
     const qx = Math.max(dx, 0), qy = Math.max(dy, 0), qz = Math.max(dz, 0), qw = Math.max(dw, 0);
     return Math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw) +
       Math.min(Math.max(dx, dy, dz, dw), 0);
+  }
+
+  // A box of half-sides a, b, c (and c in w, in four dimensions) with its edges rounded by r.
+  function roundBox(x, y, z, w, a, b, c, r, four) {
+    const dx = Math.abs(x) - a + r, dy = Math.abs(y) - b + r, dz = Math.abs(z) - c + r;
+    const dw = four ? Math.abs(w) - c + r : -1e9;
+    const qx = Math.max(dx, 0), qy = Math.max(dy, 0), qz = Math.max(dz, 0), qw = Math.max(dw, 0);
+    return Math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw) +
+      Math.min(Math.max(dx, dy, dz, dw), 0) - r;
   }
 
   function deMandelbox(X, Y, Z) {
@@ -3201,27 +3787,99 @@ function renderCore() {
     return sphereStep(dd, q[4]);
   }
 
+  // An Apollonian packing of pearls: space folded into a cube and turned inside out in a
+  // ball, again and again — bubbles in the gaps between bubbles, to no end.
+  function deApollonian(X, Y, Z) {
+    const zoom = P.apoZoom, s = P.apoS, keep = P.partDepth;
+    let x = X * zoom, y = Y * zoom, z = Z * zoom, k = 1, part = 0, trap = 1e9;
+    for (let i = 0; i < P.iters; i++) {
+      const fx = Math.floor(0.5 * x + 0.5), fy = Math.floor(0.5 * y + 0.5), fz = Math.floor(0.5 * z + 0.5);
+      x -= 2 * fx; y -= 2 * fy; z -= 2 * fz;
+      const r2 = Math.max(x * x + y * y + z * z, 1e-12);
+      if (r2 < trap) trap = r2;
+      const f = s / r2;
+      x *= f; y *= f; z *= f; k *= f;
+      if (i < keep) part = part * 128 + ((fx & 1) | (fy & 1) << 1 | (fz & 1) << 2) + 8 * (r2 < 0.5 ? 1 : 0);
+    }
+    PART = part; TRAP = Math.sqrt(trap);
+    return 0.25 * Math.abs(y) / k / zoom;
+  }
+
+  // A pseudo-Kleinian limit set: folded in a box, turned inside out in a ball wherever it
+  // is near the middle — carved ivory, pillows and arcades without end.
+  function deKleinian(X, Y, Z) {
+    const zoom = P.klZoom, bx = P.klBox, by = P.klBox * 0.982, bz = P.klBox, size = P.klSize;
+    const keep = P.partDepth;
+    let x = X * zoom, y = Y * zoom, z = Z * zoom, k = 1, part = 0, trap = 1e9;
+    for (let i = 0; i < P.iters; i++) {
+      let bits = 0;
+      if (x > bx) { x = 2 * bx - x; bits |= 1; } else if (x < -bx) { x = -2 * bx - x; bits |= 2; }
+      if (y > by) { y = 2 * by - y; bits |= 4; } else if (y < -by) { y = -2 * by - y; bits |= 8; }
+      if (z > bz) { z = 2 * bz - z; bits |= 16; } else if (z < -bz) { z = -2 * bz - z; bits |= 32; }
+      const r2 = Math.max(x * x + y * y + z * z, 1e-12);
+      if (r2 < trap) trap = r2;
+      const f = Math.max(size / r2, 1);
+      if (f > 1) bits |= 64;
+      x *= f; y *= f; z *= f; k *= f;
+      if (i < keep) part = part * 128 + bits;
+    }
+    PART = part; TRAP = Math.sqrt(trap);
+    const rxy = Math.hypot(x, z);
+    return Math.max(rxy - P.klBox, Math.abs(rxy * y) / Math.sqrt(x * x + y * y + z * z + 1e-12)) / k / zoom;
+  }
+
+  // An armillary sphere: hoops one inside the next, each smaller and tipped and turned a
+  // little further — bands with a flat inside and a flat outside, their edges rounded.
+  function deRings(x, y, z) {
+    const n = RING_N, t = P.ringThick, w = P.ringWidth, rr = Math.min(t, w) * 0.35;
+    let best = 1e9, part = 0, trap = 1e9;
+    for (let i = 0; i < n; i++) {
+      const m = i * 9, R = RING_R[i];
+      const lx = RINGM[m] * x + RINGM[m + 1] * y + RINGM[m + 2] * z;
+      const ly = RINGM[m + 3] * x + RINGM[m + 4] * y + RINGM[m + 5] * z;
+      const lz = RINGM[m + 6] * x + RINGM[m + 7] * y + RINGM[m + 8] * z;
+      const qx = Math.sqrt(lx * lx + lz * lz) - R, qy = ly;
+      const dx = Math.abs(qx) - t * R + rr, dy = Math.abs(qy) - w * R + rr;
+      const d = Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) + Math.min(Math.max(dx, dy), 0) - rr;
+      if (d < best) { best = d; part = i; trap = Math.abs(qy) / (w * R); }
+    }
+    PART = P.partDepth ? part : 0; TRAP = trap;
+    return best;
+  }
+
   const OBJECTS = {
     kifs: deKifs, mandelbox: deMandelbox, julia: deJulia,
     hyperfold: deHyperfold, polytope: dePolytope, hopf: deHopf,
+    apollonian: deApollonian, kleinian: deKleinian, rings: deRings,
   };
 
-  // The whole scene but the mirrors, in world units: the fractal turned and sized, then
-  // kept inside the unit ball or carved out of it.
-  function sceneDE(x, y, z) {
+  // The fractal in world units, turned and sized — and twisted round its own upright, like a
+  // Solomonic column, when it is asked to be. Leaves the point in its own terms in QX QY QZ.
+  function objectDE(x, y, z) {
     const s = P.objSize;
-    const qx = (OR[0] * x + OR[1] * y + OR[2] * z) / s;
+    let qx = (OR[0] * x + OR[1] * y + OR[2] * z) / s;
     const qy = (OR[3] * x + OR[4] * y + OR[5] * z) / s;
-    const qz = (OR[6] * x + OR[7] * y + OR[8] * z) / s;
-    let d = DE(qx, qy, qz) * s;
-    if (P.invertObj) d = -d;
-    if (P.hollow > 0) {
-      // a round room at the heart, for a mirror ball to hang in
-      const h = P.hollow - Math.sqrt(x * x + y * y + z * z);
-      if (h > d) d = h;
+    let qz = (OR[6] * x + OR[7] * y + OR[8] * z) / s;
+    let lip = 1;
+    if (SPIRAL) {
+      const a = SPIRAL * qy, c = Math.cos(a), sn = Math.sin(a);
+      const t = c * qx - sn * qz;
+      qz = sn * qx + c * qz; qx = t;
+      // a twist stretches space the more the further from the upright
+      const r = Math.sqrt(qx * qx + qz * qz);
+      lip = Math.sqrt(1 + SPIRAL * SPIRAL * r * r);
     }
+    QX = qx; QY = qy; QZ = qz;
+    let d = DE(qx, qy, qz) * s;
+    if (lip !== 1) d /= lip;
+    return P.invertObj ? -d : d;
+  }
+
+  // The ball round the fractal: kept inside it (flat caps where it was cut), carved out of
+  // it, or a rind of it. Sets CAP when the ball is what was hit.
+  function encloseDE(d, x, y, z) {
     const en = P.enclose;
-    if (en === 'none') { CAP = 0; return d; }
+    if (en === 'none' || en === 'window') { CAP = 0; return d; }
     const db = Math.sqrt(x * x + y * y + z * z) - 1;
     if (en === 'inside') {
       if (db > d) { CAP = 1; return db; }
@@ -3237,6 +3895,136 @@ function renderCore() {
     CAP = 0; return d;
   }
 
+  // One ball's worth of scene, in world units: the fractal, a round room hollowed at its
+  // heart, the ball round it, and the side towards the eye cut away to look in.
+  function ballDE(x, y, z) {
+    let d = objectDE(x, y, z);
+    if (P.hollow > 0) {
+      // a round room at the heart, for a mirror ball to hang in
+      const h = P.hollow - Math.sqrt(x * x + y * y + z * z);
+      if (h > d) d = h;
+    }
+    d = encloseDE(d, x, y, z);
+    if (CUTZ > -1) {
+      const c = CUTZ - z;
+      if (c > d) { d = c; CAP = 1; }
+    }
+    return d;
+  }
+
+  // The whole scene but the mirrors, in world units.
+  function sceneDE(x, y, z) {
+    if (DEEP === 0) { LEVEL = 0; FARK = 1; return ballDE(x, y, z); }
+    LIMIT = Infinity;
+    if (DEEP === 1) return nestedDE(x, y, z);
+    if (DEEP === 2) return invertedDE(x, y, z);
+    return tunnelDE(x, y, z);
+  }
+
+  // Nested: the ball holds a copy of itself, shrunk by nestRatio towards the vanishing point
+  // and turned by deepTurn, that copy another, and so on — the deepest left as a round void.
+  // Copy k is hollowed where copy k + 1 sits, with a gap round it. The step never crosses
+  // into another copy's ball, so each is read in its own terms.
+  function nestedDE(x, y, z) {
+    const K = NEST_K;
+    let k = 0;
+    while (k < K) {
+      const dx = x - NCX[k + 1], dy = y - NCY[k + 1], dz = z - NCZ[k + 1], sc = NSC[k + 1];
+      if (dx * dx + dy * dy + dz * dz >= sc * sc) break;
+      k++;
+    }
+    LEVEL = k;
+    const sc = NSC[k];
+    FARK = 1 / sc;
+    if (k === K) {
+      CAP = 2; PART = 0; TRAP = 0; QX = QY = QZ = 0;
+      return Math.hypot(x - NCX[k], y - NCY[k], z - NCZ[k]) - sc;
+    }
+    const ux = (x - VX) / sc, uy = (y - VY) / sc, c = NRC[k], s = NRS[k];
+    const lx = VX + c * ux + s * uy, ly = VY - s * ux + c * uy, lz = VZ + (z - VZ) / sc;
+    let d = ballDE(lx, ly, lz);
+    if (P.nestCarve) {
+      const hx = lx - NHX, hy = ly - NHY, hz = lz - NHZ, hole = NHR - Math.sqrt(hx * hx + hy * hy + hz * hz);
+      if (hole > d) { d = hole; CAP = 1; }
+    }
+    d *= sc;
+    // the next copy is inside its ball; the one before outside this one's, grown by the gap
+    const sn = NSC[k + 1], nx = x - NCX[k + 1], ny = y - NCY[k + 1], nz = z - NCZ[k + 1];
+    LIMIT = Math.sqrt(nx * nx + ny * ny + nz * nz) - sn + NDL * sn;
+    if (k > 0) {
+      const ox = x - NCX[k], oy = y - NCY[k], oz = z - NCZ[k];
+      const outer = sc * (1 + (P.nestCarve ? P.nestGap : 0)) - Math.sqrt(ox * ox + oy * oy + oz * oz) + NDL * sc;
+      if (outer < LIMIT) LIMIT = outer;
+    }
+    return d;
+  }
+
+  // Inverted: the world outside the ball turned into it by an inversion about the vanishing
+  // point that keeps the ball's own sphere where it is — what is far away out there is
+  // near the vanishing point in here, and infinity is the point itself. A sphere of radius D
+  // about the turned point is the image of one of radius D m² / (ρ² + D m) about this one.
+  function invertedDE(x, y, z) {
+    const dx = x - VX, dy = y - VY, dz = z - VZ, m2 = dx * dx + dy * dy + dz * dz, m = Math.sqrt(m2);
+    const f = -INV_R2 / Math.max(m2, 1e-18);
+    const qx = VX + dx * f, qy = VY + dy * f, qz = VZ + dz * f;
+    let D = worldDE(qx, qy, qz), cap = CAP;
+    let d = D >= 0 ? D * m2 / (INV_R2 + D * m) : D * m2 / INV_R2;
+    if (LIMIT < Infinity) LIMIT = LIMIT * m2 / (INV_R2 + LIMIT * m);
+    const db = Math.sqrt(x * x + y * y + z * z) - 1;
+    if (db > d) { d = db; cap = 1; }
+    const da = m - ABYSS_R;
+    if (da < d) { d = da; cap = 2; }
+    CAP = cap;
+    FARK = INV_R2 / Math.max(m2, 1e-18);
+    return d;
+  }
+
+  // The world outside the ball: the fractal once, or a copy of it in every cell of a lattice,
+  // each kept to its own cell.
+  function worldDE(qx, qy, qz) {
+    const L = P.deepRepeat;
+    CAP = 0;
+    if (!(L > 0)) { LEVEL = 0; return objectDE(qx, qy, qz); }
+    const i = Math.round(qx / L), j = Math.round(qy / L), k = Math.round(qz / L);
+    const cx = qx - i * L, cy = qy - j * L, cz = qz - k * L;
+    let d = objectDE(cx, cy, cz);
+    const clip = Math.sqrt(cx * cx + cy * cy + cz * cz) - L * 0.5;
+    if (clip > d) { d = clip; CAP = 1; }
+    LIMIT = L * 0.5 - Math.max(Math.abs(cx), Math.abs(cy), Math.abs(cz)) + L * 0.01;
+    LEVEL = 1 + ((i * 7 + j * 31 + k * 127) & 0x3fff);
+    return d;
+  }
+
+  // A corridor: the fractal again every tunnelLen along the line of sight, each turned by
+  // deepTurn more, with a round bore down the middle. The two nearest copies are read.
+  function tunnelDE(x, y, z) {
+    const L = P.tunnelLen, k = Math.round(z / L), k2 = z - k * L > 0 ? k + 1 : k - 1;
+    let d = cellDE(x, y, z, k2);
+    const p = PART, t = TRAP, a = QX, b = QY, c = QZ;
+    const d1 = cellDE(x, y, z, k);
+    if (d < d1) { PART = p; TRAP = t; QX = a; QY = b; QZ = c; LEVEL = k2; }
+    else { d = d1; LEVEL = k; }
+    LEVEL = 1 + (LEVEL & 0x3fff);
+    FARK = 1;
+    d = encloseDE(d, x, y, z);
+    if (CUTZ > -1) {
+      const cz = CUTZ - z;
+      if (cz > d) { d = cz; CAP = 1; }
+    }
+    return d;
+  }
+
+  function cellDE(x, y, z, k) {
+    const a = -k * TURN, c = Math.cos(a), s = Math.sin(a);
+    const lx = c * x - s * y, ly = s * x + c * y, lz = z - k * P.tunnelLen;
+    let d = objectDE(lx, ly, lz);
+    if (P.hollow > 0) {
+      const h = P.hollow - Math.sqrt(lx * lx + ly * ly);
+      if (h > d) d = h;
+    }
+    return d;
+  }
+
   ////////////////////////////////////////////////////////////////////////////////////
   // Rays
 
@@ -3249,7 +4037,7 @@ function renderCore() {
       const d = sceneDE(ox + dx * t, oy + dy * t, oz + dz * t);
       const eps = Math.max(1e-5, eK * (base + t));
       if (d < eps) { HIT_T = t; STEPS = i; return true; }
-      t += d * kS;
+      t += (LIMIT < d ? LIMIT : d) * kS;
       if (t > t1) { STEPS = i; return false; }
     }
     HIT_T = t; STEPS = maxS;
@@ -3269,12 +4057,36 @@ function renderCore() {
   // What one ray sees. Writes into the output arrays at index o.
   function shade(OUT, o, ox, oy, oz, dx, dy, dz, path, bounces, total) {
     const mb = P.mirrorBall, room = P.room;
+    if (LENS !== 1 && !bounces) {
+      // the ball's skin bends the ray as glass would — under 1 it spreads the rays inside,
+      // so the inside opens out like a room seen through a peephole
+      const b = ox * dx + oy * dy + oz * dz, c = ox * ox + oy * oy + oz * oz - 1, h = b * b - c;
+      if (c > 0 && h > 0 && -b - Math.sqrt(h) > 0) {
+        const te = -b - Math.sqrt(h);
+        ox += dx * te; oy += dy * te; oz += dz * te; total += te;
+        const ci = -(ox * dx + oy * dy + oz * dz), eta = 1 / LENS, k = 1 - eta * eta * (1 - ci * ci);
+        if (k < 0) {
+          // turned back off the skin, as off a mirror
+          dx += 2 * ci * ox; dy += 2 * ci * oy; dz += 2 * ci * oz;
+          ox *= 1 + 1e-4; oy *= 1 + 1e-4; oz *= 1 + 1e-4;
+          path = path * 3 + 1; bounces++;
+        } else {
+          const f = eta * ci - Math.sqrt(k);
+          dx = eta * dx + f * ox; dy = eta * dy + f * oy; dz = eta * dz + f * oz;
+          const l = Math.hypot(dx, dy, dz);
+          dx /= l; dy /= l; dz /= l;
+          ox *= 1 - 1e-4; oy *= 1 - 1e-4; oz *= 1 - 1e-4;
+        }
+      }
+    }
+    const clip = DEEP === 1 || DEEP === 2 || (P.enclose !== 'none' && P.enclose !== 'window');
+    const window = !clip && P.enclose === 'window';
     for (;;) {
       const tB = mb > 0 ? sphereHit(ox, oy, oz, dx, dy, dz, mb, false) : Infinity;
       const tR = room > 0 ? sphereHit(ox, oy, oz, dx, dy, dz, room, true) : Infinity;
       let t0 = 1e-4, t1 = Math.min(tB, tR, P.tMax);
-      let can = true;
-      if (P.enclose !== 'none') {
+      let can = true, front = false;
+      if (clip) {
         // nothing of the scene lies outside the unit ball
         const b = ox * dx + oy * dy + oz * dz, c = ox * ox + oy * oy + oz * oz - 1, h = b * b - c;
         if (h < 0) can = false;
@@ -3283,25 +4095,40 @@ function renderCore() {
           t0 = Math.max(t0, -b - s); t1 = Math.min(t1, -b + s);
           if (t1 <= t0) can = false;
         }
+      } else if (window && !bounces) {
+        // the ball a round window: what stands in front of it is left out, what is behind
+        // it goes on as far as the eye can see
+        const b = ox * dx + oy * dy + oz * dz, c = ox * ox + oy * oy + oz * oz - 1, h = b * b - c;
+        if (c > 0) {
+          if (h < 0 || -b - Math.sqrt(h) < 0) can = false;
+          else { t0 = Math.max(t0, -b - Math.sqrt(h)); front = true; }
+        }
       }
       if (can && march(ox, oy, oz, dx, dy, dz, t0, t1, total)) {
         const t = HIT_T, px = ox + dx * t, py = oy + dy * t, pz = oz + dz * t;
-        const h = Math.max(1e-5, P.pixAng * P.epsK * (total + t) * 0.5);
-        const a = sceneDE(px + h, py - h, pz - h), b = sceneDE(px - h, py - h, pz + h);
-        const c = sceneDE(px - h, py + h, pz - h), d = sceneDE(px + h, py + h, pz + h);
-        let nx = a - b - c + d, ny = -a - b + c + d, nz = -a + b - c + d;
-        const nl = Math.hypot(nx, ny, nz) || 1;
-        nx /= nl; ny /= nl; nz /= nl;
+        let nx, ny, nz, cut = false;
+        if (front && STEPS === 0) {
+          // the window cut through the fractal: a cap, facing out of the ball
+          const l = Math.hypot(px, py, pz) || 1;
+          nx = px / l; ny = py / l; nz = pz / l; cut = true;
+        } else {
+          const h = Math.max(1e-5, P.pixAng * P.epsK * (total + t) * 0.5);
+          const a = sceneDE(px + h, py - h, pz - h), b = sceneDE(px - h, py - h, pz + h);
+          const c = sceneDE(px - h, py + h, pz - h), d = sceneDE(px + h, py + h, pz + h);
+          nx = a - b - c + d; ny = -a - b + c + d; nz = -a + b - c + d;
+          const nl = Math.hypot(nx, ny, nz) || 1;
+          nx /= nl; ny /= nl; nz /= nl;
+        }
         // facing away from the eye means the normal came out wrong in a crevice
         if (nx * dx + ny * dy + nz * dz > 0) { nx = -nx; ny = -ny; nz = -nz; }
         let occ = 0;
-        const ad = P.aoDist;
+        const ad = P.aoDist * (DEEP ? 1 / Math.max(1, FARK) : 1);
         for (let i = 1; i <= 4; i++) {
           const hh = ad * i / 4;
           occ += (hh - sceneDE(px + nx * hh, py + ny * hh, pz + nz * hh)) / (1 << i) / ad;
         }
         sceneDE(px, py, pz);
-        OUT.kind[o] = CAP ? 3 : 2;
+        OUT.kind[o] = CAP === 2 ? 5 : CAP || cut ? 3 : 2;
         OUT.part[o] = PART;
         OUT.trap[o] = TRAP;
         OUT.depth[o] = total + t;
@@ -3310,6 +4137,9 @@ function renderCore() {
         OUT.ao[o] = Math.max(0, Math.min(1, 1 - 2.2 * occ));
         OUT.steps[o] = STEPS;
         OUT.path[o] = path; OUT.bounce[o] = bounces;
+        OUT.level[o] = LEVEL; OUT.far[o] = (total + t) * FARK;
+        OUT.face[o] = -(nx * dx + ny * dy + nz * dz);
+        OUT.qx[o] = QX; OUT.qy[o] = QY; OUT.qz[o] = QZ;
         return;
       }
       const tm = Math.min(tB, tR);
@@ -3332,6 +4162,8 @@ function renderCore() {
       OUT.px[o] = dx; OUT.py[o] = dy; OUT.pz[o] = dz;
       OUT.ao[o] = 1; OUT.steps[o] = 0;
       OUT.path[o] = path; OUT.bounce[o] = bounces;
+      OUT.level[o] = 0; OUT.far[o] = total + P.tMax; OUT.face[o] = 0;
+      OUT.qx[o] = OUT.qy[o] = OUT.qz[o] = 0;
       return;
     }
   }
@@ -3345,6 +4177,46 @@ function renderCore() {
     rot4(P.xw, P.yw, P.zw, 0, H4);
     rot4(P.twistA, P.twistB, P.twistC, P.twistD, T4);
     DE = OBJECTS[P.object] || deKifs;
+    DEEP = { nested: 1, inverted: 2, tunnel: 3 }[P.deep] || 0;
+    LIMIT = Infinity;
+    // the vanishing point, kept inside the ball
+    VX = P.vanishX || 0; VY = P.vanishY || 0; VZ = P.vanishZ || 0;
+    const vl = Math.hypot(VX, VY, VZ);
+    if (vl > 0.9) { VX *= 0.9 / vl; VY *= 0.9 / vl; VZ *= 0.9 / vl; }
+    INV_R2 = 1 - VX * VX - VY * VY - VZ * VZ;
+    SPIRAL = (P.spiral || 0) * RAD;
+    CUTZ = P.cutaway > 0 ? -1 + 2 * Math.min(P.cutaway, 100) / 100 : -2;
+    LENS = P.lens > 0 ? P.lens / 100 : 1;
+    TURN = (P.deepTurn || 0) * RAD;
+    const K = Math.max(1, Math.min(64, Math.round(P.deepLevels || 1)));
+    // the inverted world ends where it is so far out that a ray would not resolve it
+    const far = K * (P.deepRepeat > 0 ? P.deepRepeat : 2 * P.objSize);
+    ABYSS_R = DEEP === 2 ? INV_R2 / Math.max(far, 1.01) : 0;
+    // the nested copies: copy k is the ball shrunk by r^k towards v and turned by k·turn,
+    // its middle at v − r^k R_k v; every copy's hollow at the same place in its own terms
+    const r = Math.max(0.05, Math.min(0.95, P.nestRatio || 0.5));
+    NEST_K = DEEP === 1 ? K : 0;
+    for (let k = 0; k <= Math.min(K, 65); k++) {
+      const sc = Math.pow(r, k), c = Math.cos(k * TURN), sn = Math.sin(k * TURN);
+      NSC[k] = sc; NRC[k] = c; NRS[k] = sn;
+      NCX[k] = VX - sc * (c * VX - sn * VY);
+      NCY[k] = VY - sc * (sn * VX + c * VY);
+      NCZ[k] = VZ - sc * VZ;
+    }
+    const c1 = Math.cos(TURN), s1 = Math.sin(TURN);
+    NHX = VX - r * (c1 * VX - s1 * VY);
+    NHY = VY - r * (s1 * VX + c1 * VY);
+    NHZ = VZ - r * VZ;
+    NHR = r * (1 + Math.max(0, P.nestGap || 0));
+    if (P.object === 'rings') {
+      RING_N = Math.max(1, Math.min(16, Math.round(P.ringCount)));
+      const M = new Float64Array(9);
+      for (let i = 0; i < RING_N; i++) {
+        RING_R[i] = Math.pow(P.ringShrink, i);
+        rot3(i * P.ringTurn, i * P.ringTilt + P.ringTilt0, 0, M);
+        for (let k = 0; k < 9; k++) RINGM[i * 9 + k] = M[k];
+      }
+    }
   }
 
   // Fold a point of the disc into the wedge the symmetry repeats — the angle is measured
@@ -3367,7 +4239,9 @@ function renderCore() {
       depth: new Float32Array(n), nx: new Float32Array(n), ny: new Float32Array(n),
       nz: new Float32Array(n), px: new Float32Array(n), py: new Float32Array(n),
       pz: new Float32Array(n), ao: new Float32Array(n), steps: new Uint16Array(n),
-      path: new Uint16Array(n), bounce: new Uint8Array(n),
+      path: new Uint16Array(n), bounce: new Uint8Array(n), level: new Uint16Array(n),
+      far: new Float32Array(n), qx: new Float32Array(n), qy: new Float32Array(n),
+      qz: new Float32Array(n), face: new Float32Array(n),
     };
   }
 
