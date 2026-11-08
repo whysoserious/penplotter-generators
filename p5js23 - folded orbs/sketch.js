@@ -56,7 +56,7 @@ const DEEPS     = ['none', 'nested', 'inverted', 'tunnel'];
 const SYMS      = ['none', 'mirror', 'dihedral', 'rotational'];
 const PATTERNS  = ['mixed', 'dots', 'hatch', 'cross', 'flow', 'engrave', 'none'];
 const FILLS     = ['dots', 'hatch', 'cross', 'flow', 'engrave'];
-const ENGRAVE_BY = ['contour', 'slope', 'per region'];
+const ENGRAVE_BY = ['contour', 'slope', 'meridians', 'parallels', 'ribs and rings', 'per region'];
 const HATCH_BY  = ['fixed', 'per region', 'surface'];
 const FLOWS     = ['depth', 'height', 'radius', 'trap', 'light', 'meridians', 'parallels', 'axis'];
 const DOT_ORDER = ['bayer', 'random', 'rows'];
@@ -159,7 +159,7 @@ const settings = {
   apoS: 1.15, apoZoom: 1.6,
   klBox: 0.92, klSize: 1.05, klZoom: 1.4,
   ringCount: 5, ringShrink: 0.8, ringWidth: 0.16, ringThick: 0.05, ringTilt: 34, ringTilt0: 0,
-  ringTurn: 28,
+  ringTurn: 28, ringLat: 0,
 
   // deeper inside
   deep: 'none',
@@ -268,12 +268,81 @@ const RENDER_KEYS = ['paper', 'orientation', 'customW', 'customH', 'margin', 'or
   'invertObj', 'enclose', 'shell', 'hollow', 'mirrorBall', 'room', 'bounces', 'maxSteps',
   'precision', 'symmetry', 'symN', 'coreRound', 'spiral', 'apoS', 'apoZoom', 'klBox', 'klSize',
   'klZoom', 'ringCount', 'ringShrink', 'ringWidth', 'ringThick', 'ringTilt', 'ringTilt0', 'ringTurn',
-  'deep', 'deepLevels', 'nestRatio', 'nestGap', 'nestCarve', 'deepTurn', 'vanishX', 'vanishY',
+  'ringLat', 'deep', 'deepLevels', 'nestRatio', 'nestGap', 'nestCarve', 'deepTurn', 'vanishX', 'vanishY',
   'vanishZ', 'deepRepeat', 'tunnelLen', 'lens', 'cutaway'];
 
 // Sheets worth starting from. Each one is the whole state.
 const SCENES = [
   { label: '— select a scene —' },
+  // deeper than the ball: after three plates of Curioids, and baroque
+  { label: 'Halftone bands in a cell of the tesseract, cubes in cubes going on', s: {
+      object: 'polytope', polytope: 'tesseract', node: 0, tube: 0.15, objSize: 1, enclose: 'none',
+      yaw: 0, pitch: 0, roll: 0, xw: 15, yw: 8, view: 'mirror room', room: 1.6, bounces: 2,
+      mirrorDim: 10, camDist: 0.6, fov: 200, deep: 'nested', nestRatio: 0.32, nestCarve: false,
+      deepLevels: 8, partDepth: 1, pattern: 'dots', dotPitch: 0.9, dotAngle: 0, edgeGap: 0.7,
+      invert: true, skyTone: 100, headlight: 30, lightYaw: -40, lightPitch: 35, ambient: 0,
+      aoK: 60, flat: 85, lightest: 8, contrast: 50, levels: 6, ring: 'halo', fillPen: 3 } },
+  { label: 'A cathedral from below, its well going on up', s: {
+      object: 'kifs', iters: 5, kScale: 1.8, core: 1, offX: 1.2, offY: 0.8, offZ: 0.6, twistA: 30,
+      twistB: 6, view: 'dome', camDist: 0, fov: 180, enclose: 'none', objSize: 1.3,
+      deep: 'nested', nestRatio: 0.55, vanishY: 0.35, vanishZ: 0.35, headlight: 100, ambient: 0,
+      aoK: 80, fog: -20, skyTone: 100, flat: 75, contrast: 40, pattern: 'engrave',
+      engravePitch: 0.5, lightest: 55, solidAt: 75, fillPen: 3, solidPen: 4 } },
+  { label: 'Hoops of an armillary sphere in a mirror, engraved', s: {
+      object: 'rings', enclose: 'none', ringCount: 5, ringLat: 25, ringShrink: 1, ringWidth: 0.14,
+      ringTilt0: 0, ringTilt: 0, ringTurn: 0, yaw: 0, pitch: 0, roll: 0, objSize: 0.9,
+      view: 'mirror room', room: 1.25, camDist: 0.3, fov: 170, bounces: 3, mirrorDim: 12,
+      headlight: 40, lightYaw: -30, lightPitch: 50, ambient: 5, aoK: 60, flat: 35, contrast: 40,
+      pattern: 'engrave', engraveBy: 'ribs and rings', engravePitch: 0.45, lightest: 30,
+      solidAt: 74, fillPen: 3, solidPen: 4 } },
+  { label: 'The world outside turned into the ball, infinity at its heart', s: {
+      deep: 'inverted', deepRepeat: 2.6, deepLevels: 8, object: 'kifs', folds: 'cube', kScale: 3,
+      iters: 2, twistA: 0, twistB: 0, coreShape: 'cross', core: 1.4, coreRound: 0.6, objSize: 1,
+      partDepth: 0, camDist: 1.3, headlight: 40, lightYaw: -40, lightPitch: 30, ambient: 5,
+      aoK: 70, fog: -40, flat: 80, contrast: 30, mixFlow: false, hatchBy: 'surface',
+      lightest: 15, fillPen: 3, ring: 'double' } },
+  { label: 'A corridor behind a round window', s: {
+      deep: 'tunnel', enclose: 'window', object: 'kifs', folds: 'cube', kScale: 3, iters: 3,
+      twistA: 0, twistB: 0, objSize: 1, camDist: 1.1, hollow: 0.25, tunnelLen: 2,
+      headlight: 100, ambient: 0, aoK: 80, fog: -50, pattern: 'hatch', hatchPitch: 0.6,
+      lightest: 30, solidAt: 72, fillPen: 3, solidPen: 4 } },
+  { label: 'Orbs in orbs, winding in a double spiral', s: {
+      object: 'kifs', iters: 4, kScale: 1.8, core: 1, offX: 1.2, offY: 0.8, offZ: 0.6, twistA: 30,
+      twistB: 6, objSize: 1.1, deep: 'nested', nestRatio: 0.6, deepTurn: 30, vanishX: 0.2,
+      vanishY: 0.25, cutaway: 50, deepLevels: 10, headlight: 50, ambient: 10, aoK: 60, flat: 70,
+      fog: -30, pattern: 'mixed', mixEngrave: true, mixCross: false, lightest: 12, fillPen: 3,
+      frame: 'rope', orbSize: 78, frameWidth: 7, frameCount: 64, ringPen: 2, framePen: 2 } },
+  { label: 'Solomonic columns down a corridor', s: {
+      object: 'kifs', folds: 'cube', kScale: 3, iters: 2, twistA: 0, twistB: 0, coreShape: 'cross',
+      core: 1.2, coreRound: 0.4, objSize: 0.8, spiral: 90, deep: 'tunnel', enclose: 'window',
+      camDist: 1.15, tunnelLen: 1.6, hollow: 0.3, maxSteps: 300, headlight: 70, ambient: 5,
+      aoK: 70, fog: -45, flat: 70, pattern: 'engrave', engraveBy: 'per region', engravePitch: 0.5,
+      lightest: 25, solidAt: 80, fillPen: 3, solidPen: 4, frame: 'scrolls', orbSize: 76,
+      frameWidth: 12, frameCount: 26, framePen: 2 } },
+  { label: 'A pavilion of Apollonian pearls in a gloriole', s: {
+      object: 'apollonian', iters: 7, apoS: 1.15, apoZoom: 1, objSize: 0.4, headlight: 50,
+      ambient: 10, aoK: 60, flat: 70, pattern: 'mixed', mixEngrave: true, mixHatch: false,
+      lightest: 12, fillPen: 3, orbSize: 60, ring: 'double', ringGap: 2.5, frame: 'gloriole',
+      frameGap: 1, frameWidth: 24, frameCount: 96, framePen: 2 } },
+  { label: 'Kleinian ivory in an egg-and-dart frame', s: {
+      object: 'kleinian', iters: 6, objSize: 0.5, klBox: 1, klSize: 1.1, pitch: 20, partDepth: 0,
+      crease: 0, despeckle: 30, headlight: 50, ambient: 10, aoK: 70, flat: 80, pattern: 'dots',
+      dotPitch: 0.8, lightest: 10, fillPen: 3, orbSize: 72, frame: 'egg and dart',
+      frameWidth: 8, frameCount: 48, framePen: 1 } },
+  { label: 'An armillary sphere in a laurel wreath', s: {
+      object: 'rings', objSize: 0.95, enclose: 'none', ringCount: 6, ringShrink: 0.82,
+      ringWidth: 0.12, ringLat: 0, headlight: 40, lightYaw: -35, lightPitch: 40, ambient: 5,
+      aoK: 50, flat: 40, pattern: 'engrave', engraveBy: 'ribs and rings', engravePitch: 0.45,
+      lightest: 18, solidAt: 82, fillPen: 3, solidPen: 4, orbSize: 66, ring: 'none',
+      frame: 'laurel', frameGap: 0, frameWidth: 14, frameCount: 40, framePen: 2 } },
+  { label: 'A glass marble, the rings swollen in it', s: {
+      object: 'hopf', lens: 165, headlight: 40, flat: 60, pattern: 'mixed', mixEngrave: true,
+      lightest: 10, fillPen: 3, orbSize: 74, frame: 'pearls', frameWidth: 8, frameCount: 44 } },
+  { label: 'Looking into the bowl of a Menger sponge', s: {
+      object: 'kifs', folds: 'cube', kScale: 3, iters: 3, twistA: 0, twistB: 0, objSize: 1.1,
+      cutaway: 50, headlight: 80, ambient: 5, aoK: 70, fog: -30, flat: 80, pattern: 'mixed',
+      lightest: 15, solidAt: 85, fillPen: 3, solidPen: 4 } },
+  // the first sheets
   { label: 'Linked rings of a Hopf fibration, in a ball', s: {} },
   { label: 'Tetrahedral kaleidoscope cut by the ball', s: {
       object: 'kifs', iters: 4, kScale: 1.8, core: 1.4, objSize: 1.1, offX: 1.2, offY: 0.8,
@@ -316,10 +385,8 @@ const SCENES = [
   { label: 'What the mirror shows, in red', s: {
       mirrorBall: 0.5, enclose: 'none', object: 'polytope', polytope: '24-cell', objSize: 0.7,
       tube: 0.05, node: 0.08, hollow: 0.6, camDist: 2.4, mirrorOwnPen: true, ring: 'halo' } },
-  { label: 'White marker on black paper', s: {
-      paper: 'A3', paperTone: 'black', paperColor: PAPER_TONES.black, linePen: 5, fillPen: 5,
-      ringPen: 5, pen5W: 0.8, invert: true, dotPitch: 1.6, hatchPitch: 1.4, edgeGap: 0.9,
-      ring: 'halo' } },
+  { label: 'A negative — ink where it is light', s: {
+      paper: 'A3', invert: true, dotPitch: 1.6, hatchPitch: 1.4, edgeGap: 0.9, ring: 'halo' } },
 ];
 
 const setters   = {};
@@ -654,7 +721,7 @@ function renderParams(coarse) {
   if (s.object === 'kleinian') { P.klBox = s.klBox; P.klSize = s.klSize; P.klZoom = s.klZoom; }
   if (s.object === 'rings') {
     for (const k of ['ringCount', 'ringShrink', 'ringWidth', 'ringThick', 'ringTilt', 'ringTilt0',
-      'ringTurn']) P[k] = s[k];
+      'ringTurn', 'ringLat']) P[k] = s[k];
   }
   if (s.deep !== 'none') {
     for (const k of ['deep', 'deepLevels', 'nestRatio', 'nestGap', 'nestCarve', 'deepTurn', 'vanishX', 'vanishY',
@@ -1563,12 +1630,30 @@ function engraveLines(pat, gap, low, isSolid) {
   const depth = G.B.buf.depth;
   // the slope of the depth across the picture, as a doubled angle so that a direction and its
   // reverse add up; smoothed within each region
+  // what each region's lines follow: the level lines of its depth (round the form), the
+  // slope of it (down the form), or the fractal's own turn round its upright (ribs) or its
+  // height up it (rings) — one for all, or picked for each region by its name
+  const KINDS_OF = ['contour', 'slope', 'meridians', 'parallels'];
+  const mode = s.engraveBy, rmode = new Uint8Array(G.R);
+  for (let r = 0; r < G.R; r++) {
+    if (pat[r] !== 'engrave') continue;
+    const h = hash01(G.rname[r], 23, 7);
+    rmode[r] = mode === 'per region' ? Math.floor(h * 4) : mode === 'ribs and rings' ? 2 + (h < 0.5 ? 0 : 1)
+             : Math.max(0, KINDS_OF.indexOf(mode));
+  }
+  const { qx, qy, qz } = G.B.buf;
   const D = new Float32Array(n), on = new Uint8Array(n);
   for (let a = 0; a < n; a++) {
     if (reg[a] < 0 || pat[reg[a]] !== 'engrave') continue;
     on[a] = 1;
-    D[a] = Math.log(Math.max(1e-6, depth[a]));
+    const m = rmode[reg[a]];
+    D[a] = m === 2 ? Math.atan2(qz[a], qx[a]) : m === 3 ? qy[a] : Math.log(Math.max(1e-6, depth[a]));
   }
+  const diff = (u, v, r) => {
+    let d = u - v;
+    if (rmode[r] === 2) { if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI; }
+    return d;
+  };
   const jx = new Float32Array(n), jy = new Float32Array(n), jw = new Float32Array(n);
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const a = j * N + i;
@@ -1576,7 +1661,7 @@ function engraveLines(pat, gap, low, isSolid) {
     const r = reg[a];
     const l = i > 0 && reg[a - 1] === r ? D[a - 1] : D[a], rr = i + 1 < N && reg[a + 1] === r ? D[a + 1] : D[a];
     const u = j > 0 && reg[a - N] === r ? D[a - N] : D[a], d = j + 1 < N && reg[a + N] === r ? D[a + N] : D[a];
-    const gx = rr - l, gy = d - u;
+    const gx = diff(rr, l, r), gy = diff(d, u, r);
     jx[a] = gx * gx - gy * gy; jy[a] = 2 * gx * gy; jw[a] = gx * gx + gy * gy;
   }
   const blur = (src, rad) => {
@@ -1611,7 +1696,7 @@ function engraveLines(pat, gap, low, isSolid) {
   const across = new Uint8Array(G.R), fall = new Float64Array(G.R);
   for (let r = 0; r < G.R; r++) {
     if (pat[r] !== 'engrave') continue;
-    across[r] = s.engraveBy === 'slope' ? 1 : s.engraveBy === 'per region' ? (hash01(G.rname[r], 23, 7) < 0.5 ? 1 : 0) : 0;
+    across[r] = rmode[r] === 1 ? 1 : 0;
     fall[r] = rad(regionAngle(r)) * 2;
   }
   const C2 = new Float32Array(n), S2 = new Float32Array(n);
@@ -2673,7 +2758,7 @@ function syncVisibility() {
   setVisible('folds', o === 'kifs');
   show(['apoS', 'apoZoom'], o === 'apollonian');
   show(['klBox', 'klSize', 'klZoom'], o === 'kleinian');
-  show(['ringCount', 'ringShrink', 'ringWidth', 'ringThick', 'ringTilt', 'ringTilt0', 'ringTurn'], o === 'rings');
+  show(['ringCount', 'ringShrink', 'ringWidth', 'ringThick', 'ringTilt', 'ringTilt0', 'ringTurn', 'ringLat'], o === 'rings');
   setVisible('coreRound', o === 'kifs' || o === 'hyperfold');
   const dp = s.deep;
   show(['deepLevels', 'deepAlike'], dp !== 'none');
@@ -2850,6 +2935,8 @@ function buildControls() {
   addSlider(sec, 'First hoop tipped (°)', 'ringTilt0', -90, 90, 0.5);
   addSlider(sec, 'Each hoop tipped more (°)', 'ringTilt', -90, 90, 0.5);
   addSlider(sec, 'Each hoop turned more (°)', 'ringTurn', -180, 180, 0.5);
+  addSlider(sec, 'Hoops as parallels, apart (°)', 'ringLat', 0, 60, 0.5,
+    'Laid round a ball one above the next, like the tropics and the polar circles. 0 — all at its middle.');
   addSlider(sec, 'Box scale', 'mbScale', -3.5, 3.5, 0.01, 'Negative — rooms; positive — towers.');
   addSlider(sec, 'Inner radius', 'mbMinR', 0.05, 1, 0.01);
   addSlider(sec, 'Fold limit', 'mbFold', 0.3, 2, 0.01);
@@ -2963,7 +3050,9 @@ function buildControls() {
   addSlider(sec, 'Engraved lines apart (mm)', 'engravePitch', 0.2, 4, 0.05, 'At the darkest; twice as far at half the tone.');
   addSelect(sec, 'Engraved lines run', 'engraveBy', ENGRAVE_BY, update,
     '<b>contour</b> — round the form, along lines of equal depth; <b>slope</b> — down it; ' +
-    '<b>per region</b> — one or the other, by the region\'s name.');
+    'in the fractal\'s own terms: <b>meridians</b> — ribs up and down it, <b>parallels</b> — rings ' +
+    'round it; <b>ribs and rings</b> — each region one of those two; <b>per region</b> — each region ' +
+    'any of the four, by its name.');
   addSlider(sec, 'Paper along the outlines (mm)', 'edgeGap', 0, 3, 0.05);
   addSlider(sec, 'Bare below (% tone)', 'lightest', 0, 100, 1);
   addSlider(sec, 'Solid above (% tone)', 'solidAt', 0, 100, 1, '100 — never.');
@@ -3517,7 +3606,7 @@ function renderCore() {
   const NRC = new Float64Array(66), NRS = new Float64Array(66);
   // the hoops of an armillary sphere: how many, how big, how each is turned
   let RING_N = 0;
-  const RING_R = new Float64Array(16), RINGM = new Float64Array(16 * 9);
+  const RING_R = new Float64Array(16), RING_Y = new Float64Array(16), RINGM = new Float64Array(16 * 9);
 
   const RAD = Math.PI / 180;
 
@@ -3858,10 +3947,10 @@ function renderCore() {
       const lx = RINGM[m] * x + RINGM[m + 1] * y + RINGM[m + 2] * z;
       const ly = RINGM[m + 3] * x + RINGM[m + 4] * y + RINGM[m + 5] * z;
       const lz = RINGM[m + 6] * x + RINGM[m + 7] * y + RINGM[m + 8] * z;
-      const qx = Math.sqrt(lx * lx + lz * lz) - R, qy = ly;
-      const dx = Math.abs(qx) - t * R + rr, dy = Math.abs(qy) - w * R + rr;
+      const qx = Math.sqrt(lx * lx + lz * lz) - R, qy = ly - RING_Y[i];
+      const sz = Math.max(R, 0.15), dx = Math.abs(qx) - t * sz + rr, dy = Math.abs(qy) - w * sz + rr;
       const d = Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) + Math.min(Math.max(dx, dy), 0) - rr;
-      if (d < best) { best = d; part = i; trap = Math.abs(qy) / (w * R); }
+      if (d < best) { best = d; part = i; trap = Math.abs(qy) / (w * sz); }
     }
     PART = P.partDepth ? part : 0; TRAP = trap;
     return best;
@@ -4000,18 +4089,17 @@ function renderCore() {
   }
 
   // The world outside the ball: the fractal once, or a copy of it in every cell of a lattice,
-  // each kept to its own cell.
+  // each cut to its own cell — where it runs on into the next cell the cut is inside it and
+  // the lattice is seamless.
   function worldDE(qx, qy, qz) {
     const L = P.deepRepeat;
-    CAP = 0;
-    if (!(L > 0)) { LEVEL = 0; return objectDE(qx, qy, qz); }
-    const i = Math.round(qx / L), j = Math.round(qy / L), k = Math.round(qz / L);
-    const cx = qx - i * L, cy = qy - j * L, cz = qz - k * L;
+    CAP = 0; LEVEL = 0;
+    if (!(L > 0)) return objectDE(qx, qy, qz);
+    const cx = qx - Math.round(qx / L) * L, cy = qy - Math.round(qy / L) * L, cz = qz - Math.round(qz / L) * L;
     let d = objectDE(cx, cy, cz);
-    const clip = Math.sqrt(cx * cx + cy * cy + cz * cz) - L * 0.5;
-    if (clip > d) { d = clip; CAP = 1; }
-    LIMIT = L * 0.5 - Math.max(Math.abs(cx), Math.abs(cy), Math.abs(cz)) + L * 0.01;
-    LEVEL = 1 + ((i * 7 + j * 31 + k * 127) & 0x3fff);
+    const wall = L * 0.5 - Math.max(Math.abs(cx), Math.abs(cy), Math.abs(cz));
+    if (-wall > d) { d = -wall; CAP = 1; }
+    LIMIT = wall + L * 0.01;
     return d;
   }
 
@@ -4232,7 +4320,10 @@ function renderCore() {
       RING_N = Math.max(1, Math.min(16, Math.round(P.ringCount)));
       const M = new Float64Array(9);
       for (let i = 0; i < RING_N; i++) {
-        RING_R[i] = Math.pow(P.ringShrink, i);
+        // hoops one inside the next, or laid round a ball like its parallels
+        const lat = (P.ringLat || 0) * RAD * (i - (RING_N - 1) / 2);
+        RING_R[i] = Math.pow(P.ringShrink, i) * Math.cos(lat);
+        RING_Y[i] = Math.pow(P.ringShrink, i) * Math.sin(lat);
         rot3(i * P.ringTurn, i * P.ringTilt + P.ringTilt0, 0, M);
         for (let k = 0; k < 9; k++) RINGM[i * 9 + k] = M[k];
       }
