@@ -3716,12 +3716,18 @@ function cropMarkPlaces() {
   return out;
 }
 
-// A dot is one touch of the pen, and no pen's box clips it: it stands on the very edge.
+// A dot is one touch of the pen, and no pen's box clips it: it stands on the very edge. It
+// goes with the pen that plots first, and before any of its lines (see orderShapes). The stub
+// points into the sheet: one lying along the bottom or the right edge is cut away by vpype.
 function cropMarkDots() {
   if (!settings.cropMarks) return;
-  const [W] = paperDims();
-  PEN = penIdx(settings.linePen); LAY = L_GUIDES;
-  for (const [x, y] of cropMarkPlaces()) pushPoly([x, x + (x > W / 2 ? -EPS : EPS)], [y, y], 2);
+  const [W, H] = paperDims(), used = new Uint8Array(SLOTS);
+  for (const id of SINK.ink) used[id] = 1;
+  const first = penOrder().find(i => used[i]);
+  PEN = first === undefined ? penIdx(settings.linePen) : first; LAY = L_GUIDES;
+  for (const [x, y] of cropMarkPlaces()) {
+    pushPoly([x, x + (x > W / 2 ? -EPS : EPS)], [y, y + (y > H / 2 ? -EPS : EPS)], 2);
+  }
 }
 
 function buildShapes() {
@@ -3896,11 +3902,19 @@ function orderShapes(sh) {
   for (const id of penOrder()) {
     const list = byInk.get(id);
     if (!list) continue;
-    if (settings.optimiseOrder) {
-      const g = greedy(sh, list, 0, 0);
-      for (let t = 0; t < g.order.length; t++) { order[at] = g.order[t]; flip[at++] = g.flip[t]; }
-    } else {
-      for (const i of list) { order[at] = i; flip[at++] = 0; }
+    // the cut guides first, round the sheet, and the lines on from the last of them: a plot
+    // stopped half way still leaves a sheet marked for the guillotine
+    const dots = list.filter(i => sh.lay[i] === L_GUIDES);
+    const rest = dots.length ? list.filter(i => sh.lay[i] !== L_GUIDES) : list;
+    let x = 0, y = 0;
+    for (const part of [dots, rest]) {
+      if (settings.optimiseOrder) {
+        const g = greedy(sh, part, x, y);
+        for (let t = 0; t < g.order.length; t++) { order[at] = g.order[t]; flip[at++] = g.flip[t]; }
+        x = g.px; y = g.py;
+      } else {
+        for (const i of part) { order[at] = i; flip[at++] = 0; }
+      }
     }
   }
   return { order, flip, ...measurePlan(sh, order, flip) };
@@ -5481,7 +5495,7 @@ function refreshPenList() {
 // the pen should visit them, a hop the pen stays down over is a line like any other, and
 // the link that rebuilds the sheet is in the header comment.
 
-function svgGroup(keep, pen, id) {
+function svgGroup(keep, pen, id, n) {
   const { pts, off } = shapes;
   const { order, flip } = plan;
   const f = n => String(+n.toFixed(3));
@@ -5509,7 +5523,8 @@ function svgGroup(keep, pen, id) {
   }
   if (d) body += `  <path d="${d}"/>\n`;
   if (!count) return null;
-  return `<g id="${id}" fill="none" stroke="${penCol(pen)}" stroke-width="${f(penW(pen))}" ` +
+  return `<g id="${id}" inkscape:label="${n} ${id}" fill="none" stroke="${penCol(pen)}" ` +
+    `stroke-width="${f(penW(pen))}" ` +
     `stroke-linecap="round" stroke-linejoin="round">\n${body}</g>\n`;
 }
 
@@ -5517,17 +5532,20 @@ function penId(i) { return `pen${i + 1}-${penKind(i).replace(/\s+/g, '-')}`; }
 
 function svgFile(groups, tag) {
   const [W, H] = paperDims();
-  let body = '';
+  // The groups numbered as they stand in the file: vpype takes the first number in a label for
+  // its layer, sorts the strokes within a layer and writes the layers by number — so the plot
+  // keeps this order through vpype-process.sh.
+  let body = '', n = 0;
   for (const [keep, pen, id] of groups) {
-    const g = svgGroup(keep, pen, id);
-    if (g) body += g;
+    const g = svgGroup(keep, pen, id, n + 1);
+    if (g) { body += g; n++; }
   }
   if (!body) return null;
   return `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<!-- ${metaComment().replace(/--/g, '- -')} pass=${tag} -->\n` +
     `<!-- ${location.origin === 'null' ? '' : location.origin}${location.pathname}` +
     `#${encodeState().replace(/--/g, '-%2D')} -->\n` +
-    `<svg xmlns="http://www.w3.org/2000/svg" ` +
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" ` +
     `width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}">\n` +
     body +
     `</svg>\n`;
@@ -5539,15 +5557,18 @@ function exportSvg(what) {
     alert('Nothing to export — no line is left on this sheet.');
     return;
   }
-  const all = () => true;
+  // the cut guides in a group of their own ahead of their pen's lines, so that vpype, which
+  // sorts the strokes inside a group, cannot mix them in
+  const guides = j => shapes.lay[j] === L_GUIDES, rest = j => shapes.lay[j] !== L_GUIDES;
+  const penGroups = i => [[guides, i, `cut-guides-${penId(i)}`], [rest, i, penId(i)]];
   const files = [];
   if (what.all) {
-    files.push([penOrder().map(i => [all, i, penId(i)]), 'everything']);
+    files.push([penOrder().flatMap(penGroups), 'everything']);
   } else if (what.perPen) {
     for (const i of penOrder()) {
       if (perPen[i] && perPen[i].strokes) {
         const w = penW(i);
-        files.push([[[all, i, penId(i)]], `pen${i + 1} ${penKind(i)} ${+w.toFixed(2)}mm`]);
+        files.push([penGroups(i), `pen${i + 1} ${penKind(i)} ${+w.toFixed(2)}mm`]);
       }
     }
   } else if (what.layer !== undefined) {

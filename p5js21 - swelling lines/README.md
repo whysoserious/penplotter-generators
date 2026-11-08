@@ -309,18 +309,25 @@ A **Border** is a line, or two, round the picture, on the edge the lines are cut
 each side split evenly so that no two dots are further apart than **Most between two dots**
 — lay the blade through two of them and cut. **Dots round** the **sheet** is for a plot
 made on a larger piece of paper and trimmed back to size; round the **picture** cuts the
-margin off and keeps the picture to its very edge. A dot is one touch of the pen of the
-lines, and no margin clips it.
+margin off and keeps the picture to its very edge. A dot is one touch of the pen that
+plots first, and no margin clips it. The dots are **plotted first**, round the sheet, before
+any line — a plot stopped half way still leaves the sheet marked for the cut.
 
 ## What ends up in the files
 
 No fills and no background rectangle — everything in a file is meant to be plotted.
 `stroke-width` is the nib and the caps are round, so the file previews as the finished plot
-looks. **everything** is one `<g>` per pen; a layer's file or a pen's file is one group.
+looks. **everything** is one `<g>` per pen; a layer's file or a pen's file is one group —
+but the cut guides, which stand in a group of their own ahead of their pen's lines.
 Every file is the same sheet — the same `width`, `height` and `viewBox` in millimetres.
 
-The cut guides are a layer of their own in the pen of the lines: they are in **everything**
-and in that one pen's file, so they are plotted once.
+The cut guides are a layer of their own in the pen that plots first: they are in
+**everything** and in that one pen's file, so they are plotted once. Every group carries an
+`inkscape:label` that starts with its place in the file (`1 cut-guides-pen1-black`,
+`2 pen1-black`, …). `vpype` takes that number for its layer, sorts the strokes only within
+a layer and writes the layers by number, so after `vpype-process.sh` the dots are still the
+first thing plotted. A dot is a 0.01 mm stub pointing into the sheet: one lying along the
+bottom or the right edge would be cropped away by `vpype read`.
 
 Strokes come out in the order the pen should visit them, each already flipped to the end
 it should be entered from: greedy nearest-neighbour over the endpoints, one pen at a time.
