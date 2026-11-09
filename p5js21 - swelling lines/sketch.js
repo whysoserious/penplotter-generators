@@ -1278,6 +1278,9 @@ let LN = 0;                  // readings on the line in hand
 let BX = new Float64Array(4096), BY = new Float64Array(4096);
 let NX = new Float64Array(4096), NY = new Float64Array(4096);
 let PP = new Float64Array(4096), SA = new Float64Array(4096);
+// what the lines in hand are, enough to find a neighbour's place along it and its number:
+// how many rays there are, the middle the rings go round
+let CARRY = { kind: 'lines', n: 0, cx: 0, cy: 0 };
 
 function lineRoom(n) {
   if (BX.length >= n) return;
@@ -1297,6 +1300,7 @@ function eachLine(opt, fn) {
   const ds = clamp(s.detail, 0.1, 10) * (opt.coarse ? 2 : 1);
   const fcx = (A.x0 + A.x1) / 2, fcy = (A.y0 + A.y1) / 2;
   const [ccx, ccy] = carrierCentre();
+  CARRY = { kind: s.carrier, n: 0, cx: ccx, cy: ccy };
   const X = { x0: A.x0 - opt.reach, y0: A.y0 - opt.reach, x1: A.x1 + opt.reach, y1: A.y1 + opt.reach };
   const th = rad(s.angle + opt.turn);
   // the farthest and the nearest the box gets from the middle
@@ -1343,6 +1347,7 @@ function eachLine(opt, fn) {
     case 'rays': {
       const n = clamp(Math.round(2 * Math.PI * (Math.min(A.w, A.h) / 4) / P), 3, 4000);
       const k = 2 * Math.PI / n, r0 = Math.max(0.5, s.hole);
+      CARRY.n = n;
       for (let j = 0; j < n; j++) {
         const a = th + (j + opt.shift) * k, dx = Math.sin(a), dy = -Math.cos(a);
         if (straight(ccx, ccy, dx, dy, r0, Math.max(r0 + 1, far), Math.cos(a), Math.sin(a),
@@ -1463,17 +1468,39 @@ function traceLayer(L) {
   const wMax = Math.max(thin, wide) * L.widthK + L.add;      // of the pitch
   PEN = L.pen; LAY = L.lay;
   let lines = 0, widest = 0;
+  // How far a line is pushed across itself: at its base (bx, by), across (nx, ny), with the
+  // pitch P there, sa along it, and j the number of the line.
+  const shiftOf = (bx, by, nx, ny, P, sa, j) => {
+    let d = 0;
+    if (wAmp) d += wAmp * Math.sin(sa * wK + j * wShift);
+    if (wob) d += wob * 2 * NZW(bx * wobK, by * wobK, j * 0.37 + 3.1);
+    if (lean) d += lean * P * (2 * toneAt(bx, by) - 1);
+    if (bulge) d += bulge * P * (toneAt(bx + nx * P, by + ny * P) - toneAt(bx - nx * P, by - ny * P));
+    return d;
+  };
+  // Bent lines are not pushed alike: the next one over may come closer than a pitch. Its
+  // push is worked out where it really runs — its own number, and for rings its own place
+  // along it, which starts at its own seam. The arms of a spiral are taken as pushed alike.
+  const bent = (wAmp || wob || lean || bulge) && CARRY.kind !== 'spiral';
+  const TAU = 2 * Math.PI;
+  const nextShift = (bx, by, nx, ny, P, sa, j) => {
+    let jj = j;
+    if (CARRY.kind === 'rays') jj = ((j % CARRY.n) + CARRY.n) % CARRY.n;
+    else if (CARRY.kind === 'rings') {
+      const r = Math.hypot(bx - CARRY.cx, by - CARRY.cy);
+      const a = Math.atan2(by - CARRY.cy, bx - CARRY.cx) - hash01(j, 7, 91) * TAU;
+      sa = r * (((a % TAU) + TAU) % TAU);
+    }
+    return shiftOf(bx, by, nx, ny, P, sa, jj);
+  };
 
   eachLine({ turn: L.turn, shift: L.shift, pitchK: L.pitchK, reach, coarse: L.coarse }, j => {
     RM = 0;
     let before = 0, px = 0, py = 0, pnx = 0, pny = 0, ph = 0, ps = 0, pq = 1, drew = false;
+    let pd = 0;
     for (let i = 0; i < LN; i++) {
       const bx = BX[i], by = BY[i], nx = NX[i], ny = NY[i], P = PP[i];
-      let d = 0;
-      if (wAmp) d += wAmp * Math.sin(SA[i] * wK + j * wShift);
-      if (wob) d += wob * 2 * NZW(bx * wobK, by * wobK, j * 0.37 + 3.1);
-      if (lean) d += lean * P * (2 * toneAt(bx, by) - 1);
-      if (bulge) d += bulge * P * (toneAt(bx + nx * P, by + ny * P) - toneAt(bx - nx * P, by - ny * P));
+      const d = shiftOf(bx, by, nx, ny, P, SA[i], j);
       let x = bx + nx * d, y = by + ny * d;
       const T = tone(x, y);
       let wd = widthAt(T, P);
@@ -1496,17 +1523,45 @@ function traceLayer(L) {
       // the line is weighed where it lies, between this line and the next, both as wide as
       // their tone makes them; one too thin is closed — this line and the next both swell
       // to just past the middle between them, and so do the passes.
-      if (hair > 0 && wd < P) {
+      if (hair > 0 && !bent && wd < P) {
         const e = (1 - PASS_STEP) * nq / 2, wq = Math.max(wd, nq);
         const far = P - (wq + Math.max(P * wMax, nq)) / 2 + nq;     // the most the next can take
         let lo = wd / 2, hi = lo;
-        if (far * sl - nib < hair && hairShut(x - nx * P, y - ny * P, P, wq, nq, nib, sl, hair, tone, widthAt, lift)) lo = P / 2 + e;
-        if (far * sr - nib < hair && hairShut(x + nx * P, y + ny * P, P, wq, nq, nib, sr, hair, tone, widthAt, lift)) hi = P / 2 + e;
+        if (far * sl - nib < hair && hairShut(x - nx * P, y - ny * P, P, P, wq, nq, nib, sl, hair, tone, widthAt, lift)) lo = P / 2 + e;
+        if (far * sr - nib < hair && hairShut(x + nx * P, y + ny * P, P, P, wq, nq, nib, sr, hair, tone, widthAt, lift)) hi = P / 2 + e;
         if (lo !== hi || lo !== wd / 2) {
           const dd = (hi - lo) / 2;
           x += nx * dd; y += ny * dd; wd = lo + hi;
         }
+      } else if (hair > 0 && bent) {
+        // Each neighbour where it really runs: the paper to it is the distance between the
+        // two middles, less half of each, and where the push changes along the line it runs
+        // aslant across its base, so the paper across it is narrower by the slant's cosine.
+        // A hair too thin is closed to the middle between the two, as above.
+        const dl = nextShift(bx - nx * P, by - ny * P, nx, ny, P, SA[i], j - 1);
+        const dr = nextShift(bx + nx * P, by + ny * P, nx, ny, P, SA[i], j + 1);
+        const sepL = P + d - dl, sepR = P + dr - d;
+        if (wd < Math.max(sepL, sepR)) {
+          const e = (1 - PASS_STEP) * nq / 2, wq = Math.max(wd, nq);
+          const slope = i > 0 && SA[i] !== SA[i - 1] ? (d - pd) / (SA[i] - SA[i - 1]) : 0;
+          const c = 1 / Math.sqrt(1 + slope * slope);
+          const most = (wq + Math.max(P * wMax, nq)) / 2 - nq;
+          let lo = wd / 2, hi = lo;
+          if ((sepL - most) * sl * c - nib < hair &&
+              hairShut(bx + nx * (dl - P), by + ny * (dl - P), P, sepL, wq, nq, nib, sl * c, hair, tone, widthAt, lift)) {
+            lo = Math.max(lo, sepL / 2 + e);
+          }
+          if ((sepR - most) * sr * c - nib < hair &&
+              hairShut(bx + nx * (dr + P), by + ny * (dr + P), P, sepR, wq, nq, nib, sr * c, hair, tone, widthAt, lift)) {
+            hi = Math.max(hi, sepR / 2 + e);
+          }
+          if (lo !== hi || lo !== wd / 2) {
+            const dd = (hi - lo) / 2;
+            x += nx * dd; y += ny * dd; wd = lo + hi;
+          }
+        }
       }
+      pd = d;
       const h = wd > nq ? (wd - nq) / 2 : 0;
       let on = mask ? flip * mask(x, y, T, j) : 1;
       if (lift > 0 && T - lift < on) on = T - lift;
@@ -1532,17 +1587,18 @@ function traceLayer(L) {
 }
 
 // Whether the hair of paper between a line as wide as wq and the next one, whose middle is
-// at (x, y), is thinner on the sheet than asked — s is how the cloth spreads it there. The
+// at (x, y) and sep from its own, is thinner on the sheet than asked — s is how the cloth
+// spreads it there (and how a slant narrows it), P the pitch the next one swells by. The
 // edges are half a nib (nq) inside the outlines on the flat picture, but the pen is as wide
 // as ever on the sheet (nib), so where the cloth crowds the lines the ink reaches past their
 // crowded outlines and the hair is thinner still. Not if the next line is not drawn there:
 // past the edge of the picture, or lifted in the light.
-function hairShut(x, y, P, wq, nq, nib, s, hair, tone, widthAt, lift) {
+function hairShut(x, y, P, sep, wq, nq, nib, s, hair, tone, widthAt, lift) {
   const A = area;
   if (x < A.x0 || x > A.x1 || y < A.y0 || y > A.y1) return false;
   const T = tone(x, y);
   if (lift > 0 && T < lift) return false;
-  return (P - (wq + Math.max(widthAt(T, P), nq)) / 2 + nq) * s - nib < hair;
+  return (sep - (wq + Math.max(widthAt(T, P), nq)) / 2 + nq) * s - nib < hair;
 }
 
 // One piece of a line, as its ink asks.

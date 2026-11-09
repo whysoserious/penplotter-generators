@@ -100,7 +100,13 @@ together there, and the hair ends in a point where it grows thin enough. A plott
 leave a much thinner hair clean — it comes out as a row of torn slivers — and the preview,
 a few pixels to the millimetre, cannot show one at all, so a dark place that looks solid on
 the screen is solid on paper too. Each hair is weighed where it lies, with both lines as
-wide as their tone makes them; 0 keeps every hair. Anything narrower than the nib is one
+wide as their tone makes them and where each of them really runs: a line bent by the lean,
+the crowding, the wave or the wobble has its neighbour bent its own way, often nearer, and
+the hair is measured between the two as they are drawn, across their slant (the arms of a
+spiral are taken as bent alike). Set it to 0.5 and no hair under half a millimetre is left
+between two lines. The echo is a set of its own, and the paper between it and the lines
+is not closed; nor is the paper inside a ribbon whose passes are left open. 0 keeps every
+hair. Anything narrower than the nib is one
 stroke of it, so a white place is
 crossed by hairlines — unless **Pen up below** lifts the pen wherever the picture is
 lighter than that and leaves the paper bare. **Shortest stroke** drops the crumbs.
