@@ -20,6 +20,11 @@
 // It is drawn with black and red rapidographs of 0.25, 0.35, 0.5 and 1.0 mm: the edges,
 // small parts in a finer nib, an accent — the pipes, the fins, a floor — in red, and
 // faces hatched or filled solid by which way they face.
+//
+// Instead of the one picture the sheet can hold six views of the building, the way a
+// draughtsman sets them out: the front, the back and the two sides, the plan from above
+// and the one from below, all at one scale, lined up with each other, each drawn in the
+// same exact hidden lines and labelled.
 ////////////////////////////////////////////////////////////////////////////////////////
 
 const PAPER_SIZES = {
@@ -72,6 +77,33 @@ const SHADE_WHO   = ['everything', 'machinery', 'structure', 'fins', 'pipes'];
 const HATCH_DIRS  = ['along the height', 'across', 'diagonal'];
 const BORDERS     = ['none', 'line', 'double'];
 const MARK_AT     = ['sheet', 'picture'];
+const VIEW_MODES  = ['3d', 'six views'];
+const VIEW_SHADES = ['none', 'deeper darker', 'nearer darker'];
+const VIEW_LABELS = ['none', 'names', 'letters'];
+const VIEW_FRAMES = ['none', 'each view', 'all of them'];
+
+// The six views: where the eye looks from (turned, looking down), what each is called and
+// the letter ISO gives it. The views are the same in every layout; only where they stand
+// on the sheet differs — in third angle the plan stands over the front and the view from
+// the left on its left, in first angle the other way round.
+const VIEW_DEFS = {
+  front:  { az: 0,   el: 0,   name: 'FRONT',  letter: 'A' },
+  top:    { az: 0,   el: 90,  name: 'TOP',    letter: 'B' },
+  left:   { az: -90, el: 0,   name: 'LEFT',   letter: 'C' },
+  right:  { az: 90,  el: 0,   name: 'RIGHT',  letter: 'D' },
+  bottom: { az: 0,   el: -90, name: 'BOTTOM', letter: 'E' },
+  back:   { az: 180, el: 0,   name: 'BACK',   letter: 'F' },
+};
+const VIEW_LAYOUTS = {
+  'third angle': [['', 'top', '', ''], ['left', 'front', 'right', 'back'], ['', 'bottom', '', '']],
+  'first angle': [['', 'bottom', '', ''], ['right', 'front', 'left', 'back'], ['', 'top', '', '']],
+  'grid 3 × 2':  [['front', 'right', 'top'], ['back', 'left', 'bottom']],
+  'grid 2 × 3':  [['front', 'back'], ['right', 'left'], ['top', 'bottom']],
+  'row':         [['front', 'right', 'back', 'left', 'top', 'bottom']],
+  'column':      [['front'], ['right'], ['back'], ['left'], ['top'], ['bottom']],
+};
+const VIEW_ARRANGE = Object.keys(VIEW_LAYOUTS).concat('the biggest');
+const BAND_TONES  = ['none', 'sparse', 'hatch', 'dense', 'cross'];
 
 // What every box is, for the accent and the shading.
 const K_STRUCT = 0, K_MACHINE = 1, K_FIN = 2, K_PIPE = 3, K_FRAME = 4, K_RACK = 5, K_DETAIL = 6;
@@ -89,6 +121,7 @@ const LAYERS = [
   { id: 'solid',  label: 'solid faces',  pen: 'solidPen' },
   { id: 'border', label: 'border',       pen: 'borderPen' },
   { id: 'guides', label: 'cut guides',   pen: null },
+  { id: 'views',  label: 'labels and ground lines', pen: 'viewPen' },
 ];
 const LI = {};
 LAYERS.forEach((l, i) => { LI[l.id] = i; });
@@ -129,7 +162,7 @@ const settings = {
   pen3Kind: 'black 0.25', pen3W: 0.25, pen3Col: '#1b1b1b',
   pen4Kind: 'black 1.0',  pen4W: 1.0,  pen4Col: '#1b1b1b',
   pen5Kind: 'red 0.25',   pen5W: 0.25, pen5Col: '#c8261d',
-  edgePen: 1, finePen: 3, accentPen: 2, hatchPen: 3, solidPen: 4, borderPen: 1,
+  edgePen: 1, finePen: 3, accentPen: 2, hatchPen: 3, solidPen: 4, borderPen: 1, viewPen: 1,
 
   seed: 11,
 
@@ -279,6 +312,20 @@ const settings = {
   masts: 2,
   cranes: 0,
 
+  // six views — the sheet as a set of views instead of the one picture
+  view: '3d',
+  viewLayout: 'the biggest',
+  viewTurn: 0,          // ° — which way the front looks; 90 makes the right side the front
+  viewGap: 14,          // mm between two views
+  viewLabels: 'names',
+  labelSize: 4,         // mm — the capitals' height
+  groundLine: true,     // a line under the four elevations at the foot of the building
+  groundReach: 6,       // mm the ground line runs on past the building
+  viewFrames: 'none',
+  viewShade: 'none',    // the faces hatched by how deep they lie
+  viewBands: 4,
+  viewSolid: false,     // the darkest band filled solid
+
   // camera
   projection: 'isometric',
   azimuth: 45,          // °
@@ -343,6 +390,28 @@ const SCENES = [
   { label: '— select a scene —' },
   { label: 'Two towers on a podium', s: {} },
   { label: 'The plain stack', s: { ...PLAIN } },
+  { label: 'Six views — two towers, third angle', s: {
+      view: 'six views', viewLayout: 'third angle', orientation: 'landscape' } },
+  { label: 'Six views — the plain stack, first angle, lettered', s: { ...PLAIN,
+      view: 'six views', viewLayout: 'first angle', viewLabels: 'letters', viewFrames: 'each view' } },
+  { label: 'Six views — a ziggurat shaded by depth', s: {
+      towers: 1, setback: 80, setbackDepth: 3.5, floors: 9, floorHeight: 7, width: 40, depth: 36,
+      plinth: 4, plinthStep: 2, podiumFloors: 0, crownFloors: 0, cantilever: 0, wings: 10,
+      core: 'none', stairs: 50, roof: 'dome', gap: 0, accent: 'details', seed: 23,
+      view: 'six views', viewLayout: 'grid 3 × 2', orientation: 'landscape',
+      viewShade: 'deeper darker', viewBands: 3, shadeGap: 1.2 } },
+  { label: 'Six views — a factory floor, as big as they go', s: {
+      orientation: 'landscape', towers: 1, floors: 2, width: 46, depth: 26, floorHeight: 12, heightVar: 10,
+      wPlant: 8, wBoilers: 1, wMachinery: 0, wRacks: 0, wRibbed: 0, wFrame: 0, wDeck: 0, wPipework: 0,
+      wLattice: 0, wTanks: 0, wVault: 0, wSilos: 0, gantry: 100, podiumFloors: 0, crownFloors: 0,
+      setback: 0, cantilever: 0, footprint: 'rectangle', core: 'none', gap: 1, chimneys: 2,
+      stackKind: 'chimney', chimneyHeight: 160, roof: 'chimneys', accent: 'gears', seed: 7,
+      view: 'six views', viewLayout: 'the biggest', viewFrames: 'all of them' } },
+  { label: 'Six views — a winding tower, the front turned 30°', s: {
+      towers: 1, spiral: 9, spiralTurn: 55, floors: 14, floorHeight: 8, width: 18, depth: 16, gap: 2.5,
+      core: 'lattice', coreSize: 4, podiumFloors: 0, crownFloors: 0, cantilever: 0, setback: 0,
+      accent: 'core', seed: 6, view: 'six views', viewLayout: 'first angle', viewTurn: 30,
+      viewShade: 'deeper darker', viewBands: 3, shadeGap: 1 } },
   { label: 'Factory floor', s: {
       orientation: 'landscape', towers: 1, floors: 2, width: 46, depth: 26, floorHeight: 12, heightVar: 10,
       wPlant: 8, wBoilers: 1, wMachinery: 0, wRacks: 0, wRibbed: 0, wFrame: 0, wDeck: 0, wPipework: 0,
@@ -2750,18 +2819,25 @@ function makeView() {
     cx = Math.sin(t); cy = 1 / h; cz = Math.cos(t);
   } else {
     const [az, el] = viewAngles();
-    const t = rad(az), p = rad(el);
-    PRV[0] = Math.cos(t); PRV[1] = 0; PRV[2] = -Math.sin(t);
-    PUV[0] = -Math.sin(p) * Math.sin(t); PUV[1] = Math.cos(p); PUV[2] = -Math.sin(p) * Math.cos(t);
-    cx = Math.cos(p) * Math.sin(t); cy = Math.sin(p); cz = Math.cos(p) * Math.cos(t);
+    lookFrom(az, el);
+    return;
   }
   const l = Math.hypot(cx, cy, cz);
   CVV[0] = cx / l; CVV[1] = cy / l; CVV[2] = cz / l;
 }
 
-// The fit: the whole structure in the picture at 100 %; zoom and pan then scale the
-// sheet about the picture's middle.
-function fitView(W) {
+// The eye turned az round the building and looking down el.
+function lookFrom(az, el) {
+  const t = rad(az), p = rad(el);
+  PRV[0] = Math.cos(t); PRV[1] = 0; PRV[2] = -Math.sin(t);
+  PUV[0] = -Math.sin(p) * Math.sin(t); PUV[1] = Math.cos(p); PUV[2] = -Math.sin(p) * Math.cos(t);
+  const cx = Math.cos(p) * Math.sin(t), cy = Math.sin(p), cz = Math.cos(p) * Math.cos(t);
+  const l = Math.hypot(cx, cy, cz);
+  CVV[0] = cx / l; CVV[1] = cy / l; CVV[2] = cz / l;
+}
+
+// How far the structure runs on the paper, in units: along PR and down PU.
+function extentNow(W) {
   const { n, BX } = W;
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (let i = 0; i < n; i++) {
@@ -2781,6 +2857,111 @@ function fitView(W) {
   }
   if (!(x1 - x0 > 1e-9)) { x0 -= 1; x1 += 1; }
   if (!(y1 - y0 > 1e-9)) { y0 -= 1; y1 += 1; }
+  return { x0, x1, y0, y1 };
+}
+
+// The six views laid out on the sheet. Each is a cell of a grid: a column as wide as the
+// widest view in it, a row as tall as the tallest, a strip under every row for the
+// labels, and the views in the middle of their cells — so the plan stands exactly over
+// the front and the elevations share their heights. One scale for all of them, fitted
+// so the whole set fills the picture; zoom and pan then work on the set as a whole.
+let VIEWS = null;
+
+function layViews(W) {
+  const s = settings;
+  const turn = Number(s.viewTurn) || 0;
+  const seen = {};
+  for (const name of Object.keys(VIEW_DEFS)) {
+    const D = VIEW_DEFS[name];
+    lookFrom(D.az + turn, D.el);
+    seen[name] = { name, el: D.el, pr: Float64Array.from(PRV), pu: Float64Array.from(PUV),
+                   cv: Float64Array.from(CVV), ...extentNow(W) };
+  }
+  const gap = Math.max(0, s.viewGap);
+  const lab = s.viewLabels !== 'none' ? labelStrip() : 0;
+  // the frames stand out this far, and half the thickest nib past them keeps them off the margin
+  const pad = s.viewFrames !== 'none' ? framePad(gap) + 0.5 : 0;
+  // a layout's grid: how wide every column, how tall every row, and the scale that fits it
+  const gridOf = rows => {
+    const nr = rows.length, nc = Math.max(...rows.map(r => r.length));
+    const colW = new Array(nc).fill(0), rowH = new Array(nr).fill(0), cells = [];
+    rows.forEach((row, r) => row.forEach((name, c) => {
+      const V = seen[name];
+      if (!V) return;
+      cells.push([V, r, c]);
+      colW[c] = Math.max(colW[c], V.x1 - V.x0);
+      rowH[r] = Math.max(rowH[r], V.y1 - V.y0);
+    }));
+    const fixW = gap * (nc - 1) + 2 * pad, fixH = gap * (nr - 1) + lab * nr + 2 * pad;
+    const sumW = colW.reduce((a, b) => a + b, 0), sumH = rowH.reduce((a, b) => a + b, 0);
+    const fit = Math.min((area.w - fixW) / sumW, (area.h - fixH) / sumH);
+    return { nr, nc, colW, rowH, cells, fixW, fixH, sumW, sumH, fit };
+  };
+  let G;
+  if (s.viewLayout === 'the biggest') {
+    for (const k of Object.keys(VIEW_LAYOUTS)) {
+      const g = gridOf(VIEW_LAYOUTS[k]);
+      if (!G || g.fit > G.fit + 1e-9) G = g;
+    }
+  } else G = gridOf(VIEW_LAYOUTS[s.viewLayout] || VIEW_LAYOUTS['third angle']);
+  const { nr, nc, colW, rowH, cells, fixW, fixH, sumW, sumH } = G;
+  const cramped = area.w - fixW < 0.1 * area.w || area.h - fixH < 0.1 * area.h;
+  const front = seen.front;
+  let s0 = G.fit;
+  if (s.sizeMode === 'mm per unit') s0 = clamp(s.unitMm, 0.01, 100);
+  else if (s.sizeMode === 'height in mm') s0 = clamp(s.heightMm, 1, 5000) / (front.y1 - front.y0);
+  else if (s.sizeMode === 'width in mm') s0 = clamp(s.widthMm, 1, 5000) / (front.x1 - front.x0);
+  if (!(s0 > 1e-3)) s0 = 1e-3;
+  const LW = s0 * sumW + fixW, LH = s0 * sumH + fixH;
+  const bcx = (area.x0 + area.x1) / 2, bcy = (area.y0 + area.y1) / 2;
+  const bx0 = bcx - LW / 2 + pad;
+  const by0 = (s.anchor === 'bottom' ? area.y1 - LH : s.anchor === 'top' ? area.y0 : bcy - LH / 2) + pad;
+  const left = [bx0], top = [by0];
+  for (let c = 1; c < nc; c++) left.push(left[c - 1] + s0 * colW[c - 1] + gap);
+  for (let r = 1; r < nr; r++) top.push(top[r - 1] + s0 * rowH[r - 1] + lab + gap);
+  const z = clamp(s.zoom, MIN_ZOOM, MAX_ZOOM) / 100;
+  // a point of the set at 100 %, where zoom and pan put it
+  const zx = x => bcx + z * (x - bcx - s.panX), zy = y => bcy + z * (y - bcy - s.panY);
+  const views = [];
+  for (const [V0, r, c] of cells) {
+    const V = { ...V0, r, c };
+    const cx = left[c] + s0 * colW[c] / 2, cy = top[r] + s0 * rowH[r] / 2;
+    V.ox0 = cx - s0 * (V.x0 + V.x1) / 2;
+    V.oy0 = cy - s0 * (V.y0 + V.y1) / 2;
+    V.S = z * s0;
+    V.OX = zx(V.ox0);
+    V.OY = zy(V.oy0);
+    // the cell with the label strip under it, in mm on the sheet
+    V.cell = { x0: zx(left[c]), y0: zy(top[r]), x1: zx(left[c] + s0 * colW[c]),
+               y1: zy(top[r] + s0 * rowH[r] + lab) };
+    V.labelX = zx(cx);
+    V.labelY = zy(top[r] + s0 * rowH[r] + lab / 2 + lab * 0.08);
+    V.zoom = z;
+    views.push(V);
+  }
+  S = z * s0;
+  FIT = { bcx, bcy, ox0: views[0].ox0, oy0: views[0].oy0, s0 };
+  return { views, w: LW * z, h: LH * z, s0, gap: gap * z, lab: lab * z, cramped };
+}
+
+function framePad(gap) {
+  return Math.min(gap * 0.35, 8);
+}
+
+function labelStrip() {
+  return clamp(settings.labelSize, 1, 40) * 2.2;
+}
+
+// The camera of one of the views.
+function useView(V) {
+  PRV.set(V.pr); PUV.set(V.pu); CVV.set(V.cv);
+  S = V.S; OX = V.OX; OY = V.OY;
+}
+
+// The fit: the whole structure in the picture at 100 %; zoom and pan then scale the
+// sheet about the picture's middle.
+function fitView(W) {
+  const { x0, x1, y0, y1 } = extentNow(W);
   const bcx = (area.x0 + area.x1) / 2, bcy = (area.y0 + area.y1) / 2;
   const s = settings;
   let s0 = Math.min(area.w / (x1 - x0), area.h / (y1 - y0));
@@ -3377,17 +3558,63 @@ function cropMarkDots() {
 function buildShapes() {
   const s = settings;
   area = drawArea();
+  VIEWS = null;
   if (area.w < 5 || area.h < 5 || !WORLD || !WORLD.n) return null;
   SINK = makeSink();
   AREAS = [];
   for (let i = 0; i < SLOTS; i++) AREAS.push(penArea(i));
   PASS = clamp(s.passes, 10, 300) / 100;
-  POOL = [];
-  for (let k = 0; k < LAYERS.length * 3; k++) POOL.push([]);
 
   const W = WORLD;
-  makeView();
-  fitView(W);
+  let drawW, drawH;
+  if (s.view === 'six views') {
+    VIEWS = layViews(W);
+    for (const V of VIEWS.views) {
+      useView(V);
+      drawView(W, V);
+    }
+    viewLines(W);
+    drawW = VIEWS.w; drawH = VIEWS.h;
+  } else {
+    makeView();
+    fitView(W);
+    drawView(W, null);
+    let dx0 = Infinity, dy0 = Infinity, dx1 = -Infinity, dy1 = -Infinity;
+    for (let i = 0; i < W.n; i++) {
+      const c = i * 4;
+      dx0 = Math.min(dx0, BS[c]); dy0 = Math.min(dy0, BS[c + 1]);
+      dx1 = Math.max(dx1, BS[c + 2]); dy1 = Math.max(dy1, BS[c + 3]);
+    }
+    drawW = dx1 - dx0; drawH = dy1 - dy0;
+  }
+  borderLines();
+  cropMarkDots();
+
+  const S2 = SINK;
+  perPen = [];
+  for (let i = 0; i < SLOTS; i++) perPen.push({ strokes: 0, ink: 0, downs: 0 });
+  perLayer = LAYERS.map(() => ({ strokes: 0, ink: 0, pens: new Set() }));
+  for (let i = 0; i < S2.ink.length; i++) {
+    perPen[S2.ink[i]].strokes++;
+    perLayer[S2.lay[i]].strokes++;
+    perLayer[S2.lay[i]].pens.add(S2.ink[i]);
+  }
+  COUNTS = { boxes: W.n, groups: W.groups, floors: W.floors.length, unit: S, drawW, drawH };
+  return {
+    pts: Float64Array.from(S2.pts),
+    off: Int32Array.from(S2.off),
+    ink: Int32Array.from(S2.ink),
+    lay: Int32Array.from(S2.lay),
+  };
+}
+
+// The structure in hidden lines from where the camera stands now: in the picture, or in
+// one of the six views (V). In a view the faces are shaded by how deep they lie, not by
+// which way they face — they all face the eye.
+function drawView(W, V) {
+  const s = settings;
+  POOL = [];
+  for (let k = 0; k < LAYERS.length * 3; k++) POOL.push([]);
   projectBoxes(W);
   buildBins(W);
 
@@ -3409,7 +3636,12 @@ function buildShapes() {
     return LI.edges;
   };
   const tones = { left: s.shadeLeft, right: s.shadeRight, top: s.shadeTop };
-  const shading = tones.left !== 'none' || tones.right !== 'none' || tones.top !== 'none';
+  let shading = tones.left !== 'none' || tones.right !== 'none' || tones.top !== 'none';
+  let toneAt = null;
+  if (V) {
+    shading = s.viewShade !== 'none';
+    toneAt = depthTones(W, s);
+  }
 
   for (let i = 0; i < W.n; i++) {
     const nc = gather(i);
@@ -3420,7 +3652,7 @@ function buildShapes() {
       for (let n = 0; n < 3; n++) {
         for (let sn = 0; sn < 2; sn++) {
           if (!faceFront(n, sn)) continue;
-          const tone = tones[shadeRole(n, sn)];
+          const tone = toneAt ? toneAt(i, n, sn) : tones[shadeRole(n, sn)];
           if (!tone || tone === 'none') continue;
           const sl = W.AC[i] ? LI.accent : tone === 'solid' ? LI.solid : LI.hatch;
           faceShade(W, i, n, sn, tone, sl, CAND, nc);
@@ -3430,31 +3662,140 @@ function buildShapes() {
   }
   flushPool();
   POOL = null;
-  borderLines();
-  cropMarkDots();
+}
 
-  const S2 = SINK;
-  perPen = [];
-  for (let i = 0; i < SLOTS; i++) perPen.push({ strokes: 0, ink: 0, downs: 0 });
-  perLayer = LAYERS.map(() => ({ strokes: 0, ink: 0, pens: new Set() }));
-  for (let i = 0; i < S2.ink.length; i++) {
-    perPen[S2.ink[i]].strokes++;
-    perLayer[S2.lay[i]].strokes++;
-    perLayer[S2.lay[i]].pens.add(S2.ink[i]);
-  }
-  let dx0 = Infinity, dy0 = Infinity, dx1 = -Infinity, dy1 = -Infinity;
+// In a view: the depth from the nearest face to the farthest cut into bands, and a tone
+// for each — the deeper the darker, or the other way round. The darkest band may be solid.
+function depthTones(W, s) {
+  let d0 = Infinity, d1 = -Infinity;
   for (let i = 0; i < W.n; i++) {
-    const c = i * 4;
-    dx0 = Math.min(dx0, BS[c]); dy0 = Math.min(dy0, BS[c + 1]);
-    dx1 = Math.max(dx1, BS[c + 2]); dy1 = Math.max(dy1, BS[c + 3]);
+    if (DMN[i] < d0) d0 = DMN[i];
+    if (DMX[i] > d1) d1 = DMX[i];
   }
-  COUNTS = { boxes: W.n, groups: W.groups, floors: W.floors.length, unit: S, drawW: dx1 - dx0, drawH: dy1 - dy0 };
-  return {
-    pts: Float64Array.from(S2.pts),
-    off: Int32Array.from(S2.off),
-    ink: Int32Array.from(S2.ink),
-    lay: Int32Array.from(S2.lay),
+  const N = clamp(Math.round(s.viewBands), 2, BAND_TONES.length);
+  const span = Math.max(1e-9, d1 - d0), BX = W.BX;
+  const deeper = s.viewShade === 'deeper darker';
+  return (i, n, sn) => {
+    const o = i * 6;
+    let d = 0;
+    for (let k = 0; k < 3; k++) {
+      const v = k === n ? BX[o + (sn ? 3 : 0) + k] : (BX[o + k] + BX[o + 3 + k]) / 2;
+      d += v * CVV[k];
+    }
+    let b = Math.min(N - 1, Math.floor((d1 - d) / span * N + 1e-9));
+    if (!deeper) b = N - 1 - b;
+    if (s.viewSolid && b === N - 1) return 'solid';
+    return BAND_TONES[b];
   };
+}
+
+// What makes the set read as drawings: a label under every view, a ground line under the
+// four elevations at the foot of the building, a frame round each view or round them all.
+function viewLines(W) {
+  const s = settings;
+  if (!VIEWS) return;
+  setPen(LI.views);
+  const z = VIEWS.views[0].zoom;
+  const yGround = W.ext[1];
+  const pad = framePad(VIEWS.gap / z) * z;
+  for (const V of VIEWS.views) {
+    if (s.groundLine && V.el === 0) {
+      useView(V);
+      const y = -S * yGround * PUV[1] + OY;
+      let reach = Math.max(0, s.groundReach) * z;
+      if (s.viewFrames !== 'none') reach = Math.min(reach, pad * 0.6);
+      emit([OX + S * V.x0 - reach, OX + S * V.x1 + reach], [y, y], 2);
+    }
+    if (s.viewLabels !== 'none') {
+      const D = VIEW_DEFS[V.name];
+      const text = s.viewLabels === 'letters' ? D.letter : D.name;
+      strokeText(text, V.labelX, V.labelY, clamp(s.labelSize, 1, 40) * z);
+    }
+  }
+  const rect = (x0, y0, x1, y1) => emit([x0, x1, x1, x0, x0], [y0, y0, y1, y1, y0], 5);
+  if (s.viewFrames === 'each view') {
+    for (const V of VIEWS.views) rect(V.cell.x0 - pad, V.cell.y0 - pad, V.cell.x1 + pad, V.cell.y1 + pad);
+  } else if (s.viewFrames === 'all of them') {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const V of VIEWS.views) {
+      x0 = Math.min(x0, V.cell.x0); y0 = Math.min(y0, V.cell.y0);
+      x1 = Math.max(x1, V.cell.x1); y1 = Math.max(y1, V.cell.y1);
+    }
+    rect(x0 - pad, y0 - pad, x1 + pad, y1 + pad);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+// Lettering
+//
+// The capitals of the stroke font of p5js17 — one unit high, every curve cut every 15° —
+// enough to name the views.
+
+const FONT = (() => {
+  const g = {};
+  const arc = (cx, cy, rx, ry, a0, a1) => {
+    const n = Math.max(2, Math.ceil(Math.abs(a1 - a0) / 15));
+    const p = [];
+    for (let i = 0; i <= n; i++) {
+      const a = (a0 + (a1 - a0) * i / n) * Math.PI / 180;
+      p.push(cx + rx * Math.cos(a), cy + ry * Math.sin(a));
+    }
+    return p;
+  };
+  const J = (...parts) => [].concat(...parts);
+  const def = (ch, w, ...st) => { g[ch] = { w, s: st }; };
+  def('A', 0.64, [0, 0, 0.32, 1, 0.64, 0], [0.13, 0.4, 0.51, 0.4]);
+  def('B', 0.56, J([0, 0.5, 0, 1, 0.28, 1], arc(0.28, 0.75, 0.25, 0.25, 90, -90), [0, 0.5]),
+                 J(arc(0.3, 0.25, 0.26, 0.25, 90, -90), [0, 0, 0, 0.5]));
+  def('C', 0.62, arc(0.37, 0.5, 0.37, 0.5, 50, 310));
+  def('D', 0.62, J([0, 0, 0, 1, 0.18, 1], arc(0.18, 0.5, 0.44, 0.5, 90, -90), [0, 0]));
+  def('E', 0.52, [0.52, 1, 0, 1, 0, 0, 0.52, 0], [0, 0.5, 0.42, 0.5]);
+  def('F', 0.5, [0.5, 1, 0, 1, 0, 0], [0, 0.5, 0.4, 0.5]);
+  def('G', 0.66, J(arc(0.37, 0.5, 0.37, 0.5, 50, 320), [0.66, 0.42, 0.4, 0.42]));
+  def('H', 0.6, [0, 0, 0, 1], [0.6, 0, 0.6, 1], [0, 0.5, 0.6, 0.5]);
+  def('I', 0, [0, 0, 0, 1]);
+  def('J', 0.46, J([0.46, 1, 0.46, 0.26], arc(0.23, 0.26, 0.23, 0.26, 0, -180)));
+  def('K', 0.56, [0, 0, 0, 1], [0.56, 1, 0, 0.36], [0.17, 0.53, 0.58, 0]);
+  def('L', 0.48, [0, 1, 0, 0, 0.48, 0]);
+  def('M', 0.74, [0, 0, 0, 1, 0.37, 0.32, 0.74, 1, 0.74, 0]);
+  def('N', 0.6, [0, 0, 0, 1, 0.6, 0, 0.6, 1]);
+  def('O', 0.74, arc(0.37, 0.5, 0.37, 0.5, 0, 360));
+  def('P', 0.54, J([0, 0, 0, 1, 0.28, 1], arc(0.28, 0.74, 0.26, 0.26, 90, -90), [0, 0.48]));
+  def('Q', 0.74, arc(0.37, 0.5, 0.37, 0.5, 0, 360), [0.46, 0.22, 0.76, -0.06]);
+  def('R', 0.56, J([0, 0, 0, 1, 0.28, 1], arc(0.28, 0.75, 0.25, 0.25, 90, -90), [0, 0.5]),
+                 [0.26, 0.5, 0.56, 0]);
+  def('S', 0.56, J(arc(0.28, 0.75, 0.26, 0.25, 15, 270), arc(0.28, 0.25, 0.28, 0.25, 90, -165)));
+  def('T', 0.6, [0, 1, 0.6, 1], [0.3, 1, 0.3, 0]);
+  def('U', 0.6, J([0, 1, 0, 0.3], arc(0.3, 0.3, 0.3, 0.3, 180, 360), [0.6, 1]));
+  def('V', 0.62, [0, 1, 0.31, 0, 0.62, 1]);
+  def('W', 0.86, [0, 1, 0.2, 0, 0.43, 0.72, 0.66, 0, 0.86, 1]);
+  def('X', 0.6, [0, 0, 0.6, 1], [0, 1, 0.6, 0]);
+  def('Y', 0.6, [0, 1, 0.3, 0.5, 0.6, 1], [0.3, 0.5, 0.3, 0]);
+  def('Z', 0.58, [0, 1, 0.58, 1, 0, 0, 0.58, 0]);
+  def(' ', 0.36);
+  return g;
+})();
+
+// Capitals `cap` mm high with their middle at (x, y), spaced a little wider than in a text.
+function strokeText(str, x, y, cap) {
+  const track = 0.3, parts = [];
+  let w = 0;
+  for (const ch of str) {
+    const g = FONT[ch] || FONT[' '];
+    parts.push([g, w]);
+    w += g.w + track;
+  }
+  w -= track;
+  for (const [g, gx] of parts) {
+    for (const st of g.s) {
+      const xs = [], ys = [];
+      for (let i = 0; i < st.length; i += 2) {
+        xs.push(x + (gx + st[i] - w / 2) * cap);
+        ys.push(y - (st[i + 1] - 0.5) * cap);
+      }
+      emit(xs, ys, xs.length);
+    }
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -3684,7 +4025,9 @@ function drawGuides(ctx) {
   ctx.setLineDash([1.5, 1.5]);
   ctx.strokeRect(area.x0, area.y0, area.w, area.h);
   ctx.setLineDash([0.8, 1.6]);
-  if (WORLD) {
+  if (VIEWS) {
+    for (const V of VIEWS.views) ctx.strokeRect(V.cell.x0, V.cell.y0, V.cell.x1 - V.cell.x0, V.cell.y1 - V.cell.y0);
+  } else if (WORLD) {
     for (const F of WORLD.floors.flatMap(F => (F.rects || [F]).map(r => ({ ...r, y0: F.y0 })))) {
       ctx.beginPath();
       const c = [[F.x0, F.z0], [F.x1, F.z0], [F.x1, F.z1], [F.x0, F.z1]];
@@ -3730,7 +4073,7 @@ function attachPointer() {
     if (e.button !== 0 && e.button !== 2) return;
     const s = settings;
     drag = {
-      mode: (e.shiftKey || e.button === 2) ? 'pan' : 'turn',
+      mode: (e.shiftKey || e.button === 2 || s.view === 'six views') ? 'pan' : 'turn',
       x: e.clientX, y: e.clientY, p: paperPoint(e), moved: false,
       az: s.azimuth, el: s.elevation, px: s.panX, py: s.panY,
     };
@@ -3823,14 +4166,29 @@ function attachKeys() {
     };
     const step = e.shiftKey ? 10 : 1;
     const turn = s.projection === 'isometric' ? 90 : 15;
+    const views = s.view === 'six views';
+    const turnFront = d => { s.viewTurn = wrapDeg(Math.round((s.viewTurn + d) / 90) * 90); refreshControls(); update(); };
     switch (e.key) {
+      case 'd': case 'D': cycle('view', VIEW_MODES, 1); break;
+      case '3': if (s.view !== '3d') cycle('view', VIEW_MODES, 1); break;
+      case '6': if (!views) cycle('view', VIEW_MODES, 1); break;
+      case 'n': cycle('viewLayout', VIEW_ARRANGE, 1); break;
+      case 'N': cycle('viewLayout', VIEW_ARRANGE, -1); break;
+      case 'b': cycle('viewShade', VIEW_SHADES, 1); break;
+      case 'B': cycle('viewShade', VIEW_SHADES, -1); break;
       case 'r': case 'R': s.seed = Math.floor(Math.random() * 100000); refreshControls(); update(); break;
       case '[': s.seed = Math.max(0, Math.round(s.seed) - 1); refreshControls(); update(); break;
       case ']': s.seed = Math.round(s.seed) + 1; refreshControls(); update(); break;
       case 'p': cycle('projection', PROJECTIONS, 1); break;
       case 'P': cycle('projection', PROJECTIONS, -1); break;
-      case 'q': case 'Q': nudge('azimuth', -turn, -180, 180); s.azimuth = wrapDeg(s.azimuth); break;
-      case 'e': case 'E': nudge('azimuth', turn, -180, 180); s.azimuth = wrapDeg(s.azimuth); break;
+      case 'q': case 'Q':
+        if (views) turnFront(-90);
+        else { nudge('azimuth', -turn, -180, 180); s.azimuth = wrapDeg(s.azimuth); }
+        break;
+      case 'e': case 'E':
+        if (views) turnFront(90);
+        else { nudge('azimuth', turn, -180, 180); s.azimuth = wrapDeg(s.azimuth); }
+        break;
       case 'f': nudge('floors', 1, 1, 40); break;
       case 'F': nudge('floors', -1, 1, 40); break;
       case 't': nudge('towers', 1, 1, 8); break;
@@ -3911,13 +4269,23 @@ function syncVisibility() {
   show(['coreSize', 'coreAbove'], s.core !== 'none');
   show(['stackKind', 'chimneyHeight'], s.chimneys > 0);
   show(['gearSize', 'gearTooth'], s.gears > 0 || s.wPlant > 0);
-  show(['azimuth'], true);
-  setVisible('elevation', s.projection === 'axonometric');
-  setVisible('heightScale', s.projection === 'military');
+  const views = s.view === 'six views';
+  show(['viewLayout', 'viewTurn', 'viewGap', 'viewLabels', 'groundLine', 'viewFrames', 'viewShade'], views);
+  setVisible('labelSize', views && s.viewLabels !== 'none');
+  setVisible('groundReach', views && s.groundLine);
+  show(['viewBands', 'viewSolid'], views && s.viewShade !== 'none');
+  setVisible('viewPen', views && (s.viewLabels !== 'none' || s.groundLine || s.viewFrames !== 'none'));
+  setVisible('projection', !views);
+  setVisible('azimuth', !views);
+  setVisible('elevation', !views && s.projection === 'axonometric');
+  setVisible('heightScale', !views && s.projection === 'military');
   setVisible('accentShare', s.accent === 'random parts');
   setVisible('accentPen', s.accent !== 'none');
   setVisible('finePen', s.smallBelow > 0);
-  const tones = [s.shadeLeft, s.shadeRight, s.shadeTop];
+  const tones = views ? (s.viewShade === 'none' ? [] : BAND_TONES.slice(1, clamp(Math.round(s.viewBands), 2, 5))
+                          .concat(s.viewSolid ? ['solid'] : []))
+                      : [s.shadeLeft, s.shadeRight, s.shadeTop];
+  show(['shadeLeft', 'shadeRight', 'shadeTop'], !views);
   const anyShade = tones.some(t => t !== 'none');
   show(['shadeWho'], anyShade);
   show(['shadeGap', 'hatchDir'], tones.some(t => t !== 'none' && t !== 'solid'));
@@ -3977,6 +4345,34 @@ function buildControls() {
   addSlider(sec, 'Drawing width (mm)', 'widthMm', 10, 2000, 1);
   addSelect(sec, 'Stands', 'anchor', ANCHORS, update,
     'In the <b>middle</b> of the picture, on its <b>bottom</b> edge, or hung from the <b>top</b>.');
+
+  sec = addSection(root, 'Six views');
+  addSelect(sec, 'Drawn as', 'view', VIEW_MODES, resync,
+    'The building in one <b>3d</b> picture, or in <b>six views</b> on the one sheet — the front, ' +
+    'the back, both sides, the plan from above and from below, all at one scale and lined up. ' +
+    'Scenes keep it, so <b>S</b> walks the buildings in the same way. <b>D</b> switches, ' +
+    '<b>3</b> and <b>6</b> go straight to either.');
+  addSelect(sec, 'Laid out', 'viewLayout', VIEW_ARRANGE, update,
+    '<b>third angle</b> — the plan over the front, the view from the left on its left, the back ' +
+    'on the far right; <b>first angle</b> — the European way, each view across from its side; ' +
+    'or a <b>grid</b>, a <b>row</b>, a <b>column</b> — or <b>the biggest</b>: whichever of them ' +
+    'draws the views largest on this sheet. <b>N</b> steps.');
+  addSlider(sec, 'Front turned (°)', 'viewTurn', -180, 180, 1,
+    'Which side is the front: 90 makes the right side the front. In between, every elevation ' +
+    'shows two sides and the plans turn with them. <b>Q</b> and <b>E</b> turn it by quarters.');
+  addSlider(sec, 'Between two views (mm)', 'viewGap', 0, 80, 0.5);
+  addSelect(sec, 'Labels', 'viewLabels', VIEW_LABELS, resync,
+    'Under every view: its <b>name</b>, or the <b>letter</b> ISO gives it — A the front, B from ' +
+    'above, C from the left, D from the right, E from below, F the back.');
+  addSlider(sec, 'Letters high (mm)', 'labelSize', 1, 20, 0.25);
+  addCheckbox(sec, 'Ground line under the elevations', 'groundLine', resync);
+  addSlider(sec, 'Ground line runs on (mm)', 'groundReach', 0, 40, 0.5);
+  addSelect(sec, 'Frames', 'viewFrames', VIEW_FRAMES, resync, 'A box round <b>each view</b>, or round <b>all of them</b>.');
+  addSelect(sec, 'Shade by depth', 'viewShade', VIEW_SHADES, resync,
+    'In a view every face looks at the eye, so it is shaded by how deep it lies: the depth cut ' +
+    'into bands, from none through sparse, hatch and dense to cross-hatched. <b>B</b> steps.');
+  addSlider(sec, 'Depth bands', 'viewBands', 2, 5, 1, '', resync);
+  addCheckbox(sec, 'The darkest band solid', 'viewSolid', resync);
 
   sec = addSection(root, 'The towers');
   addNote(sec, 'In units of the grid — 1 is the step everything is snapped to. The sheet tells ' +
@@ -4198,6 +4594,7 @@ function buildControls() {
   addPenSelect(sec, 'Hatching', 'hatchPen');
   addPenSelect(sec, 'Solid faces', 'solidPen');
   addPenSelect(sec, 'Border', 'borderPen');
+  addPenSelect(sec, 'Labels and ground lines', 'viewPen');
   for (let i = 0; i < SLOTS; i++) addPenSlot(sec, i);
 
   sec = addSection(root, 'Paper');
@@ -4247,8 +4644,9 @@ function buildControls() {
   statsDiv = createDiv('').parent(sec).class('stats');
   penListDiv = createDiv('').parent(sec).class('stats');
   createDiv('').parent(sec).class('note keys').html(
-    '<div><kbd>drag</kbd> turn · <kbd>shift</kbd>+<kbd>drag</kbd> move · <kbd>wheel</kbd> zoom · <kbd>0</kbd> back</div>' +
+    '<div><kbd>drag</kbd> turn (in six views: move) · <kbd>shift</kbd>+<kbd>drag</kbd> move · <kbd>wheel</kbd> zoom · <kbd>0</kbd> back</div>' +
     '<div><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> move by 1 mm, with <kbd>shift</kbd> 10 · <kbd>+</kbd><kbd>−</kbd> zoom</div>' +
+    '<div><kbd>D</kbd> 3d or six views · <kbd>N</kbd> their layout · <kbd>B</kbd> shade them by depth</div>' +
     '<div><kbd>S</kbd> scene · <kbd>P</kbd> projection · <kbd>Q</kbd><kbd>E</kbd> turn · <kbd>F</kbd> floors · <kbd>T</kbd> towers · <kbd>O</kbd> turn every other</div>' +
     '<div><kbd>W</kbd> fins · <kbd>A</kbd> accent · <kbd>J</kbd> <kbd>H</kbd> <kbd>K</kbd> shade left, right, top</div>' +
     '<div><kbd>C</kbd> core · <kbd>L</kbd> layout · <kbd>V</kbd> footprints · <kbd>U</kbd> roof · <kbd>M</kbd> size on the paper</div>' +
@@ -4290,8 +4688,10 @@ function updateStats() {
     `<div>${groupNum(COUNTS.boxes)} boxes in ${groupNum(COUNTS.groups)} parts · a unit is ` +
     `${COUNTS.unit.toFixed(2)} mm</div>` +
     `<div>The building is ${size.map(v => v.toFixed(0)).join(' × ')} units wide, deep and high — ` +
-    `${size.map(v => (v * COUNTS.unit).toFixed(0)).join(' × ')} mm at this scale; the drawing ` +
-    `${COUNTS.drawW.toFixed(0)} × ${COUNTS.drawH.toFixed(0)} mm</div>` +
+    `${size.map(v => (v * COUNTS.unit).toFixed(0)).join(' × ')} mm at this scale; the ` +
+    `${VIEWS ? 'six views together' : 'drawing'} ${COUNTS.drawW.toFixed(0)} × ${COUNTS.drawH.toFixed(0)} mm</div>` +
+    (VIEWS ? `<div>Six views, ${s.viewLayout}, the front turned ${+(+s.viewTurn).toFixed(1)}° · ` +
+      `${s.viewShade === 'none' ? 'not shaded' : `${s.viewShade} in ${clamp(Math.round(s.viewBands), 2, 5)} bands`}</div>` : '') +
     `<div>The pen goes down <b>${groupNum(plan.downs)}</b> times, ` +
     `${(plan.travel / 1000).toFixed(1)} m in the air</div>` +
     `<div>Roughly <b>${formatDuration(seconds)}</b> to plot · ${lastMs.toFixed(0)} ms to draw` +
@@ -4317,6 +4717,10 @@ function updateStats() {
       s.shadeGap * 0.5 < hatchNib * 1.2) {
     html += `<div class="warn">Dense hatching ${(s.shadeGap * 0.5).toFixed(2)} mm apart runs into one ` +
       `black with a ${hatchNib} mm nib.</div>`;
+  }
+  if (VIEWS && VIEWS.cramped) {
+    html += '<div class="warn">The gaps and the labels between the views take up the whole picture — ' +
+      'less between two views, or smaller letters.</div>';
   }
   if (s.sizeMode !== 'fit the picture' && (COUNTS.drawW > area.w + 0.5 || COUNTS.drawH > area.h + 0.5)) {
     html += '<div class="warn">At this size the drawing is bigger than the picture and is cut at the margin.</div>';
@@ -4344,8 +4748,11 @@ function metaComment() {
   return `module towers — ${s.towers > 1 ? `${s.towers} towers ` : ''}${s.floors} floors ` +
     `${s.width}x${s.depth}x${s.floorHeight} gap=${s.gap} ` +
     `kinds=${[s.wMachinery, s.wRacks, s.wRibbed, s.wFrame, s.wDeck, s.wPipework].join('/')} ` +
-    `${s.projection} az=${+az.toFixed(1)}${s.projection === 'axonometric' ? ` el=${el}` : ''} ` +
-    `accent=${s.accent} shade=${s.shadeLeft}/${s.shadeRight}/${s.shadeTop} ` +
+    (s.view === 'six views'
+      ? `six views ${s.viewLayout} front=${+(+s.viewTurn).toFixed(1)} shade=${s.viewShade} ` +
+        `${s.viewShade === 'none' ? '' : `bands=${s.viewBands} `}accent=${s.accent} `
+      : `${s.projection} az=${+az.toFixed(1)}${s.projection === 'axonometric' ? ` el=${el}` : ''} ` +
+        `accent=${s.accent} shade=${s.shadeLeft}/${s.shadeRight}/${s.shadeTop} `) +
     `${s.cropMarks ? `cutguides=${s.cropMarkAt}<=${s.cropMarkGap}mm ` : ''}seed=${s.seed} ` +
     `pens=[${pens.join('; ')}] strokes=${strokes}`;
 }
@@ -4353,7 +4760,7 @@ function metaComment() {
 function fileStem() {
   const s = settings;
   const paper = s.paper === 'custom' ? `${s.customW}x${s.customH}mm` : `${s.paper}-${s.orientation}`;
-  return `module towers ${s.floors}f seed${s.seed} ${paper}`;
+  return `module towers ${s.floors}f seed${s.seed}${s.view === 'six views' ? ' six views' : ''} ${paper}`;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -4395,8 +4802,9 @@ function setVisible(key, on) {
 }
 
 // A scene is the whole picture, but not how the sheet is to be cut out or put out, nor
-// the pens in the drawer: those stay as they are.
-const SCENE_KEEPS = ['cropMarks', 'cropMarkAt', 'cropMarkGap', 'optimiseOrder', 'liveUpdate',
+// the pens in the drawer, nor whether it is drawn in 3d or in six views: those stay as
+// they are. A scene of six views says so itself.
+const SCENE_KEEPS = ['view', 'cropMarks', 'cropMarkAt', 'cropMarkGap', 'optimiseOrder', 'liveUpdate',
   'showGuides', 'pngDpi', 'paper', 'customW', 'customH', 'paperTone', 'paperColor'];
 for (let i = 1; i <= SLOTS; i++) SCENE_KEEPS.push(`pen${i}Kind`, `pen${i}W`, `pen${i}Col`);
 
