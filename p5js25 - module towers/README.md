@@ -18,6 +18,11 @@ and the pipes have valves with handwheels. A floor's plan may be an L, a U, a T,
 blocks with a bridge between them. Floors step back into terraces, slide out on braces, lean,
 wind round a circle, grow wings with pods on their ends, and a core runs up through them.
 
+The sheet holds either one 3D picture of the building or **six views** of it, the way a
+draughtsman sets them out: the front, the back, both sides, and the plans from above and
+from below. They are all at one scale, lined up with each other and labelled, and each is
+drawn in the same exact hidden lines.
+
 Everything is built of upright boxes on a quarter-unit grid: slabs, beams, plates, posts,
 pipes with flanges, panels, vents, ladders, stairs, trays, masts and cranes. Round things
 (tanks, domes, arches) and diagonals (braces, trusses) are boxes too, turned in steps, so
@@ -46,18 +51,22 @@ browser; everything works from `file://`.
 
 ## Using it
 
-1. Pick a **Scene**: two towers on a podium, the plain stack, an arcology, leaning on its
+1. Pick a **Scene**: two towers on a podium, the plain stack, five sheets of six views (two
+   towers in third angle, the plain stack in first angle and lettered, a ziggurat shaded by
+   depth, a factory floor, a winding tower with its front turned 30°), an arcology, leaning on its
    braces, a winding tower, a ziggurat, courtyards, every plan there is, a tank farm, on
    stilts, cranes over the site, a factory floor, a boiler house, gearworks, silos and
    conveyors, a power station, hangars, wings and pods, twin bridges, to scale, and the
    older ones (ribbed sleeves, server stacks, a needle, red pipework, the shading scenes…).
    Or set it up in the panel.
 2. **Drag** on the sheet to turn the camera (in isometric the first drag switches to
-   axonometric). **Shift-drag** or a right-drag moves the drawing, the **wheel** zooms about
+   axonometric; in six views a drag moves the drawing). **Shift-drag** or a right-drag moves the drawing, the **wheel** zooms about
    the cursor, <kbd>0</kbd> puts it back. The arrow keys move the drawing by 1 mm, or 10 with
    <kbd>shift</kbd>; <kbd>+</kbd> <kbd>−</kbd> zoom.
+   <kbd>D</kbd> switches between 3D and six views, <kbd>3</kbd> and <kbd>6</kbd> go straight to
+   either, <kbd>N</kbd> steps the views' layout, <kbd>B</kbd> shades them by depth.
    <kbd>S</kbd> scene, <kbd>P</kbd> projection, <kbd>Q</kbd> <kbd>E</kbd> turn (by quarters in
-   isometric), <kbd>F</kbd> / <kbd>shift-F</kbd> floors, <kbd>T</kbd> towers, <kbd>O</kbd> turn
+   isometric; in six views they turn the front by a quarter), <kbd>F</kbd> / <kbd>shift-F</kbd> floors, <kbd>T</kbd> towers, <kbd>O</kbd> turn
    every other floor, <kbd>C</kbd> core, <kbd>L</kbd> layout, <kbd>V</kbd> footprints,
    <kbd>U</kbd> roof, <kbd>M</kbd> size on the paper, <kbd>W</kbd> fin wrap, <kbd>A</kbd> accent, <kbd>J</kbd> <kbd>H</kbd>
    <kbd>K</kbd> shade the left, right and top faces, <kbd>X</kbd> cut guides, <kbd>G</kbd>
@@ -83,6 +92,49 @@ scale, so a wider tower draws wider and two sheets match), **height in mm** or *
 mm** of the whole drawing. **Stands**: in the middle of the picture, on its bottom edge, or
 hung from the top. Zoom and pan still apply on top of it; whatever comes out bigger than
 the picture is cut at the margin, and the stats say so.
+
+### Six views
+
+**Drawn as**: **3d** (one picture, set up under **Camera**) or **six views**. Scenes keep
+this, so <kbd>S</kbd> walks through the buildings in the same way. The views are:
+
+| view | the eye looks from | ISO letter |
+| --- | --- | --- |
+| front | the front | A |
+| top | above, the front at the bottom | B |
+| left | the left side | C |
+| right | the right side | D |
+| bottom | below, the front at the top | E |
+| back | behind | F |
+
+- **Laid out**:
+  - **third angle**: the plan over the front, the bottom under it, the left side on the
+    left, the right side on the right, the back on the far right.
+  - **first angle**: the European way, each view across from the side it shows.
+  - A **grid 3 × 2** (each column a pair of opposite views) or **2 × 3**, a **row**, a
+    **column**.
+  - **the biggest** (the default): whichever of these draws the views largest on the sheet.
+
+  Every column is as wide as its widest view and every row as tall as its tallest. The
+  views sit in the middle of their cells, so the plan stands exactly over the front and
+  the four elevations share their heights.
+- **Front turned**: which side is the front; 90 makes the right side the front. At angles
+  between the quarters every elevation shows two sides, and the plans turn with them so
+  they still line up.
+- **Between two views** (mm), **Labels** (none, the **names**, or the ISO **letters**) and
+  **Letters high** (mm). The letters are the stroke capitals of p5js17.
+- **Ground line under the elevations**: a line at the foot of the building that **runs on**
+  past it by so many mm.
+- **Frames**: a box round **each view**, or round **all of them**.
+- **Shade by depth**: in a view every face looks at the eye, so instead of by direction it
+  is shaded by how deep it lies, **deeper darker** or **nearer darker**. The depth from the
+  nearest face to the farthest is cut into **Depth bands** (2–5), which run from none
+  through sparse, hatch and dense to cross-hatched. With **The darkest band solid** that
+  band is filled. Hatching runs as set under **Ink**.
+
+The size, the anchor, zoom and pan work on the set as a whole. In six views **height** and
+**width in mm** mean the front view's height and width. Labels, ground lines and frames go in their own layer
+and pen.
 
 ### The towers
 
@@ -199,7 +251,7 @@ floors. **Ladders**, **Trays** (shelves standing out of a face with things on th
 
 **Projection**: **isometric** (turns by quarters), **axonometric** (any **Turned** and
 **Looking down**), or **military** (the plan true, heights upright, scaled by **Heights**).
-**Zoom**, **Moved across**, **Moved down**.
+**Zoom**, **Moved across**, **Moved down**. In six views only the zoom and the moves apply.
 
 ### Ink
 
@@ -209,7 +261,7 @@ floors. **Ladders**, **Trays** (shelves standing out of a face with things on th
   pulleys, the conveyors, one floor, every other floor, or random parts
   (**Parts in the accent**).
 - **Small parts under**: elements smaller than this on the paper go in the fine pen.
-- **Faces to the left**, **to the right**, **on top**: sparse, hatch, dense, cross, or
+- **Faces to the left**, **to the right**, **on top** (in 3D; six views shade by depth): sparse, hatch, dense, cross, or
   **solid**. Solid follows the fill rule: half a nib inside the face, an outline, passes no
   more than 85 % of the nib apart, and one line where the face is narrower than the nib.
   **Hatching apart** (mm on the paper), **Hatching runs** (along the height, across,
@@ -220,7 +272,8 @@ floors. **Ladders**, **Trays** (shelves standing out of a face with things on th
 
 Five pens of the drawer: black and red rapidographs at 0.25, 0.35, 0.5 and 1.0 mm. By
 default: edges black 0.35, accent red 0.35, small parts and hatching black 0.25, solid
-faces black 1.0. Red is plotted before black.
+faces black 1.0, the views' labels, ground lines and frames black 0.35. Red is plotted
+before black.
 
 ### Paper
 
