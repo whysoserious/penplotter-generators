@@ -1415,9 +1415,12 @@ function floatingThings(W, r) {
           p = [mid[0] + spread * Math.cos(a), mid[1] + spread * Math.sin(a), mid[2] + (tries ? jit() : 0)];
           break;
         }
-        case 'column':
-          p = [mid[0] + (tries ? jit() : 0), mid[1] + (tries ? jit() : 0),
-               V.z0 + R + f * Math.max(0, size[2] - 2 * R)]; break;
+        case 'column': {
+          // one above another, `spread` up and down from the middle, kept inside the space
+          const lo = Math.max(V.z0 + R, mid[2] - spread), hi = Math.min(V.z1 - R, mid[2] + spread);
+          p = [mid[0] + (tries ? jit() : 0), mid[1] + (tries ? jit() : 0), lo + f * Math.max(0, hi - lo)];
+          break;
+        }
         case 'line': {
           p = mid.slice();
           p[longAx] = [V.x0, V.y0][longAx] + R + f * Math.max(0, size[longAx] - 2 * R);
@@ -3022,6 +3025,73 @@ function attachKeys() {
 const SCENES = [
   { label: '— select a scene —' },
   { label: 'A hall of blocks through a fisheye, plates floating', s: {} },
+  { label: 'Two balls of plates falling down a shaft, streaks behind them', s: {
+      space: 'shaft', spaceW: 6, spaceD: 6, spaceH: 24, camX: 50, camY: 50, camZ: 2, pitch: 80, yaw: 20,
+      projection: 'fisheye', fov: 140, objects: 2, objKind: 'truncated icosahedron', objStyle: 'framed',
+      objPlace: 'column', objX: 50, objY: 50, objZ: 30, objSize: 1.7, objSizeVar: 35, objSpread: 2.5,
+      frameW: 30, panelSunk: 10, trails: 3, trailCount: 22, trailYaw: 90, trailPitch: 55, trailDash: 70,
+      greeble: 'blocks', gDepth: 0.5, gLevels: 3 } },
+  { label: 'Down a long corridor, its far end gone black', s: {
+      space: 'corridor', spaceW: 2, spaceD: 40, spaceH: 2, camY: 1, camZ: 50, pitch: 0,
+      projection: 'fisheye', fov: 220, objects: 4, objPlace: 'line', objSize: 0.45, objY: 50,
+      objKind: 'mixed', objStyle: 'plates', openings: 14, gDepth: 0.25, greeble: 'mixed' } },
+  { label: 'The street from the gutter, in the afternoon sun', s: {
+      space: 'canyon', spaceW: 4, spaceD: 26, spaceH: 14, camX: 30, camY: 3, camZ: 2, pitch: 38,
+      yaw: 8, projection: 'equisolid', fov: 170, light: 'sun', lightYaw: -60, lightPitch: 50,
+      objects: 3, objKind: 'monolith', objStyle: 'solid', objY: 30, objZ: 60, objSize: 1.6,
+      objFill: 'shaded', ambient: 40, hatchPitch: 1 } },
+  { label: 'An atrium from its floor, a spiral of cages going up', s: {
+      space: 'atrium', spaceW: 11, spaceD: 11, spaceH: 16, camX: 50, camY: 50, camZ: 2, pitch: 90,
+      projection: 'stereographic', fov: 230, frameShape: 'disc', border: true, objects: 9,
+      objPlace: 'spiral', objSpread: 1.4, objSize: 0.8, objKind: 'mixed', objStyle: 'cage',
+      objFill: 'outline', coreKind: 'icosahedron' } },
+  { label: 'A little planet: the hall looked down on, stereographic', s: {
+      camX: 50, camY: 50, camZ: 70, pitch: -90, projection: 'stereographic', fov: 280,
+      frameShape: 'disc', objects: 6, objZ: 35, objY: 50, objSpread: 2.6, objSize: 0.7,
+      objStyle: 'plates', floor: 'tiles' } },
+  { label: 'The hall in a parabolic mirror, the eye in its middle', s: {
+      projection: 'parabolic mirror', fov: 330, frameShape: 'disc', border: true, camY: 30,
+      objY: 75, objects: 4 } },
+  { label: 'In a hyperbolic mirror, cubes in a cluster', s: {
+      projection: 'hyperbolic mirror', mirrorXi: 0.6, fov: 200, frameShape: 'disc', camY: 25,
+      objKind: 'cube cluster', objStyle: 'solid', objFill: 'outline', objects: 5, objY: 70,
+      objSize: 0.8, greeble: 'panels' } },
+  { label: 'A space frame in the Poincaré disc', s: {
+      space: 'lattice', spaceW: 15, spaceD: 15, spaceH: 15, latticeStep: 3, camX: 37, camY: 37,
+      camZ: 37, yaw: 30, pitch: 20, projection: 'Poincaré disc', fov: 360, discK: 1.4,
+      frameShape: 'disc', border: true, objects: 6, objKind: 'octahedron', objStyle: 'struts',
+      objFill: 'outline', objSize: 0.6, gDepth: 0.25, objPen: 2 } },
+  { label: 'All round the hall, a panorama', s: {
+      paper: 'A3', orientation: 'landscape', projection: 'panorama', fov: 360, camY: 45, camZ: 40,
+      objects: 7, objPlace: 'ring', objSpread: 3, objY: 45, objSize: 0.6 } },
+  { label: 'A corridor unrolled — the log-polar tunnel', s: {
+      paper: 'A3', orientation: 'landscape', space: 'corridor', spaceW: 2, spaceD: 40, spaceH: 2,
+      camY: 1, camZ: 50, projection: 'tunnel', fov: 240, objects: 5, objPlace: 'line',
+      objSize: 0.45, openings: 16, greeble: 'mixed', gDepth: 0.25 } },
+  { label: 'A lamp in the labyrinth, its shadows', s: {
+      space: 'maze', spaceW: 9, spaceD: 9, spaceH: 5, camX: 61, camY: 61, camZ: 30, yaw: 90,
+      projection: 'fisheye', fov: 230, light: 'lamp', lampX: 62, lampY: 61, lampZ: 32,
+      lampReach: 4, objects: 0, ambient: 15, hatchPitch: 0.8 } },
+  { label: 'Goldberg balls of struts over a city, in red', s: {
+      space: 'void', spaceW: 14, spaceD: 14, spaceH: 6, camY: 0, camZ: 25, pitch: 12,
+      projection: 'Pannini', fov: 150, objects: 7, objKind: 'goldberg ball', objStyle: 'struts',
+      objFill: 'outline', objSize: 1.5, objY: 35, objZ: 55, objSpread: 3.5, objPen: 2,
+      strutW: 4, nodeSize: 5 } },
+  { label: 'Menger cubes adrift in a lattice', s: {
+      space: 'lattice', spaceW: 16, spaceD: 16, spaceH: 16, latticeStep: 4, camX: 40, camY: 6,
+      camZ: 40, yaw: 12, pitch: 8, projection: 'equisolid', fov: 160, objects: 5,
+      objKind: 'menger cube', objFill: 'black, paper edges', objSize: 1.1, objY: 40, objSpread: 3 } },
+  { label: 'A whirlpool of a hall', s: {
+      frameShape: 'disc', border: true, projection: 'fisheye', fov: 200, swirl: 140, camY: 50,
+      pitch: 90, camZ: 10, objects: 6, objPlace: 'ring', objY: 50, objSpread: 2.2 } },
+  { label: 'Stars and stellas lit from the eye', s: {
+      space: 'void', spaceW: 10, spaceD: 10, spaceH: 5, camY: 0, camZ: 45, pitch: 0,
+      projection: 'equisolid', fov: 140, objects: 6, objKind: 'star', objFill: 'shaded',
+      light: 'eye', shadeWalls: false, objSize: 1.1, objY: 40, ambient: 10, hatchPitch: 0.6,
+      ground: true, floor: 'tiles' } },
+  { label: 'Everything at once — Hammer\'s ellipse', s: {
+      paper: 'A3', orientation: 'landscape', projection: 'Hammer', camY: 40, objects: 8,
+      objPlace: 'scatter' } },
 ];
 
 ////////////////////////////////////////////////////////////////////////////////////////
